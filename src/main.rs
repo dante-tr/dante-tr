@@ -6,8 +6,7 @@ fn main() {
 mod tests {
     use noodles::bam as bam;
     use noodles::fasta as fasta;
-    use std::fs::File;
-    use std::io::BufReader;
+    use hgvs::parser::HgvsVariant;
 
     #[test]
     fn can_load_bam() {
@@ -27,15 +26,27 @@ mod tests {
 
     #[test]
     fn can_load_fasta() {
-        let mut reader = File::open("data/chromosomeX.fna")
-            .map(BufReader::new)
-            .map(fasta::Reader::new)
-            .unwrap();
+        let mut reader = fasta::reader::Builder
+            .build_from_path("data/chromosomeX.fna").unwrap();
 
         for result in reader.records() {
             let record = result.unwrap();
+
             println!("{}\t{}", record.name(), record.sequence().len());
         }
+    }
+
+    #[test]
+    fn can_parse_hgvs() {
+        let _record = b"NC_000023.11:g.2789717_2789870ATTTT[30]";
+        let _record = "NM_000044.3:g.123_191CAG[25]";
+        // let _record = "NM_01234.5:c.456-6_*22A>T";
+        // let _record = "NC_000017.11:g.43091687del";
+        let tmp: HgvsVariant = _record.parse().unwrap();
+        println!("{:?}", tmp);
+
+        println!("{}", tmp.accession().value);
+        // println!("{}", tmp.loc_edit().loc);
     }
 }
 
