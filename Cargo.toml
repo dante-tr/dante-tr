@@ -8,4 +8,5 @@ edition = "2021"
 [dependencies]
 noodles = { version = "0.44.0", features = ["bam", "fasta"] }
 hgvs = "0.10.1"
+nom = "7.1.3"
 
