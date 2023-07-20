@@ -7,11 +7,11 @@ use nom::sequence::delimited;
 
 #[derive(Default, Debug, PartialEq)]
 pub struct TandemRepeat {
-    reference: String,
-    start: usize,
-    end: usize,
-    copy_unit: Vec<Vec<u8>>,
-    copy_number: Vec<usize>
+    pub reference: String,
+    pub start: usize,
+    pub end: usize,
+    pub copy_unit: Vec<Vec<u8>>,
+    pub copy_number: Vec<usize>
 }
 
 #[derive(Debug, PartialEq, Eq)]

@@ -1,4 +1,9 @@
+use std::str;
+
 mod repeats;
+use std::collections::HashMap;
+use noodles::fasta as fasta;
+
 use repeats::TandemRepeat as TandemRepeat;
 
 fn main() {
@@ -17,10 +22,39 @@ fn main() {
     println!("Bu!");
 }
 
+fn read_reference(filename: &str) -> HashMap<String, Vec<u8>> {
+    let mut reader = fasta::reader::Builder
+        .build_from_path(filename).unwrap();
+
+    let mut result = HashMap::new();
+    for record in reader.records() {
+        let record = record.unwrap();
+
+        result.insert(
+            record.name().to_string(),
+            (&record.sequence()[..]).to_vec()
+            // ^- Is there a better way to get Vec<u8>
+            // Do I need Vec<u8>? Cannot I leave it as Sequence?
+        );
+    }
+    return result;
+}
+
+fn check_repeat(tr: &TandemRepeat, refseq: &HashMap<String, Vec<u8>>) -> bool {
+    let seq_id = &tr.reference;
+    let seq = refseq.get(seq_id);
+    let seq_repeat = match seq {
+        None => { return false; },
+        Some(x) => { &x[tr.start..tr.end] }
+    };
+    println!("{}", str::from_utf8(seq_repeat).unwrap());
+    println!("{:?}", tr);
+    return false;
+}
+
 #[cfg(test)]
 mod tests {
     use noodles::bam as bam;
-    use noodles::fasta as fasta;
     use hgvs::parser::HgvsVariant;
     use std::fs::File;
     use std::io::{prelude::*, BufReader};
@@ -44,13 +78,15 @@ mod tests {
 
     #[test]
     fn can_load_fasta() {
-        let mut reader = fasta::reader::Builder
-            .build_from_path("data/chromosomeX.fna").unwrap();
+        let sequences = read_reference("data/chromosomeX.fna");
+        let hgvs = File::open("data/mini_HGVS.txt").unwrap();
+        let reader = BufReader::new(hgvs);
 
-        for result in reader.records() {
-            let record = result.unwrap();
-
-            println!("{}\t{}", record.name(), record.sequence().len());
+        for line in reader.lines() {
+            let line = line.unwrap();
+            let line = line.trim();
+            let tr: TandemRepeat = line.parse().unwrap();
+            let _is_correct = check_repeat(&tr, &sequences);
         }
     }
 
