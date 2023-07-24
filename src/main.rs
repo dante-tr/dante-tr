@@ -41,15 +41,20 @@ fn read_reference(filename: &str) -> HashMap<String, Vec<u8>> {
 }
 
 fn check_repeat(tr: &TandemRepeat, refseq: &HashMap<String, Vec<u8>>) -> bool {
-    let seq_id = &tr.reference;
-    let seq = refseq.get(seq_id);
-    let seq_repeat = match seq {
+    let seq = match refseq.get(&tr.reference) {
         None => { return false; },
-        Some(x) => { &x[tr.start..tr.end] }
+        Some(x) => { x },
     };
-    println!("{}", str::from_utf8(seq_repeat).unwrap());
-    println!("{:?}", tr);
-    return false;
+    let seq_repeat1 = &seq[tr.start..tr.end];
+    let seq_repeat2 = &tr.sequence();
+    if seq_repeat1 != seq_repeat2 {
+        println!("{}", str::from_utf8(&seq[tr.start-10..tr.end+10]).unwrap());
+        println!("{}", str::from_utf8(seq_repeat2).unwrap());
+        return false;
+    }
+    println!("{}", str::from_utf8(seq_repeat1).unwrap());
+    println!("{}", str::from_utf8(seq_repeat2).unwrap());
+    return true;
 }
 
 #[cfg(test)]
@@ -82,11 +87,15 @@ mod tests {
         let hgvs = File::open("data/mini_HGVS.txt").unwrap();
         let reader = BufReader::new(hgvs);
 
-        for line in reader.lines() {
+        let expected = vec![
+            false, false, true, false, false, false, false, true, true, false
+        ];
+        for (i, line) in reader.lines().enumerate() {
             let line = line.unwrap();
             let line = line.trim();
             let tr: TandemRepeat = line.parse().unwrap();
-            let _is_correct = check_repeat(&tr, &sequences);
+            let is_correct = check_repeat(&tr, &sequences);
+            assert_eq!(is_correct, expected[i]);
         }
     }
 

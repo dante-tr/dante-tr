@@ -39,8 +39,10 @@ fn tandem_repeat(input: &str) -> IResult<&str, TandemRepeat> {
     let (input, reference) = take_until(":")(input)?;
     let (input, _) = delimited(tag(":"), alphanumeric0, tag("."))(input)?;
     let (input, start) = digit1(input)?;
+    let start: usize = start.parse().unwrap();  // this is safe
     let (input, _) = tag("_")(input)?;
     let (input, end) = digit1(input)?;
+    let end: usize = end.parse().unwrap();      // this is safe
     let (input, repeats) = many0(parse_repeat)(input)?;
 
     let mut copy_unit = Vec::new();
@@ -52,10 +54,23 @@ fn tandem_repeat(input: &str) -> IResult<&str, TandemRepeat> {
 
     Ok((input, TandemRepeat {
         reference: reference.to_string(),
-        start: start.parse().unwrap(),
-        end: end.parse().unwrap(),
+                            // HGVS is 1-based
+        start: start - 1,   // 1-based -> 0-based
+        end,                // 1-based -> 0-based+1 (half-open) is nop
         copy_unit, copy_number
     }))
+}
+
+impl TandemRepeat {
+    pub fn sequence(&self) -> Vec<u8> {
+        let mut res = Vec::new();
+        for i in 0..self.copy_number.len() {
+            for _ in 0..self.copy_number[i] {
+                res.extend_from_slice(&self.copy_unit[i]);
+            }
+        }
+        return res;
+    }
 }
 
 #[cfg(test)]
