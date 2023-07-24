@@ -40,20 +40,25 @@ fn read_reference(filename: &str) -> HashMap<String, Vec<u8>> {
     return result;
 }
 
-fn check_repeat(tr: &TandemRepeat, refseq: &HashMap<String, Vec<u8>>) -> bool {
-    let seq = match refseq.get(&tr.reference) {
+fn ref_region<'a>(
+    refseq: &'a HashMap<String, Vec<u8>>, id: &str, start: usize, end: usize
+) -> Option<&'a[u8]> {
+    let seq = match refseq.get(id) {
+        None => { return None; },
+        Some(x) => { x },
+    };
+    return Some(&seq[start..end]);
+}
+
+fn is_present(tr: &TandemRepeat, seq: &HashMap<String, Vec<u8>>) -> bool {
+    let ref_repeat = match ref_region(seq, &tr.reference, tr.start, tr.end) {
         None => { return false; },
         Some(x) => { x },
     };
-    let seq_repeat1 = &seq[tr.start..tr.end];
-    let seq_repeat2 = &tr.sequence();
-    if seq_repeat1 != seq_repeat2 {
-        println!("{}", str::from_utf8(&seq[tr.start-10..tr.end+10]).unwrap());
-        println!("{}", str::from_utf8(seq_repeat2).unwrap());
+    let hgvs_repeat = &tr.sequence();
+    if ref_repeat != hgvs_repeat {
         return false;
     }
-    println!("{}", str::from_utf8(seq_repeat1).unwrap());
-    println!("{}", str::from_utf8(seq_repeat2).unwrap());
     return true;
 }
 
@@ -94,20 +99,60 @@ mod tests {
             let line = line.unwrap();
             let line = line.trim();
             let tr: TandemRepeat = line.parse().unwrap();
-            let is_correct = check_repeat(&tr, &sequences);
+            let is_correct = is_present(&tr, &sequences);
             assert_eq!(is_correct, expected[i]);
         }
     }
 
-   #[test]
-   fn can_parse_hgvs() {
-       let _record = "NM_01234.5:c.456-6_*22A>T";
-       let _record = "NC_000017.11:g.43091687del";
-       let tmp: HgvsVariant = _record.parse().unwrap();
-       println!("{:?}", tmp);
+    #[test]
+    fn count_present() {
+        let references = read_reference("data/chromosomeX.fna");
+        let hgvs = File::open("data/HGVS.txt").unwrap();
+        let reader = BufReader::new(hgvs);
 
-       println!("{}", tmp.accession().value);
-   }
+        let mut present_count = 0;
+        let mut max_count = 0;
+        for line in reader.lines() {
+            let line = line.unwrap().trim().to_owned();
+            let tr: TandemRepeat = line.parse().unwrap();
+            if is_present(&tr, &references) {
+                present_count += 1;
+            } else {
+                // println!("{}", tr.to_string());
+                print_diff(&tr, &references);
+                println!();
+            }
+            max_count += 1;
+        }
+        println!("Present repeats: {}/{}", present_count, max_count);
+    }
+
+    fn print_diff(tr: &TandemRepeat, refs: &HashMap<String, Vec<u8>>) {
+        let n = 10;
+        let rflank = ref_region(refs, &tr.reference, tr.start-n, tr.start).unwrap();
+        let ref_repeat = ref_region(refs, &tr.reference, tr.start, tr.end).unwrap();
+        let lflank = ref_region(refs, &tr.reference, tr.end, tr.end+n).unwrap();
+        println!("{} {} {}", 
+            str::from_utf8(rflank).unwrap(),
+            str::from_utf8(ref_repeat).unwrap(),
+            str::from_utf8(lflank).unwrap()
+        );
+        println!("{} {} {}",
+            " ".repeat(n),
+            str::from_utf8(&tr.sequence()).unwrap(),
+            " ".repeat(n)
+        );
+    }
+
+    #[test]
+    fn can_parse_hgvs() {
+        let _record = "NM_01234.5:c.456-6_*22A>T";
+        let _record = "NC_000017.11:g.43091687del";
+        let tmp: HgvsVariant = _record.parse().unwrap();
+        println!("{:?}", tmp);
+
+        println!("{}", tmp.accession().value);
+    }
 
     #[test]
     fn can_read_and_parse_hgvs_file() {
