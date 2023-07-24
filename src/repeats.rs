@@ -4,6 +4,8 @@ use nom::bytes::complete::{tag, take_until};
 use nom::character::complete::{alpha1, alphanumeric0, digit1};
 use nom::multi::many0;
 use nom::sequence::delimited;
+use std::fmt;
+use std::str;
 
 #[derive(Default, Debug, PartialEq)]
 pub struct TandemRepeat {
@@ -24,6 +26,21 @@ impl FromStr for TandemRepeat {
         let (input, tr) = tandem_repeat(input).map_err(|_| ParseTandemRepeatError)?;
         if !input.is_empty() { return Err(ParseTandemRepeatError); }
         return Ok(tr);
+    }
+}
+
+impl fmt::Display for TandemRepeat {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // NC_000008.11:g.118366816_118366918TAAAA[13]TAA[1]TAAAA[7]
+        write!(f, "{}:g.", self.reference)?;
+        write!(f, "{}_{}", self.start, self.end)?;
+        for i in 0..self.copy_number.len() {
+            write!(f, "{}[{}]",
+                str::from_utf8(&self.copy_unit[i]).unwrap(),
+                self.copy_number[i]
+            )?;
+        }
+        Ok(())
     }
 }
 

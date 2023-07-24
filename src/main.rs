@@ -118,9 +118,9 @@ mod tests {
             if is_present(&tr, &references) {
                 present_count += 1;
             } else {
-                // println!("{}", tr.to_string());
+                println!("{}", tr);
                 print_diff(&tr, &references);
-                println!();
+                // println!();
             }
             max_count += 1;
         }
