@@ -1,25 +1,53 @@
 use std::str;
-
-mod repeats;
+use std::fs::File;
+use std::io::BufReader;
+use std::io::BufRead;
 use std::collections::HashMap;
 use noodles::fasta as fasta;
+use noodles::bam as bam;
 
+mod repeats;
 use repeats::TandemRepeat as TandemRepeat;
 
 fn main() {
-    // read nomenclature
     // read reference
+    let references = read_reference("data/chromosomeX.fna");
+    // read nomenclature
+    let hgvs = File::open("data/mini_HGVS.txt").unwrap();
+    let reader = BufReader::new(hgvs);
+
     // check nomenclature w.r.t. reference
+    let mut valid_repeats = Vec::new();
+    for line in reader.lines() {
+        let line = line.unwrap().trim().to_owned();
+        let tr: TandemRepeat = line.parse().unwrap();
+        if is_present(&tr, &references) {
+            valid_repeats.push(tr);
+        }
+    }
+
     // load bam
-    // for all nomenclatures:
-    //     build HMM
-    //     reads = bam.query()
-    //     for read in reads:
-    //         prob, annotation = HMM.annotate(read)
-    //         postfilter
-    //         report()
-    //     report_row()
-    println!("Bu!");
+    let mut reader = bam::indexed_reader::Builder::default()
+        .build_from_path("data/mini.bam").unwrap();
+    let header = reader.read_header().unwrap();
+
+    for repeat in valid_repeats {
+        //  build HMM
+        //  select relevant reads
+        let tmp = format!("{}:{}-{}", repeat.reference, repeat.start+1, repeat.end);
+        let region = tmp.parse().unwrap();
+        let reads = reader.query(&header, &region).unwrap();
+
+        println!("{}", repeat);
+        for read in reads {
+            println!("{:?}", read.unwrap());
+            // prob, annotation = HMM.annotate(read)
+            // postfilter
+            // report()
+        }
+        println!();
+        //  report_row()
+    }
 }
 
 fn read_reference(filename: &str) -> HashMap<String, Vec<u8>> {
@@ -64,7 +92,6 @@ fn is_present(tr: &TandemRepeat, seq: &HashMap<String, Vec<u8>>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use noodles::bam as bam;
     use hgvs::parser::HgvsVariant;
     use std::fs::File;
     use std::io::{prelude::*, BufReader};
@@ -76,9 +103,6 @@ mod tests {
             .build_from_path("data/mini.bam").unwrap();
 
         let header = reader.read_header().unwrap();
-
-        // let region = "sq0:5-8".parse().unwrap();
-        // let query = reader.query(&header, &region).unwrap();
 
         for result in reader.records(&header) {
             let record = result.unwrap();
