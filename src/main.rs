@@ -6,8 +6,11 @@ use std::collections::HashMap;
 use noodles::fasta as fasta;
 use noodles::bam as bam;
 
+use crate::repeats::TandemRepeat as TandemRepeat;
+// use crate::hmm::HMM;
+
 mod repeats;
-use repeats::TandemRepeat as TandemRepeat;
+mod hmm;
 
 fn main() {
     // read reference
@@ -28,11 +31,12 @@ fn main() {
 
     // load bam
     let mut reader = bam::indexed_reader::Builder::default()
-        .build_from_path("data/mini.bam").unwrap();
+        .build_from_path("data/mini2.bam").unwrap();
     let header = reader.read_header().unwrap();
 
     for repeat in valid_repeats {
         //  build HMM
+        // let model = HMM::from(repeat);
         //  select relevant reads
         let tmp = format!("{}:{}-{}", repeat.reference, repeat.start+1, repeat.end);
         let region = tmp.parse().unwrap();
@@ -40,7 +44,8 @@ fn main() {
 
         println!("{}", repeat);
         for read in reads {
-            println!("{:?}", read.unwrap());
+            // println!("{:?}", read.unwrap());
+            println!("{}", read.unwrap().sequence())
             // prob, annotation = HMM.annotate(read)
             // postfilter
             // report()
