@@ -1,4 +1,4 @@
-use ndarray::{Array, stack};
+use ndarray::{Array, stack, ArrayView1};
 use ndarray;
 use ndarray::s;
 use ndarray_npy::read_npy;
@@ -9,7 +9,7 @@ use ndarray::Axis;
 // https://docs.rs/hmmm/latest/hmmm/struct.HMM.html
 
 const QUALITY_START: u8 = 33;
-const NUCLEOTIDE_INDEX: [u8; 256] = {
+const NUCLEOTIDE_INDEX: [usize; 256] = {
     let mut map = [5; 256];
     map[b'A' as usize] = 0;
     map[b'C' as usize] = 1;
@@ -177,11 +177,18 @@ fn emission_probabilities() -> ndarray::Array3<f32> {
     return emissions;
 }
 
+fn argmax(a: ArrayView1<f32>) -> usize {
+    println!("Argmax of {:?}", a);
+    // TODO:
+    return 0;
+}
+
 impl HMM {
-    fn predict(&self, seq: &[u8], qual: &[u8]) -> (f32, Vec<usize>) {
-        let mut backptr = Array::ones((self.initial.len(), seq.len())) * -1.0;
-        let tmp: f32 = backptr[[0, 0]];
-        println!("{:?} {}", backptr.shape(), tmp);
+    pub fn predict(&self, seq: &[u8], qual: &[u8]) -> (f32, Vec<usize>) {
+        let seq: Vec<_> = seq.iter().map(|x| NUCLEOTIDE_INDEX[*x as usize]).collect();
+        let qual: Vec<_> = qual.iter().map(|x| (x - QUALITY_START) as usize).collect();
+        let mut backptr = Array::ones((seq.len(), self.initial.len())) * usize::MAX;
+        println!("backptr stride: {:?}", backptr.strides());
 
         println!("{:?}", self.emission.shape());
         let mut trellis: ndarray::Array1<f32> = &self.initial
@@ -194,12 +201,13 @@ impl HMM {
             let tmp = &tmp + &self.transition;
 
             // for each state find incoming connection
-            let tmp2 = tmp.sum_axis(Axis(1)); // should be argmax
-            backptr.slice_mut(s![.., i]).assign(&tmp2);
+            let incoming = tmp.map_axis(Axis(1), argmax);
+            // this assign has stride 1 :)
+            backptr.slice_mut(s![i, ..]).assign(&incoming);
 
             // for each state calculate probability of emitting (seq[i], qual[i])
             // max + emissions
-            trellis = &tmp2 + &self.emission.slice(s![seq[i] as usize, qual[i] as usize, ..]);
+            trellis = &tmp.sum_axis(Axis(0)) + &self.emission.slice(s![seq[i] as usize, qual[i] as usize, ..]);
         }
 
         //     temp_mat = (
@@ -275,24 +283,28 @@ mod tests {
 
     #[test]
     fn prediction_works() {
-        let modules: Vec<Module> = vec![
-            (&b"TCT"[..]).into(),
-            (&b"GTC"[..], 5).into(),
-            (&b"AAA"[..]).into(),
-        ];
+        let initial = read_npy("data/log_init_f32.npy").unwrap();
+        let transition = read_npy("data/log_trans_f32.npy").unwrap();
+        let emission = read_npy("data/log_emit_f32.npy").unwrap();
 
-        let model = HMM::from(&modules);
+        let model = HMM { initial, transition, emission };
+        println!("Initial strides: {:?}", model.initial.strides());
+        println!("Initial shape: {:?}", model.initial.shape());
+        println!("Transition strides: {:?}", model.transition.strides());
+        println!("Transition shape: {:?}", model.transition.shape());
+        println!("Emission strides: {:?}", model.emission.strides());
+        println!("Emission shape: {:?}", model.emission.shape());
 
         let seq =  b"AATCTGTCGTCGTCGTCAGTCGTCAAATT".to_vec();
         let qual = b":F::FF:,F,FFFFFFF,FF,FFF:F,FF".to_vec();
-        let seq: Vec<_> = seq.iter().map(|x| NUCLEOTIDE_INDEX[*x as usize]).collect();
-        let qual: Vec<_> = qual.iter().map(|x| x - QUALITY_START).collect();
-        println!("{seq:?}");
-        println!("{qual:?}");
         let (likelihood, path) = model.predict(&seq, &qual);
-        println!("{likelihood} {path:?}");
-        // 7.106122e-13
-        // [0, 0, 1, 2, 3, 4, 5, 6, 4, 5, 6, 4, 5, 6, 4, 5, 6, 16, 4, 5, 6, 4, 5, 6, 7, 8, 9, 10, 10]
+        println!("{likelihood}: {path:?}");
+
+        assert!(approx_eq!(f32, likelihood, 7.106122e-13, (1e-3, 2)));
+        assert!(path == vec![
+            0, 0, 1, 2, 3, 4, 5, 6, 4, 5, 6, 4, 5, 6, 4,
+            5, 6, 16, 4, 5, 6, 4, 5, 6, 7, 8, 9, 10, 10
+        ]);
     }
 }
 

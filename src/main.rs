@@ -7,7 +7,7 @@ use noodles::fasta as fasta;
 use noodles::bam as bam;
 
 use crate::repeats::TandemRepeat as TandemRepeat;
-// use crate::hmm::HMM;
+use crate::hmm::HMM;
 
 mod repeats;
 mod hmm;
@@ -36,7 +36,8 @@ fn main() {
 
     for repeat in valid_repeats {
         //  build HMM
-        // let model = HMM::from(repeat);
+        // let model = HMM::from(get_modules(repeat, reference));
+        let model = HMM::default(); // TODO
         //  select relevant reads
         let tmp = format!("{}:{}-{}", repeat.reference, repeat.start+1, repeat.end);
         let region = tmp.parse().unwrap();
@@ -44,9 +45,13 @@ fn main() {
 
         println!("{}", repeat);
         for read in reads {
+            let read = read.expect("Incorrect read.");
             // println!("{:?}", read.unwrap());
-            println!("{}", read.unwrap().sequence())
-            // prob, annotation = HMM.annotate(read)
+            println!("{}", read.sequence());
+            println!("{}", read.quality_scores());
+            let seq =  b"ACTGCA";   // TODO from read.sequence()
+            let qual = b":F::F:";   // TODO from read.quality()
+            let (likelihood, annotation) = model.predict(seq, qual);
             // postfilter
             // report()
         }
