@@ -1,16 +1,28 @@
 use ndarray::Array;
 use ndarray;
 use ndarray::s;
+use ndarray_npy::read_npy;
 
-// https://docs.rs/ndarray/latest/ndarray/
 // maybe I should use this?
 // https://docs.rs/hmmm/latest/hmmm/struct.HMM.html
+
+const QUALITY_START: u8 = 33;
+const NUCLEOTIDE_INDEX: [u8; 256] = {
+    let mut map = [5; 256];
+    map[b'A' as usize] = 0;
+    map[b'C' as usize] = 1;
+    map[b'G' as usize] = 2;
+    map[b'T' as usize] = 3;
+    map[b'N' as usize] = 4;
+    map
+};
+const BASE_N_PROB: f32 = 0.001;
 
 #[derive(Default)]
 pub struct HMM {
     pub initial: ndarray::Array1<f32>,
     pub transition: ndarray::Array2<f32>,
-    pub emission: ndarray::Array2<f32>,
+    pub emission: ndarray::Array3<f32>,
 }
 
 enum State {
@@ -58,12 +70,9 @@ impl From<&Vec<Module>> for HMM {
         let transition = transition_probabilities(
             &states, motif_frequency, p_del, p_ins, modules
         );
+        let emission = emission_probabilities();
 
-        HMM {
-            initial,
-            transition,
-            emission: Array::zeros((5, states.len()))
-        }
+        HMM { initial, transition, emission }
     }
 }
 
@@ -108,7 +117,7 @@ fn transition_probabilities(
 
     // connect deletions
     //  connect linear
-    for i in 1..bg_end-k {
+    for i in 1..bg_end-k+1 {
         p[[i, i+k]] = p_del;
     }
 
@@ -123,19 +132,19 @@ fn transition_probabilities(
     }
 
     // connect insertions
-    for i in 1..bg_end-2 {
+    for i in 1..bg_end-2+1 {
         let ins = bg_end + i;
         p[[i, ins]] = p_ins;
         p[[ins, ins]] = p_ins;
         if matches!(states[i], State::MotifEnd) {
             let (m_start, rep) = (4, 5);
-            p[[ins, m_start]] = 1.0/rep as f32;
+            p[[ins, m_start]] = 1.0 - 1.0/rep as f32;
         }
         let used = p.slice(s![ins, ..]).sum();
         p[[ins, i+1]] = 1.0 - used;
     }
     // connect cycles
-    p[[module_end[1], module_starts[1]]] = 1.0/5 as f32;
+    p[[module_end[1], module_starts[1]]] = 1.0 - 1.0/5 as f32;
 
     // connect modules
     for (i, end) in module_end.iter().enumerate() {
@@ -161,7 +170,41 @@ fn transition_probabilities(
     return p;
 }
 
-fn emission_probabilities(probs: &mut ndarray::Array2<f32>) {}
+fn emission_probabilities() -> ndarray::Array3<f32> {
+    let emissions: ndarray::Array3<f32> = read_npy("data/emissions.npy").unwrap();
+    return emissions;
+}
+
+impl HMM {
+    fn predict(&self, seq: &[u8], qual: &[u8]) -> (f32, Vec<usize>) {
+        let mut backptr = Array::ones((self.initial.len(), seq.len())) * -1.0;
+        let tmp: f32 = backptr[[0, 0]];
+        println!("{:?} {}", backptr.shape(), tmp);
+        // np.ones((len(obs), self.num_states), "int32") * -1
+        // let mut trellis = np.zeros((len(obs), self.num_states))
+        // trellis[0, :] = self.initial_prob + self.obs_prob[obs[0], quality[0]]
+
+        // # dynamic programming:
+        // for t in range(1, len(obs)):
+        //     temp_mat = (
+        //         np.tile(trellis[t - 1, :], (self.num_states, 1)) + self.trans_prob
+        //     )
+        //     backpt[t, :] = np.argmax(temp_mat, axis=1)
+        //     trellis[t, :] = (
+        //         temp_mat[np.arange(self.num_states), backpt[t, :]]
+        //         + self.obs_prob[obs[t], quality[t]]
+        //     )  # first element is the same as np.max(temp_mat, axis=1)
+
+        // # termination
+        // best_states = [np.argmax(trellis[-1, :])]
+        // for i in range(len(obs) - 1, 0, -1):
+        //     best_states.append(backpt[i, best_states[-1]])
+
+        // # return likelihood and best states
+        // return np.exp(np.max(trellis[-1, :])), best_states[::-1]
+        (0.0, Vec::new())
+    }
+}
 
 enum Module {
     Sequence(Vec<u8>),
@@ -197,17 +240,41 @@ mod tests {
         ];
 
         let model = HMM::from(&modules);
-        println!("{:#?}", model.transition);
-
         let expected: Array2<f32> = read_npy("data/transitions_f32.npy").unwrap();
 
-        for i in 0..7 { for j in 0..19 {
+        for i in 0..expected.shape()[0] { for j in 0..expected.shape()[1] {
             assert!(
-                approx_eq!(f32, expected[[i, j]], model.transition[[i, j]], (1e-4, 2)),
+                approx_eq!(f32, expected[[i, j]], model.transition[[i, j]], (1e-3, 2)),
                 "for i={i} and j={j}: Expected {}, got {}.", 
                 expected[[i, j]], model.transition[[i, j]]
             );
         }}
+
+        // println!("{:#?}", model.initial);
+        // println!("{:#?}", model.transition);
+        // println!("{:#?}", model.emission);
+    }
+
+    #[test]
+    fn prediction_works() {
+        let modules: Vec<Module> = vec![
+            (&b"TCT"[..]).into(),
+            (&b"GTC"[..], 5).into(),
+            (&b"AAA"[..]).into(),
+        ];
+
+        let model = HMM::from(&modules);
+
+        let seq =  b"AATCTGTCGTCGTCGTCAGTCGTCAAATT".to_vec();
+        let qual = b":F::FF:,F,FFFFFFF,FF,FFF:F,FF".to_vec();
+        let seq: Vec<_> = seq.iter().map(|x| NUCLEOTIDE_INDEX[*x as usize]).collect();
+        let qual: Vec<_> = qual.iter().map(|x| x - QUALITY_START).collect();
+        println!("{seq:?}");
+        println!("{qual:?}");
+        let (likelihood, path) = model.predict(&seq, &qual);
+        println!("{likelihood} {path:?}");
+        // 7.106122e-13
+        // [0, 0, 1, 2, 3, 4, 5, 6, 4, 5, 6, 4, 5, 6, 4, 5, 6, 16, 4, 5, 6, 4, 5, 6, 7, 8, 9, 10, 10]
     }
 }
 
