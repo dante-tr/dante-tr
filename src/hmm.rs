@@ -1,7 +1,9 @@
-use ndarray::Array;
+use ndarray::{Array, stack};
 use ndarray;
 use ndarray::s;
 use ndarray_npy::read_npy;
+use ndarray::Axis;
+// https://docs.rs/ndarray/latest/ndarray/doc/ndarray_for_numpy_users/index.html
 
 // maybe I should use this?
 // https://docs.rs/hmmm/latest/hmmm/struct.HMM.html
@@ -180,12 +182,26 @@ impl HMM {
         let mut backptr = Array::ones((self.initial.len(), seq.len())) * -1.0;
         let tmp: f32 = backptr[[0, 0]];
         println!("{:?} {}", backptr.shape(), tmp);
-        // np.ones((len(obs), self.num_states), "int32") * -1
-        // let mut trellis = np.zeros((len(obs), self.num_states))
-        // trellis[0, :] = self.initial_prob + self.obs_prob[obs[0], quality[0]]
 
-        // # dynamic programming:
-        // for t in range(1, len(obs)):
+        println!("{:?}", self.emission.shape());
+        let mut trellis: ndarray::Array1<f32> = &self.initial
+            + &self.emission.slice(s![seq[0] as usize, qual[0] as usize, ..]);
+        println!("{:?}", trellis.shape());
+
+        for i in 1..seq.len() {
+            // for each pair of states transit
+            let tmp = stack(Axis(0), &vec![trellis.view(); self.transition.shape()[0]]).unwrap();
+            let tmp = &tmp + &self.transition;
+
+            // for each state find incoming connection
+            let tmp2 = tmp.sum_axis(Axis(1)); // should be argmax
+            backptr.slice_mut(s![.., i]).assign(&tmp2);
+
+            // for each state calculate probability of emitting (seq[i], qual[i])
+            // max + emissions
+            trellis = &tmp2 + &self.emission.slice(s![seq[i] as usize, qual[i] as usize, ..]);
+        }
+
         //     temp_mat = (
         //         np.tile(trellis[t - 1, :], (self.num_states, 1)) + self.trans_prob
         //     )
@@ -193,16 +209,18 @@ impl HMM {
         //     trellis[t, :] = (
         //         temp_mat[np.arange(self.num_states), backpt[t, :]]
         //         + self.obs_prob[obs[t], quality[t]]
-        //     )  # first element is the same as np.max(temp_mat, axis=1)
+        //     )
 
-        // # termination
-        // best_states = [np.argmax(trellis[-1, :])]
-        // for i in range(len(obs) - 1, 0, -1):
-        //     best_states.append(backpt[i, best_states[-1]])
+        let likelihood = trellis.sum();
 
-        // # return likelihood and best states
-        // return np.exp(np.max(trellis[-1, :])), best_states[::-1]
-        (0.0, Vec::new())
+        let mut path = vec![self.initial.shape()[0]+1; seq.len()];
+        let last = path.last_mut().unwrap();
+        *last = trellis.map_axis(Axis(0), |_| 0).sum(); // should be argmax
+        for i in (0..seq.len()-1).rev() {
+            path[i] = 0; // backptr[[i, path[i+1]]];
+        }
+
+        (likelihood, path)
     }
 }
 
