@@ -178,54 +178,50 @@ fn emission_probabilities() -> ndarray::Array3<f32> {
 }
 
 fn argmax(a: ArrayView1<f32>) -> usize {
-    println!("Argmax of {:?}", a);
-    // TODO:
-    return 0;
+    let mut max_pos = 0;
+    let mut max_val = f32::NEG_INFINITY;
+    for (p, &v) in a.iter().enumerate() {
+        if v > max_val { max_pos = p; max_val = v; }
+    }
+    return max_pos;
 }
 
 impl HMM {
-    pub fn predict(&self, seq: &[u8], qual: &[u8]) -> (f32, Vec<usize>) {
+    /// Returns the most likely path and its log-likelihood of (seq, qual) given HMM.
+    /// Assumes HMM with more than 0 states and probabilities in log space.
+    pub fn log_predict(&self, seq: &[u8], qual: &[u8]) -> (f32, Vec<usize>) {
         let seq: Vec<_> = seq.iter().map(|x| NUCLEOTIDE_INDEX[*x as usize]).collect();
         let qual: Vec<_> = qual.iter().map(|x| (x - QUALITY_START) as usize).collect();
-        let mut backptr = Array::ones((seq.len(), self.initial.len())) * usize::MAX;
-        println!("backptr stride: {:?}", backptr.strides());
 
-        println!("{:?}", self.emission.shape());
+        let n_states = self.initial.len();
+        let mut backptr = Array::ones((seq.len(), n_states)) * usize::MAX;
+
         let mut trellis: ndarray::Array1<f32> = &self.initial
-            + &self.emission.slice(s![seq[0] as usize, qual[0] as usize, ..]);
-        println!("{:?}", trellis.shape());
+            + &self.emission.slice(s![seq[0], qual[0], ..]);
 
         for i in 1..seq.len() {
             // for each pair of states transit
-            let tmp = stack(Axis(0), &vec![trellis.view(); self.transition.shape()[0]]).unwrap();
-            let tmp = &tmp + &self.transition;
+            let x = stack(Axis(1), &vec![trellis.view(); n_states]).unwrap() // safe
+                + &self.transition;
 
             // for each state find incoming connection
-            let incoming = tmp.map_axis(Axis(1), argmax);
-            // this assign has stride 1 :)
+            let incoming = x.map_axis(Axis(0), argmax);
             backptr.slice_mut(s![i, ..]).assign(&incoming);
 
             // for each state calculate probability of emitting (seq[i], qual[i])
-            // max + emissions
-            trellis = &tmp.sum_axis(Axis(0)) + &self.emission.slice(s![seq[i] as usize, qual[i] as usize, ..]);
+            // next line mirrors `trellis = x.map_axis(Axis(0), max)` but in O(n)
+            for j in 0..n_states { trellis[j] = x[[incoming[j], j]]; }
+            trellis += &self.emission.slice(s![seq[i], qual[i], ..]);
         }
 
-        //     temp_mat = (
-        //         np.tile(trellis[t - 1, :], (self.num_states, 1)) + self.trans_prob
-        //     )
-        //     backpt[t, :] = np.argmax(temp_mat, axis=1)
-        //     trellis[t, :] = (
-        //         temp_mat[np.arange(self.num_states), backpt[t, :]]
-        //         + self.obs_prob[obs[t], quality[t]]
-        //     )
+        let best_end = argmax(trellis.view());
+        let likelihood = trellis[best_end];
 
-        let likelihood = trellis.sum();
-
-        let mut path = vec![self.initial.shape()[0]+1; seq.len()];
-        let last = path.last_mut().unwrap();
-        *last = trellis.map_axis(Axis(0), |_| 0).sum(); // should be argmax
+        let mut path = vec![n_states; seq.len()];
+        let last = path.last_mut().unwrap(); // safe
+        *last = best_end;
         for i in (0..seq.len()-1).rev() {
-            path[i] = 0; // backptr[[i, path[i+1]]];
+            path[i] = backptr[[i+1, path[i+1]]];
         }
 
         (likelihood, path)
@@ -297,10 +293,10 @@ mod tests {
 
         let seq =  b"AATCTGTCGTCGTCGTCAGTCGTCAAATT".to_vec();
         let qual = b":F::FF:,F,FFFFFFF,FF,FFF:F,FF".to_vec();
-        let (likelihood, path) = model.predict(&seq, &qual);
+        let (likelihood, path) = model.log_predict(&seq, &qual);
         println!("{likelihood}: {path:?}");
 
-        assert!(approx_eq!(f32, likelihood, 7.106122e-13, (1e-3, 2)));
+        assert!(approx_eq!(f32, likelihood, 7.106122e-13_f32.ln(), (1e-3, 2)));
         assert!(path == vec![
             0, 0, 1, 2, 3, 4, 5, 6, 4, 5, 6, 4, 5, 6, 4,
             5, 6, 16, 4, 5, 6, 4, 5, 6, 7, 8, 9, 10, 10

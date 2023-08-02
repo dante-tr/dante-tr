@@ -51,7 +51,7 @@ fn main() {
             println!("{}", read.quality_scores());
             let seq =  b"ACTGCA";   // TODO from read.sequence()
             let qual = b":F::F:";   // TODO from read.quality()
-            let (likelihood, annotation) = model.predict(seq, qual);
+            let (likelihood, annotation) = model.log_predict(seq, qual);
             // postfilter
             // report()
         }
