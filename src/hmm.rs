@@ -1,3 +1,5 @@
+use std::result;
+
 use ndarray::{Array, stack, ArrayView1, ArrayBase};
 use ndarray;
 use ndarray::s;
@@ -9,6 +11,8 @@ use ndarray::Axis;
 // https://docs.rs/hmmm/latest/hmmm/struct.HMM.html
 
 const QUALITY_START: u8 = 33;
+const N_QUAL: usize = 94;
+const N_NUCL: usize = 5;
 const NUCLEOTIDE_INDEX: [usize; 256] = {
     let mut map = [5; 256];
     map[b'A' as usize] = 0;
@@ -21,6 +25,7 @@ const NUCLEOTIDE_INDEX: [usize; 256] = {
 const BASE_N_PROB: f32 = 0.001;
 const P_INS: f32 = 1e-4;
 const P_DEL: f32 = 1e-4;
+const P_SNP: f32 = 0.0005;
 const FREQ: f32 = 0.001;
 
 #[derive(Default)]
@@ -47,6 +52,7 @@ impl From<&Vec<Module>> for HMM {
         let p_ins = 1e-4;
         let p_del = 1e-4;
 
+        let seq = b"XACTGTGCAGXXXXXXXXXX".to_vec();
         let mut states: Vec<State> = Vec::new();
         states.push(State::StartBackground);
         for m in modules {
@@ -75,7 +81,7 @@ impl From<&Vec<Module>> for HMM {
         let transition = transition_probabilities(
             &states, motif_frequency, p_del, p_ins, modules
         );
-        let emission = emission_probabilities();
+        let emission = emission_probabilities(&states, &seq);
 
         HMM { initial, transition, emission }
     }
@@ -175,10 +181,38 @@ fn transition_probabilities(
     return p;
 }
 
-fn emission_probabilities() -> ndarray::Array3<f32> {
-    let emissions: ndarray::Array3<f32> = read_npy("data/emissions.npy").unwrap();
-    let emissions = emissions.map(|&x| x.ln());
-    return emissions;
+fn emission_probabilities(states: &Vec<State>, letters: &Vec<u8>) -> ndarray::Array3<f32> {
+    let mut result = Array::zeros((N_NUCL, N_QUAL, states.len()));
+
+    for i in 0..N_NUCL {
+        for j in 0..N_QUAL {
+            for k in 0..states.len() {
+                match states[k] {
+                    State::StartBackground | State::EndBackground | State::Insert
+                    => {
+                        if i == NUCLEOTIDE_INDEX[b'N' as usize] {
+                            result[[i, j, k]] = BASE_N_PROB; 
+                        } else { result[[i, j, k]] = (1.0 - BASE_N_PROB) / 4.0; }
+                    }
+                    State::Sequence | State::SequenceEnd | State::Motif | State::MotifEnd
+                    => {
+                        let p_correct = 1.0 - P_SNP - 10.0f32.powf(-(j as f32)/10.0) - BASE_N_PROB;
+                        let p_correct = p_correct.max((1.0 - BASE_N_PROB) / 4.0);
+                        if i == NUCLEOTIDE_INDEX[letters[k] as usize] {
+                            result[[i, j, k]] = p_correct;
+                        } else if i == NUCLEOTIDE_INDEX[b'N' as usize] {
+                            result[[i, j, k]] = BASE_N_PROB;
+                        } else {
+                            result[[i, j, k]] = (1.0 - p_correct - BASE_N_PROB) / 3.0;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let result = result.map(|&x| x.ln());
+    return result;
 }
 
 fn argmax(a: ArrayView1<f32>) -> usize {
@@ -312,8 +346,18 @@ mod tests {
 
     #[test]
     fn emissions_are_correct() {
+        let states = vec![
+            State::StartBackground,
+            State::Sequence, State::Sequence, State::SequenceEnd,
+            State::Motif, State::Motif, State::MotifEnd,
+            State::Sequence, State::Sequence, State::SequenceEnd,
+            State::EndBackground,
+            State::Insert, State::Insert, State::Insert, State::Insert,
+            State::Insert, State::Insert, State::Insert, State::Insert
+        ];
+        let seq = b"_TCTGTCAAA_IIIIIIII".to_vec();
+        let obtained = emission_probabilities(&states, &seq);
         let expected: Array3<f32> = read_npy("data/log_emit_f32.npy").unwrap();
-        let obtained = emission_probabilities();
         assert_eq_ndarray3(expected.view(), obtained.view(), (1e-3, 2));
     }
 
@@ -330,7 +374,7 @@ mod tests {
                     assert!(
                         approx_eq!(f32, a1[[i, j, k]], a2[[i, j, k]], acc),
                         "for i={i}, j={j}, k={k}: Expected {}, got {}.",
-                        a1[[i, j, k]], a2[[i, j, k]]
+                        a1[[i, j, k]].exp(), a2[[i, j, k]].exp()
                     )
                 }
             }
