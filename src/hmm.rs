@@ -1,14 +1,8 @@
-use std::result;
-
-use ndarray::{Array, stack, ArrayView1, ArrayBase};
+use ndarray::{Array, stack, ArrayView1};
 use ndarray;
 use ndarray::s;
-use ndarray_npy::read_npy;
 use ndarray::Axis;
 // https://docs.rs/ndarray/latest/ndarray/doc/ndarray_for_numpy_users/index.html
-
-// maybe I should use this?
-// https://docs.rs/hmmm/latest/hmmm/struct.HMM.html
 
 const QUALITY_START: u8 = 33;
 const N_QUAL: usize = 94;
@@ -22,7 +16,7 @@ const NUCLEOTIDE_INDEX: [usize; 256] = {
     map[b'N' as usize] = 4;
     map
 };
-const BASE_N_PROB: f32 = 0.001;
+const P_BASE_N: f32 = 0.001;
 const P_INS: f32 = 1e-4;
 const P_DEL: f32 = 1e-4;
 const P_SNP: f32 = 0.0005;
@@ -48,10 +42,6 @@ enum State {
 // don't use From trait on slices, unless you really mean slices
 impl From<&Vec<Module>> for HMM {
     fn from(modules: &Vec<Module>) -> Self {
-        let motif_frequency = 0.001;
-        let p_ins = 1e-4;
-        let p_del = 1e-4;
-
         let seq = b"XACTGTGCAGXXXXXXXXXX".to_vec();
         let mut states: Vec<State> = Vec::new();
         states.push(State::StartBackground);
@@ -77,39 +67,34 @@ impl From<&Vec<Module>> for HMM {
             states.push(State::Insert);
         }
 
-        let initial = initial_probabilities(&states, motif_frequency);
-        let transition = transition_probabilities(
-            &states, motif_frequency, p_del, p_ins, modules
-        );
+        let initial = initial_probabilities(&states);
+        let transition = transition_probabilities(&states, modules);
         let emission = emission_probabilities(&states, &seq);
 
         HMM { initial, transition, emission }
     }
 }
 
-fn initial_probabilities(states: &Vec<State>, init: f32) -> ndarray::Array1<f32> {
+fn initial_probabilities(states: &Vec<State>) -> ndarray::Array1<f32> {
     let mut probabilities = Array::zeros(states.len());
     let mut n = 0;
     for (i, state) in states.iter().enumerate() {
         match state {
             State::Sequence | State::SequenceEnd | State::Motif | State::MotifEnd 
                 => {
-                    probabilities[[i]] = init;
+                    probabilities[[i]] = FREQ;
                     n += 1; 
                 },
             _ => {},
         }
     }
-    probabilities[[0]] = 1.0 - (init * n as f32);
+    probabilities[[0]] = 1.0 - (FREQ * n as f32);
     assert!(probabilities[[0]] >= 0.0);
     return probabilities;
 }
 
 fn transition_probabilities(
     states: &Vec<State>,
-    mfreq: f32,
-    p_del: f32,
-    p_ins: f32,
     modules: &Vec<Module>
 ) -> ndarray::Array2<f32> {
     let mut p = Array::zeros((states.len(), states.len()));
@@ -122,14 +107,14 @@ fn transition_probabilities(
 
     // connect first state
     // connect background start
-    for i in module_starts.iter() { p[[bg_start, *i]] = mfreq; }
-    p[[bg_start, bg_start + k]] = mfreq * p_del;
-    p[[bg_start, bg_start]] = 1.0 - mfreq * module_starts.len() as f32 - mfreq * p_del;
+    for i in module_starts.iter() { p[[bg_start, *i]] = FREQ; }
+    p[[bg_start, bg_start + k]] = FREQ * P_DEL;
+    p[[bg_start, bg_start]] = 1.0 - FREQ * module_starts.len() as f32 - FREQ * P_DEL;
 
     // connect deletions
     //  connect linear
     for i in 1..bg_end-k+1 {
-        p[[i, i+k]] = p_del;
+        p[[i, i+k]] = P_DEL;
     }
 
     for i in 0..module_starts.len() {
@@ -138,15 +123,15 @@ fn transition_probabilities(
         for j in 0..l {
             let del_start = module_starts[i] + j;
             let del_end = module_starts[i] + (j + k) % l;
-            p[[del_start, del_end]] = p_del;
+            p[[del_start, del_end]] = P_DEL;
         }
     }
 
     // connect insertions
     for i in 1..bg_end-2+1 {
         let ins = bg_end + i;
-        p[[i, ins]] = p_ins;
-        p[[ins, ins]] = p_ins;
+        p[[i, ins]] = P_INS;
+        p[[ins, ins]] = P_INS;
         if matches!(states[i], State::MotifEnd) {
             let (m_start, rep) = (4, 5);
             p[[ins, m_start]] = 1.0 - 1.0/rep as f32;
@@ -191,19 +176,19 @@ fn emission_probabilities(states: &Vec<State>, letters: &Vec<u8>) -> ndarray::Ar
                     State::StartBackground | State::EndBackground | State::Insert
                     => {
                         if i == NUCLEOTIDE_INDEX[b'N' as usize] {
-                            result[[i, j, k]] = BASE_N_PROB; 
-                        } else { result[[i, j, k]] = (1.0 - BASE_N_PROB) / 4.0; }
+                            result[[i, j, k]] = P_BASE_N; 
+                        } else { result[[i, j, k]] = (1.0 - P_BASE_N) / 4.0; }
                     }
                     State::Sequence | State::SequenceEnd | State::Motif | State::MotifEnd
                     => {
-                        let p_correct = 1.0 - P_SNP - 10.0f32.powf(-(j as f32)/10.0) - BASE_N_PROB;
-                        let p_correct = p_correct.max((1.0 - BASE_N_PROB) / 4.0);
+                        let p_correct = 1.0 - P_SNP - 10.0f32.powf(-(j as f32)/10.0) - P_BASE_N;
+                        let p_correct = p_correct.max((1.0 - P_BASE_N) / 4.0);
                         if i == NUCLEOTIDE_INDEX[letters[k] as usize] {
                             result[[i, j, k]] = p_correct;
                         } else if i == NUCLEOTIDE_INDEX[b'N' as usize] {
-                            result[[i, j, k]] = BASE_N_PROB;
+                            result[[i, j, k]] = P_BASE_N;
                         } else {
-                            result[[i, j, k]] = (1.0 - p_correct - BASE_N_PROB) / 3.0;
+                            result[[i, j, k]] = (1.0 - p_correct - P_BASE_N) / 3.0;
                         }
                     }
                 }
@@ -304,14 +289,13 @@ mod tests {
 
         let model = HMM::from(&modules);
         let expected: Array2<f32> = read_npy("data/log_trans_f32.npy").unwrap();
+        let expected = expected.map(|&x| x.exp());
 
-        for i in 0..expected.shape()[0] { for j in 0..expected.shape()[1] {
-            assert!(
-                approx_eq!(f32, expected[[i, j]], model.transition[[i, j]].ln(), (1e-3, 2)),
-                "for i={i} and j={j}: Expected {}, got {}.", 
-                expected[[i, j]], model.transition[[i, j]]
-            );
-        }}
+        let diff = find_diff_ndarray2(expected.view(), model.transition.view(), (1e-3, 2));
+        if let Some((i, j)) = diff {
+            println!("{}{}{}{}", i, j, expected[[i, j]], model.transition[[i, j]]);
+        }
+        assert!(diff.is_none());
 
         // println!("{:#?}", model.initial);
         // println!("{:#?}", model.transition);
@@ -369,16 +353,35 @@ mod tests {
     ) {
         let shp = a1.shape();
         for i in 0..shp[0] {
+            let diff = find_diff_ndarray2(
+                a1.index_axis(Axis(0), i),
+                a2.index_axis(Axis(0), i),
+                acc
+            );
+            if let Some((j, k)) = diff {
+                println!(
+                    "for i={i}, j={j}, k={k}: Expected {}, got {}.",
+                    a1[[i, j, k]], a2[[i, j, k]]
+                );
+                panic!();
+            }
+        }
+    }
+
+    fn find_diff_ndarray2(
+        a1: ArrayView<f32, Dim<[usize; 2]>>,
+        a2: ArrayView<f32, Dim<[usize; 2]>>,
+        acc: (f32, i32)
+    ) -> Option<(usize, usize)> {
+        let shp = a1.shape();
+        for i in 0..shp[0] {
             for j in 0..shp[1] {
-                for k in 0..shp[2] {
-                    assert!(
-                        approx_eq!(f32, a1[[i, j, k]], a2[[i, j, k]], acc),
-                        "for i={i}, j={j}, k={k}: Expected {}, got {}.",
-                        a1[[i, j, k]].exp(), a2[[i, j, k]].exp()
-                    )
+                if !approx_eq!(f32, a1[[i, j]], a2[[i, j]], acc) {
+                    return Some((i, j));
                 }
             }
         }
+        return None;
     }
 }
 
