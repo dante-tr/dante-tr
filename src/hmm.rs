@@ -1,4 +1,4 @@
-use ndarray::{Array, stack, ArrayView1};
+use ndarray::{Array, stack, ArrayView1, ArrayBase};
 use ndarray;
 use ndarray::s;
 use ndarray_npy::read_npy;
@@ -19,6 +19,9 @@ const NUCLEOTIDE_INDEX: [usize; 256] = {
     map
 };
 const BASE_N_PROB: f32 = 0.001;
+const P_INS: f32 = 1e-4;
+const P_DEL: f32 = 1e-4;
+const FREQ: f32 = 0.001;
 
 #[derive(Default)]
 pub struct HMM {
@@ -174,6 +177,7 @@ fn transition_probabilities(
 
 fn emission_probabilities() -> ndarray::Array3<f32> {
     let emissions: ndarray::Array3<f32> = read_npy("data/emissions.npy").unwrap();
+    let emissions = emissions.map(|&x| x.ln());
     return emissions;
 }
 
@@ -249,8 +253,11 @@ impl From<(&[u8], usize)> for Module {
 mod tests {
     use super::*;
     use float_cmp::approx_eq;
+    use ndarray::ArrayView;
+    use ndarray::Dim;
     use ndarray_npy::read_npy;
     use ndarray::Array2;
+    use ndarray::Array3;
 
     #[test]
     fn construct_hmm() {
@@ -262,11 +269,11 @@ mod tests {
         ];
 
         let model = HMM::from(&modules);
-        let expected: Array2<f32> = read_npy("data/transitions_f32.npy").unwrap();
+        let expected: Array2<f32> = read_npy("data/log_trans_f32.npy").unwrap();
 
         for i in 0..expected.shape()[0] { for j in 0..expected.shape()[1] {
             assert!(
-                approx_eq!(f32, expected[[i, j]], model.transition[[i, j]], (1e-3, 2)),
+                approx_eq!(f32, expected[[i, j]], model.transition[[i, j]].ln(), (1e-3, 2)),
                 "for i={i} and j={j}: Expected {}, got {}.", 
                 expected[[i, j]], model.transition[[i, j]]
             );
@@ -301,6 +308,33 @@ mod tests {
             0, 0, 1, 2, 3, 4, 5, 6, 4, 5, 6, 4, 5, 6, 4,
             5, 6, 16, 4, 5, 6, 4, 5, 6, 7, 8, 9, 10, 10
         ]);
+    }
+
+    #[test]
+    fn emissions_are_correct() {
+        let expected: Array3<f32> = read_npy("data/log_emit_f32.npy").unwrap();
+        let obtained = emission_probabilities();
+        assert_eq_ndarray3(expected.view(), obtained.view(), (1e-3, 2));
+    }
+
+    // how to make this generic over dimensions?
+    fn assert_eq_ndarray3(
+        a1: ArrayView<f32, Dim<[usize; 3]>>,
+        a2: ArrayView<f32, Dim<[usize; 3]>>, 
+        acc: (f32, i32)
+    ) {
+        let shp = a1.shape();
+        for i in 0..shp[0] {
+            for j in 0..shp[1] {
+                for k in 0..shp[2] {
+                    assert!(
+                        approx_eq!(f32, a1[[i, j, k]], a2[[i, j, k]], acc),
+                        "for i={i}, j={j}, k={k}: Expected {}, got {}.",
+                        a1[[i, j, k]], a2[[i, j, k]]
+                    )
+                }
+            }
+        }
     }
 }
 
