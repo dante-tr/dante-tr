@@ -45,12 +45,18 @@ impl From<(&[u8], usize)> for Module {
     }
 }
 
+struct MDesc {
+    start: usize,
+    len: usize,
+    rep: Option<usize>
+}
+
 enum State {
-    StartBackground,
-    Sequence{nucl: u8},
+    Start,
+    Seq{nucl: u8},
     Motif{nucl: u8},
-    EndBackground,
-    Insert,
+    End,
+    Ins,
 }
 
 #[derive(Default)]
@@ -64,36 +70,31 @@ pub struct HMM {
 impl From<&Vec<Module>> for HMM {
     fn from(modules: &Vec<Module>) -> Self {
         let states = get_states(modules);
-        let letters = get_letters(modules);
 
         let initial = initial_probabilities(&states);
         let transition = transition_probabilities(&states, modules);
-        let emission = emission_probabilities(&states, &letters);
+        let emission = emission_probabilities(&states);
 
         HMM { initial, transition, emission }
     }
 }
 
-fn get_letters(modules: &Vec<Module>) -> Vec<u8> {
-    b"XACTGTGCAGXXXXXXXXXX".to_vec()
-}
-
 fn get_states(modules: &Vec<Module>) -> Vec<State> {
     let mut states: Vec<State> = Vec::new();
-    states.push(State::StartBackground);
+    states.push(State::Start);
     for module in modules {
         match module {
             Module::Sequence(x) => {
-                for &c in x { states.push(State::Sequence{nucl: c}); }
+                for &c in x { states.push(State::Seq{nucl: c}); }
             },
             Module::Repeat((x, _)) => {
                 for &c in x { states.push(State::Motif{nucl: c}); }
             }
         }
     }
-    states.push(State::EndBackground);
+    states.push(State::End);
     // insert states are only between 2 non-background states (e.g. BSISISB)
-    for _ in 1..states.len()-2 { states.push(State::Insert); }
+    for _ in 1..states.len()-2 { states.push(State::Ins); }
     return states;
 }
 
@@ -102,7 +103,7 @@ fn initial_probabilities(states: &Vec<State>) -> ndarray::Array1<f32> {
     let mut n = 0;
     for (i, state) in states.iter().enumerate() {
         match state {
-            State::Sequence{..} | State::Motif{..} => {
+            State::Seq{..} | State::Motif{..} => {
                 probabilities[[i]] = FREQ;
                 n += 1; 
             },
@@ -122,43 +123,37 @@ fn transition_probabilities(
 
     let bg_start = 0;
     let bg_end = 10;
-    let module_starts = vec![1, 4, 7];
+    let desc = vec![
+        MDesc{ start: 1, len: 3, rep: None },
+        MDesc{ start: 4, len: 3, rep: Some(5) },
+        MDesc{ start: 7, len: 3, rep: None }
+    ];
     let k = 2;
 
-    // connect first state
     // connect background start
-    for i in module_starts.iter() { p[[bg_start, *i]] = FREQ; }
+    for m in &desc { p[[bg_start, m.start]] = FREQ; }
+
+    // connect linear deletions
     p[[bg_start, bg_start + k]] = FREQ * P_DEL;
-    p[[bg_start, bg_start]] = 1.0 - FREQ * module_starts.len() as f32 - FREQ * P_DEL;
+    for i in 1..bg_end-k+1 {
+        p[[i, i+k]] = P_DEL;
+    }
 
     // connect in-module deletions
-    for i in 0..module_starts.len() {
-        if matches!(states[module_starts[i]], State::Sequence{..}) { continue; } 
-        let l = modules[i].len();
-        for j in 0..l {
-            let del_start = module_starts[i] + j;
-            let del_end = module_starts[i] + (j + k) % l;
+    for m in &desc {
+        if matches!(states[m.start], State::Seq{..}) { continue; }
+        for j in 0..m.len {
+            let del_start = m.start + j;
+            let del_end = m.start + (j + k) % m.len;
             p[[del_start, del_end]] = P_DEL;
         }
     }
 
     // connect in-module insertions
-    for i in 0..module_starts.len() {
-        let ms = module_starts[i];
-        if matches!(states[ms], State::Motif{..}) {
-            let ins = bg_end + ms + modules[i].len() - 1;
-            let rep = 5;
-            p[[ins, ms]] = 1.0 - 1.0/rep as f32;
-        }
-    }
-
-    // connect cycles
-    let module_end = module_starts[1] + modules[1].len() - 1;
-    p[[module_end, module_starts[1]]] = 1.0 - 1.0/5 as f32;
-
-    // connect linear deletions
-    for i in 1..bg_end-k+1 {
-        p[[i, i+k]] = P_DEL;
+    for m in &desc {
+        if matches!(states[m.start], State::Seq{..}) { continue; }
+        let ins = bg_end + (m.start + m.len - 1);
+        p[[ins, m.start]] = 1.0 - 1.0/m.rep.unwrap() as f32 - P_INS;
     }
 
     // connect insertions
@@ -170,23 +165,33 @@ fn transition_probabilities(
         p[[ins, i+1]] = 1.0 - used;
     }
 
-    // connect modules
-    for (i, start) in module_starts.iter().enumerate() {
-        let end = start + modules[i].len()-1;
-        let used = p.slice(s![end, ..]).sum();
-        let prob = (1.0 - used)/((module_starts[i+1..].len() + 1) as f32);
-        for start in module_starts[i+1..].iter() {
-            p[[end, *start]] = prob;
-        }
-        p[[end, bg_end]] = prob;
+    // connect cycles
+    for m in &desc {
+        if matches!(states[m.start], State::Seq{..}) { continue; }
+        let m_end = m.start + m.len - 1;
+        p[[m_end, m.start]] = 1.0 - 1.0/m.rep.unwrap() as f32;
     }
+
+    // connect modules
+    for (i, m) in desc.iter().enumerate() {
+        let m_end = m.start + m.len - 1;
+        let used = p.slice(s![m_end, ..]).sum();
+        let prob = (1.0 - used)/((desc.len() - i) as f32);
+        if let Some(slc) = desc.get(i+2..) {
+            for m2 in slc {
+                p[[m_end, m2.start]] = prob;
+            }
+        }
+        p[[m_end, bg_end]] = prob;
+    }
+
+    // connect first state
+    p[[bg_start, bg_start]] = 1.0 - FREQ * desc.len() as f32 - FREQ * P_DEL;
 
     // connect next
     for i in 1..bg_end-1 {
         let used = p.slice(s![i, ..]).sum();
-        if used < 1.0 {
-            p[[i, i+1]] = 1.0 - used;
-        }
+        p[[i, i+1]] = 1.0 - used;
     }
 
     // connect last state
@@ -195,20 +200,20 @@ fn transition_probabilities(
     return p;
 }
 
-fn emission_probabilities(states: &Vec<State>, letters: &Vec<u8>) -> ndarray::Array3<f32> {
+fn emission_probabilities(states: &Vec<State>) -> ndarray::Array3<f32> {
     let mut result = Array::zeros((N_NUCL, N_QUAL, states.len()));
 
     for i in 0..N_NUCL {
         for j in 0..N_QUAL {
             for k in 0..states.len() {
                 match states[k] {
-                    State::StartBackground | State::EndBackground | State::Insert
+                    State::Start | State::End | State::Ins
                     => {
                         if i == NUCLEOTIDE_INDEX[b'N' as usize] {
                             result[[i, j, k]] = P_BASE_N; 
                         } else { result[[i, j, k]] = (1.0 - P_BASE_N) / 4.0; }
                     }
-                    State::Sequence{nucl: c} | State::Motif{nucl: c}
+                    State::Seq{nucl: c} | State::Motif{nucl: c}
                     => {
                         let p_correct = 1.0 - P_SNP - 10.0f32.powf(-(j as f32)/10.0) - P_BASE_N;
                         let p_correct = p_correct.max((1.0 - P_BASE_N) / 4.0);
@@ -302,9 +307,11 @@ mod tests {
         let expected: Array2<f32> = read_npy("data/log_trans_f32.npy").unwrap();
         let expected = expected.map(|&x| x.exp());
 
-        let diff = find_diff_ndarray2(expected.view(), model.transition.view(), (1e-3, 2));
+        let diff = find_diff_ndarray2(expected.view(), model.transition.view(), (1e-4, 2));
         if let Some((i, j)) = diff {
-            println!("{}{}{}{}", i, j, expected[[i, j]], model.transition[[i, j]]);
+            println!("{} {} {} {}", i, j, expected[[i, j]], model.transition[[i, j]]);
+            println!("{:#034b}", expected[[i, j]].to_bits());
+            println!("{:#034b}", model.transition[[i, j]].to_bits());
         }
         assert!(diff.is_none());
 
@@ -357,16 +364,15 @@ mod tests {
     #[test]
     fn emissions_are_correct() {
         let states = vec![
-            State::StartBackground,
-            State::Sequence{nucl: b'T'}, State::Sequence{nucl: b'C'}, State::Sequence{nucl: b'T'},
+            State::Start,
+            State::Seq{nucl: b'T'}, State::Seq{nucl: b'C'}, State::Seq{nucl: b'T'},
             State::Motif{nucl: b'G'}, State::Motif{nucl: b'T'}, State::Motif{nucl: b'C'},
-            State::Sequence{nucl: b'A'}, State::Sequence{nucl: b'A'}, State::Sequence{nucl: b'A'},
-            State::EndBackground,
-            State::Insert, State::Insert, State::Insert, State::Insert,
-            State::Insert, State::Insert, State::Insert, State::Insert
+            State::Seq{nucl: b'A'}, State::Seq{nucl: b'A'}, State::Seq{nucl: b'A'},
+            State::End,
+            State::Ins, State::Ins, State::Ins, State::Ins,
+            State::Ins, State::Ins, State::Ins, State::Ins
         ];
-        let seq = b"_TCTGTCAAA_IIIIIIII".to_vec();
-        let obtained = emission_probabilities(&states, &seq);
+        let obtained = emission_probabilities(&states);
         let expected: Array3<f32> = read_npy("data/log_emit_f32.npy").unwrap();
         assert_eq_ndarray3(expected.view(), obtained.view(), (1e-3, 2));
     }
