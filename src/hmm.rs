@@ -18,6 +18,7 @@ const P_INS: f32 = 1e-4;
 const P_DEL: f32 = 1e-4;
 const P_SNP: f32 = 0.0005;
 const FREQ: f32 = 0.001;
+const DEL: usize = 2; // represents deletion of 1 nucleotide
 
 enum Module {
     Sequence(Vec<u8>),
@@ -128,73 +129,70 @@ fn transition_probabilities(
         MDesc{ start: 4, len: 3, rep: Some(5) },
         MDesc{ start: 7, len: 3, rep: None }
     ];
-    let k = 2;
 
-    // connect background start
-    for m in &desc { p[[bg_start, m.start]] = FREQ; }
-
-    // connect linear deletions
-    p[[bg_start, bg_start + k]] = FREQ * P_DEL;
-    for i in 1..bg_end-k+1 {
-        p[[i, i+k]] = P_DEL;
-    }
-
-    // connect in-module deletions
+    // create intramodule connections
     for m in &desc {
         if matches!(states[m.start], State::Seq{..}) { continue; }
-        for j in 0..m.len {
-            let del_start = m.start + j;
-            let del_end = m.start + (j + k) % m.len;
+        let m_end = m.start + m.len - 1;
+        let m_rep = m.rep.unwrap() as f32; // safe due to previous if
+
+        // add cycle
+        p[[m_end, m.start]] = 1.0 - 1.0/m_rep;
+
+        // add insertion between repetitions
+        let ins = bg_end + m_end;
+        p[[ins, m.start]] = 1.0 - 1.0/m_rep - P_INS;
+
+        // add deletions between repetitions
+        for i in 0..m.len {
+            let del_start = m.start + i;
+            let del_end = m.start + (i + DEL) % m.len;
             p[[del_start, del_end]] = P_DEL;
         }
     }
 
-    // connect in-module insertions
-    for m in &desc {
-        if matches!(states[m.start], State::Seq{..}) { continue; }
-        let ins = bg_end + (m.start + m.len - 1);
-        p[[ins, m.start]] = 1.0 - 1.0/m.rep.unwrap() as f32 - P_INS;
-    }
-
-    // connect insertions
-    for i in 1..bg_end-2+1 {
+    // connect simple insertions
+    for i in 1..=bg_end-2 {
         let ins = bg_end + i;
         p[[i, ins]] = P_INS;
         p[[ins, ins]] = P_INS;
-        let used = p.slice(s![ins, ..]).sum();
-        p[[ins, i+1]] = 1.0 - used;
+        p[[ins, i+1]] = 1.0 - p.slice(s![ins, ..]).sum();
     }
 
-    // connect cycles
+    // connect simple deletions
+    p[[bg_start, bg_start + DEL]] = P_DEL * FREQ;
+    for i in 1..=bg_end-DEL {
+        p[[i, i+DEL]] = P_DEL;
+    }
+
+    // allow module skipping
     for m in &desc {
-        if matches!(states[m.start], State::Seq{..}) { continue; }
-        let m_end = m.start + m.len - 1;
-        p[[m_end, m.start]] = 1.0 - 1.0/m.rep.unwrap() as f32;
+        p[[bg_start, m.start]] = FREQ;
     }
 
-    // connect modules
     for (i, m) in desc.iter().enumerate() {
         let m_end = m.start + m.len - 1;
-        let used = p.slice(s![m_end, ..]).sum();
-        let prob = (1.0 - used)/((desc.len() - i) as f32);
-        if let Some(slc) = desc.get(i+2..) {
-            for m2 in slc {
-                p[[m_end, m2.start]] = prob;
+        // number of remaining modules to the right
+        let r_mod = (desc.len() - i) as f32;
+        let r_prob = 1.0 - p.slice(s![m_end, ..]).sum();
+        // +2, because we jump over the next module, as it will be connected later
+        if let Some(x) = desc.get(i+2..) {
+            for destination in x {
+                p[[m_end, destination.start]] = r_prob / r_mod;
             }
         }
-        p[[m_end, bg_end]] = prob;
+        p[[m_end, bg_end]] = r_prob / r_mod;
     }
 
-    // connect first state
-    p[[bg_start, bg_start]] = 1.0 - FREQ * desc.len() as f32 - FREQ * P_DEL;
+    // loop in start
+    p[[bg_start, bg_start]] = 1.0 - p.slice(s![bg_start, ..]).sum();
 
-    // connect next
+    // connect to the next state
     for i in 1..bg_end-1 {
-        let used = p.slice(s![i, ..]).sum();
-        p[[i, i+1]] = 1.0 - used;
+        p[[i, i+1]] = 1.0 - p.slice(s![i, ..]).sum();
     }
 
-    // connect last state
+    // loop in end
     p[[bg_end, bg_end]] = 1.0;
 
     return p;
