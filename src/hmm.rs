@@ -274,9 +274,13 @@ mod tests {
     use float_cmp::approx_eq;
     use ndarray::ArrayView;
     use ndarray::Dim;
+    use ndarray::Dimension;
+    use ndarray::NdIndex;
+    use ndarray::RemoveAxis;
     use ndarray_npy::read_npy;
     use ndarray::Array2;
     use ndarray::Array3;
+    use ndarray::array;
 
     #[test]
     fn construct_hmm() {
@@ -383,5 +387,46 @@ mod tests {
         }
         return None;
     }
+
+    // fn find_diff<D>(a1: ArrayView<f32, D>, a2: ArrayView<f32, D>, acc: (f32, i32)) -> Option<Vec<usize>>
+    // where
+    //     D: Dimension + RemoveAxis,
+    //     [usize; 1]: NdIndex<D>
+    // {
+    //     let shp = a1.shape();
+    //     if shp.len() == 1 {
+    //         for i in 0..shp[0] {
+    //             if !approx_eq!(f32, a1[[i]], a2[[i]], acc) {
+    //                 return Some(vec![i]);
+    //             }
+    //         }
+    //         return None;
+    //     } else {
+    //         for i in 0..shp[0] {
+    //             let tmp1 = a1.index_axis(Axis(0), i).into_dimensionality().unwrap();
+    //             let tmp2 = a2.index_axis(Axis(0), i).into_dimensionality().unwrap();
+    //             let x = find_diff(
+    //                 tmp1,
+    //                 tmp2,
+    //                 acc
+    //             );
+    //             if let Some(mut x) = x {
+    //                 let mut v = vec![i];
+    //                 x.reverse();
+    //                 v.extend_from_slice(&x);
+    //                 return Some(v);
+    //             }
+    //         }
+    //         return None;
+    //     }
+    // }
+
+    // #[test]
+    // fn test_find_diff() {
+    //     let a1 = array![[1.,2.,3.], [4.,5.,6.]];
+    //     let a2 = array![[1.,2.,3.], [4.,0.,6.]];
+
+    //     // let x = find_diff(a1.view(), a2.view(), (1e-3, 2));
+    // }
 }
 
