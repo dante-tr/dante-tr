@@ -25,15 +25,6 @@ enum Module {
     Repeat((Vec<u8>, usize)),
 }
 
-impl Module {
-    fn len(&self) -> usize {
-        match self {
-            Module::Sequence(x) => x.len(),
-            Module::Repeat(x) => x.0.len(),
-        }
-    }
-}
-
 impl From<&[u8]> for Module {
     fn from(s: &[u8]) -> Self {
         Module::Sequence(s.to_vec())
@@ -67,13 +58,13 @@ pub struct HMM {
     pub emission: ndarray::Array3<f32>,
 }
 
-// don't use From trait on slices, unless you really mean slices
 impl From<&Vec<Module>> for HMM {
     fn from(modules: &Vec<Module>) -> Self {
         let states = get_states(modules);
+        let description = get_description(modules);
 
         let initial = initial_probabilities(&states);
-        let transition = transition_probabilities(&states, modules);
+        let transition = transition_probabilities(&states, &description);
         let emission = emission_probabilities(&states);
 
         HMM { initial, transition, emission }
@@ -99,39 +90,50 @@ fn get_states(modules: &Vec<Module>) -> Vec<State> {
     return states;
 }
 
+fn get_description(modules: &Vec<Module>) -> Vec<MDesc> {
+    let mut start = 1;
+    let mut description = Vec::new();
+    for module in modules {
+        match module {
+            Module::Sequence(s) => {
+                description.push(MDesc{ start, len: s.len(), rep: None });
+                start += s.len();
+            },
+            Module::Repeat((s, rep)) => {
+                description.push(MDesc{ start, len: s.len(), rep: Some(*rep) });
+                start += s.len();
+            }
+        }
+    }
+    return description;
+}
+
 fn initial_probabilities(states: &Vec<State>) -> ndarray::Array1<f32> {
-    let mut probabilities = Array::zeros(states.len());
+    let mut p = Array::zeros(states.len());
     let mut n = 0;
     for (i, state) in states.iter().enumerate() {
         match state {
             State::Seq{..} | State::Motif{..} => {
-                probabilities[[i]] = FREQ;
+                p[[i]] = FREQ;
                 n += 1; 
             },
             _ => {},
         }
     }
-    probabilities[[0]] = 1.0 - (FREQ * n as f32);
-    assert!(probabilities[[0]] >= 0.0);
-    return probabilities;
+    p[[0]] = 1.0 - (FREQ * n as f32);
+    assert!(p[[0]] >= 0.0);
+    return p;
 }
 
-fn transition_probabilities(
-    states: &Vec<State>,
-    modules: &Vec<Module>
-) -> ndarray::Array2<f32> {
+fn transition_probabilities(states: &Vec<State>, desc: &Vec<MDesc>) -> ndarray::Array2<f32> {
     let mut p = Array::zeros((states.len(), states.len()));
 
     let bg_start = 0;
-    let bg_end = 10;
-    let desc = vec![
-        MDesc{ start: 1, len: 3, rep: None },
-        MDesc{ start: 4, len: 3, rep: Some(5) },
-        MDesc{ start: 7, len: 3, rep: None }
-    ];
+    let mut bg_end = 0;
+    while !matches!(states[bg_end], State::End) { bg_end += 1; }
 
     // create intramodule connections
-    for m in &desc {
+    for m in desc.iter() {
         if matches!(states[m.start], State::Seq{..}) { continue; }
         let m_end = m.start + m.len - 1;
         let m_rep = m.rep.unwrap() as f32; // safe due to previous if
@@ -166,7 +168,7 @@ fn transition_probabilities(
     }
 
     // allow module skipping
-    for m in &desc {
+    for m in desc.iter() {
         p[[bg_start, m.start]] = FREQ;
     }
 
@@ -199,36 +201,32 @@ fn transition_probabilities(
 }
 
 fn emission_probabilities(states: &Vec<State>) -> ndarray::Array3<f32> {
-    let mut result = Array::zeros((N_NUCL, N_QUAL, states.len()));
+    let mut p = Array::zeros((N_NUCL, N_QUAL, states.len()));
 
-    for i in 0..N_NUCL {
-        for j in 0..N_QUAL {
-            for k in 0..states.len() {
-                match states[k] {
-                    State::Start | State::End | State::Ins
-                    => {
-                        if i == NUCLEOTIDE_INDEX[b'N' as usize] {
-                            result[[i, j, k]] = P_BASE_N; 
-                        } else { result[[i, j, k]] = (1.0 - P_BASE_N) / 4.0; }
-                    }
-                    State::Seq{nucl: c} | State::Motif{nucl: c}
-                    => {
-                        let p_correct = 1.0 - P_SNP - 10.0f32.powf(-(j as f32)/10.0) - P_BASE_N;
-                        let p_correct = p_correct.max((1.0 - P_BASE_N) / 4.0);
-                        if i == NUCLEOTIDE_INDEX[c as usize] {
-                            result[[i, j, k]] = p_correct;
-                        } else if i == NUCLEOTIDE_INDEX[b'N' as usize] {
-                            result[[i, j, k]] = P_BASE_N;
-                        } else {
-                            result[[i, j, k]] = (1.0 - p_correct - P_BASE_N) / 3.0;
-                        }
-                    }
+    for i in 0..N_NUCL { for j in 0..N_QUAL { for k in 0..states.len() {
+        match states[k] {
+            State::Start | State::End | State::Ins => {
+                if i == NUCLEOTIDE_INDEX[b'N' as usize] {
+                    p[[i, j, k]] = P_BASE_N; 
+                } else {
+                    p[[i, j, k]] = (1.0 - P_BASE_N) / 4.0;
+                }
+            }
+            State::Seq{nucl: c} | State::Motif{nucl: c} => {
+                let p_correct = 1.0 - P_SNP - 10.0f32.powf(-(j as f32)/10.0) - P_BASE_N;
+                let p_correct = f32::max(p_correct, (1.0 - P_BASE_N) / 4.0);
+                if i == NUCLEOTIDE_INDEX[c as usize] {
+                    p[[i, j, k]] = p_correct;
+                } else if i == NUCLEOTIDE_INDEX[b'N' as usize] {
+                    p[[i, j, k]] = P_BASE_N;
+                } else {
+                    p[[i, j, k]] = (1.0 - p_correct - P_BASE_N) / 3.0;
                 }
             }
         }
-    }
+    }}}
 
-    let result = result.map(|&x| x.ln());
+    let result = p.map(|&x| x.ln());
     return result;
 }
 
