@@ -110,17 +110,10 @@ fn get_description(modules: &Vec<Module>) -> Vec<MDesc> {
 
 fn initial_probabilities(states: &Vec<State>) -> ndarray::Array1<f32> {
     let mut p = Array::zeros(states.len());
-    let mut n = 0;
     for (i, state) in states.iter().enumerate() {
-        match state {
-            State::Seq{..} | State::Motif{..} => {
-                p[[i]] = FREQ;
-                n += 1; 
-            },
-            _ => {},
-        }
+        if matches!(state, State::Seq{..} | State::Motif{..}) { p[[i]] = FREQ; }
     }
-    p[[0]] = 1.0 - (FREQ * n as f32);
+    p[[0]] = 1.0 - p.sum();
     assert!(p[[0]] >= 0.0);
     return p;
 }
@@ -202,32 +195,35 @@ fn transition_probabilities(states: &Vec<State>, desc: &Vec<MDesc>) -> ndarray::
 
 fn emission_probabilities(states: &Vec<State>) -> ndarray::Array3<f32> {
     let mut p = Array::zeros((N_NUCL, N_QUAL, states.len()));
+    let n_pos = NUCLEOTIDE_INDEX[b'N' as usize];
 
     for i in 0..N_NUCL { for j in 0..N_QUAL { for k in 0..states.len() {
         match states[k] {
             State::Start | State::End | State::Ins => {
-                if i == NUCLEOTIDE_INDEX[b'N' as usize] {
-                    p[[i, j, k]] = P_BASE_N; 
-                } else {
-                    p[[i, j, k]] = (1.0 - P_BASE_N) / 4.0;
-                }
+                if i == n_pos { p[[i, j, k]] = P_BASE_N; }
+                else { p[[i, j, k]] = (1.0 - P_BASE_N) / 4.0; }
             }
             State::Seq{nucl: c} | State::Motif{nucl: c} => {
-                let p_correct = 1.0 - P_SNP - 10.0f32.powf(-(j as f32)/10.0) - P_BASE_N;
-                let p_correct = f32::max(p_correct, (1.0 - P_BASE_N) / 4.0);
-                if i == NUCLEOTIDE_INDEX[c as usize] {
-                    p[[i, j, k]] = p_correct;
-                } else if i == NUCLEOTIDE_INDEX[b'N' as usize] {
-                    p[[i, j, k]] = P_BASE_N;
-                } else {
-                    p[[i, j, k]] = (1.0 - p_correct - P_BASE_N) / 3.0;
-                }
+                let c_pos = NUCLEOTIDE_INDEX[c as usize];
+                let x = p_c_eq_c_given_q(j);
+
+                if i == n_pos { p[[i, j, k]] = P_BASE_N; }
+                else if i == c_pos { p[[i, j, k]] = x; }
+                else { p[[i, j, k]] = (1.0 - P_BASE_N - x) / 3.0; }
             }
         }
     }}}
 
     let result = p.map(|&x| x.ln());
     return result;
+}
+
+/// TODO: write some explanation
+fn p_c_eq_c_given_q(phred_score: usize) -> f32 {
+    let p_base_calling_error = 10.0f32.powf(-(phred_score as f32)/10.0);
+    let p_result = 1.0 - P_BASE_N - P_SNP - p_base_calling_error;
+    let p_random = (1.0 - P_BASE_N) / 4.0;
+    return f32::max(p_result, p_random);
 }
 
 fn argmax(a: ArrayView1<f32>) -> usize {
