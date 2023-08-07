@@ -20,7 +20,7 @@ const P_SNP: f32 = 0.0005;
 const FREQ: f32 = 0.001;
 const DEL: usize = 2; // represents deletion of 1 nucleotide
 
-enum Module {
+pub enum Module {
     Sequence(Vec<u8>),
     Repeat((Vec<u8>, usize)),
 }
@@ -214,8 +214,7 @@ fn emission_probabilities(states: &Vec<State>) -> ndarray::Array3<f32> {
         }
     }}}
 
-    let result = p.map(|&x| x.ln());
-    return result;
+    return p;
 }
 
 /// TODO: write some explanation
@@ -274,6 +273,13 @@ impl HMM {
         }
 
         (likelihood, path)
+    }
+
+    pub fn log(mut self) -> Self {
+        self.initial = self.initial.map(|&x| x.ln());
+        self.transition = self.transition.map(|&x| x.ln());
+        self.emission = self.emission.map(|&x| x.ln());
+        return self;
     }
 }
 
@@ -364,7 +370,7 @@ mod tests {
             State::Ins, State::Ins, State::Ins, State::Ins,
             State::Ins, State::Ins, State::Ins, State::Ins
         ];
-        let obtained = emission_probabilities(&states);
+        let obtained = emission_probabilities(&states).map(|&x| x.ln());
         let expected: Array3<f32> = read_npy("data/log_emit_f32.npy").unwrap();
         assert_eq_ndarray3(expected.view(), obtained.view(), (1e-3, 2));
     }

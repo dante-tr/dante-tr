@@ -5,9 +5,11 @@ use std::io::BufRead;
 use std::collections::HashMap;
 use noodles::fasta as fasta;
 use noodles::bam as bam;
+use noodles::sam::record::quality_scores::Score;
 
 use crate::repeats::TandemRepeat as TandemRepeat;
 use crate::hmm::HMM;
+use crate::hmm::Module;
 
 mod repeats;
 mod hmm;
@@ -36,8 +38,9 @@ fn main() {
 
     for repeat in valid_repeats {
         //  build HMM
-        // let model = HMM::from(get_modules(repeat, reference));
-        let model = HMM::default(); // TODO
+        let modules = get_modules(&repeat, &references, 20);
+        let model = HMM::from(&modules).log();
+
         //  select relevant reads
         let tmp = format!("{}:{}-{}", repeat.reference, repeat.start+1, repeat.end);
         let region = tmp.parse().unwrap();
@@ -46,18 +49,25 @@ fn main() {
         println!("{}", repeat);
         for read in reads {
             let read = read.expect("Incorrect read.");
-            // println!("{:?}", read.unwrap());
-            println!("{}", read.sequence());
-            println!("{}", read.quality_scores());
-            let seq =  b"ACTGCA";   // TODO from read.sequence()
-            let qual = b":F::F:";   // TODO from read.quality()
-            let (likelihood, annotation) = model.log_predict(seq, qual);
+            let seq: Vec<_> = read.sequence().as_ref().iter().map(|&x| x.into()).collect();
+            let qual: Vec<_> = read.quality_scores().as_ref().iter().map(|&x| remap(x)).collect();
+            let (likelihood, annotation) = model.log_predict(&seq, &qual);
+            println!("Seq:\t{:?}", str::from_utf8(&seq).unwrap());
+            println!("Qual:\t{:?}", str::from_utf8(&qual).unwrap());
+            println!("Likelihood: {likelihood:?}");
+            println!("Annotation: {annotation:?}");
+            println!();
             // postfilter
             // report()
         }
         println!();
         //  report_row()
     }
+}
+
+fn remap(x: Score) -> u8 {
+    let c: char = x.into();
+    return c as u8;
 }
 
 fn read_reference(filename: &str) -> HashMap<String, Vec<u8>> {
@@ -98,6 +108,26 @@ fn is_present(tr: &TandemRepeat, seq: &HashMap<String, Vec<u8>>) -> bool {
         return false;
     }
     return true;
+}
+
+fn get_modules(
+    repeat: &TandemRepeat, refs: &HashMap<String, Vec<u8>>, flank_size: usize
+) -> Vec<Module> {
+    let refseq = refs.get(&repeat.reference).unwrap(); // safe due to nomenclature check
+    assert!(repeat.start >= flank_size,
+        "Cannot create left flank of size {flank_size} for repeat {repeat}.");
+    let left_flank = &refseq[(repeat.start-flank_size)..repeat.start];
+    assert!(repeat.end + flank_size <= refseq.len(),
+        "Cannot create right flank of size {flank_size} for repeat {repeat}.");
+    let right_flank = &refseq[repeat.end..(repeat.end+flank_size)];
+
+    let mut modules = Vec::new();
+    modules.push(left_flank.into());
+    for i in 0..repeat.copy_unit.len() {
+        modules.push((&repeat.copy_unit[i][..], repeat.copy_number[i]).into());
+    }
+    modules.push(right_flank.into());
+    return modules;
 }
 
 #[cfg(test)]
