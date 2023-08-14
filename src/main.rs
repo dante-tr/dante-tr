@@ -1,11 +1,12 @@
-use std::str;
-use std::fs::File;
-use std::io::BufReader;
-use std::io::BufRead;
-use std::collections::HashMap;
-use noodles::fasta as fasta;
 use noodles::bam as bam;
+use noodles::fasta as fasta;
 use noodles::sam::record::quality_scores::Score;
+use rayon::prelude::*;
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::BufRead;
+use std::io::BufReader;
+use std::str;
 
 use crate::repeats::TandemRepeat as TandemRepeat;
 use crate::hmm::HMM;
@@ -31,12 +32,12 @@ fn main() {
         }
     }
 
-    // load bam
-    let mut reader = bam::indexed_reader::Builder::default()
-        .build_from_path("data/mini2.bam").unwrap();
-    let header = reader.read_header().unwrap();
+    valid_repeats.par_iter().for_each(|repeat| {
+        // load bam
+        let mut reader = bam::indexed_reader::Builder::default()
+            .build_from_path("data/mini2.bam").unwrap();
+        let header = reader.read_header().unwrap();
 
-    for repeat in valid_repeats {
         //  build HMM
         let modules = get_modules(&repeat, &references, 20);
         let model = HMM::from(&modules).log();
@@ -46,7 +47,6 @@ fn main() {
         let region = tmp.parse().unwrap();
         let reads = reader.query(&header, &region).unwrap();
 
-        println!("{}", repeat);
         for read in reads {
             let read = read.expect("Incorrect read.");
             let seq: Vec<_> = read.sequence().as_ref().iter().map(|&x| x.into()).collect();
@@ -57,12 +57,14 @@ fn main() {
             let reconstructed_read = model.realign_read(&annotation, &seq); 
             let mods = model.reconstruct_mod_ids(&annotation);
 
-            println!("{} {} {}", read.read_name().unwrap(), repeat, likelihood);
-            println!("{}", str::from_utf8(&reconstructed_read).unwrap());
-            println!("{}", str::from_utf8(&reconstructed_reference).unwrap());
-            println!("{}", str::from_utf8(&mods).unwrap());
+            println!(">{} {} {}\n{}\n{}\n{}", 
+                read.read_name().unwrap(), repeat, likelihood,
+                str::from_utf8(&reconstructed_read).unwrap(),
+                str::from_utf8(&reconstructed_reference).unwrap(),
+                str::from_utf8(&mods).unwrap()
+            );
         }
-    }
+    })
 }
 
 fn remap(x: Score) -> u8 {
