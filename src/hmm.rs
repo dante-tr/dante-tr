@@ -53,9 +53,10 @@ enum State {
 
 #[derive(Default)]
 pub struct HMM {
-    pub initial: ndarray::Array1<f32>,
-    pub transition: ndarray::Array2<f32>,
-    pub emission: ndarray::Array3<f32>,
+    states: Vec<State>,
+    initial: ndarray::Array1<f32>,
+    transition: ndarray::Array2<f32>,
+    emission: ndarray::Array3<f32>,
 }
 
 impl From<&Vec<Module>> for HMM {
@@ -67,7 +68,7 @@ impl From<&Vec<Module>> for HMM {
         let transition = transition_probabilities(&states, &description);
         let emission = emission_probabilities(&states);
 
-        HMM { initial, transition, emission }
+        HMM { states, initial, transition, emission }
     }
 }
 
@@ -281,6 +282,21 @@ impl HMM {
         self.emission = self.emission.map(|&x| x.ln());
         return self;
     }
+
+    pub fn reconstruct_sequence(&self, path: &[usize]) -> Vec<u8> {
+        let mut seq = Vec::with_capacity(path.len());
+        for &i in path.iter() {
+            match self.states[i] {
+                State::Start | State::Ins | State::End => { seq.push(b'-'); },
+                State::Seq{nucl: c} | State::Motif{nucl: c} => { seq.push(c); },
+            }
+        }
+        return seq;
+    }
+
+    pub fn realign_read(&self, path: &[usize], seq: &[u8]) -> Vec<u8> {
+        return Vec::new();
+    }
 }
 
 #[cfg(test)]
@@ -292,6 +308,70 @@ mod tests {
     use ndarray_npy::read_npy;
     use ndarray::Array2;
     use ndarray::Array3;
+    use std::str;
+
+    #[test]
+    fn basic_test() {
+        let modules: Vec<Module> = vec![
+            (&b"TCT"[..]).into(),
+            (&b"GTC"[..], 5).into(),
+            (&b"AAA"[..]).into()
+        ];
+
+        let seq =  b"AATCTGTCGTCGTCGTCAGTCGTCAAATT".to_vec();
+        let qual = b":F::FF:,F,FFFFFFF,FF,FFF:F,FF".to_vec();
+
+        let model = HMM::from(&modules).log();
+        let (likelihood, annotation) = model.log_predict(&seq, &qual);
+
+        assert!(approx_eq!(f32, likelihood, 7.106122e-13_f32.ln(), (1e-4, 2)));
+        assert!(annotation == vec![
+            0, 0, 1, 2, 3, 4, 5, 6, 4, 5, 6, 4, 5, 6, 4,
+            5, 6, 16, 4, 5, 6, 4, 5, 6, 7, 8, 9, 10, 10
+        ]);
+
+        let rebuilt = model.reconstruct_sequence(&annotation);
+        let expected = b"--TCTGTCGTCGTCGTC-GTCGTCAAA--".to_vec();
+        assert!(rebuilt == expected);
+
+    }
+
+    #[test]
+    fn add_deletions_to_read() {
+        let read =  b"AATTGTCGCGTCGTGTCGTCAAATT".to_vec();
+        let annotation = vec![
+            0, 0, 1, 3, 4, 5, 6, 4, 6, 4, 5, 6,
+            4, 5, 4, 5, 6, 4, 5, 6, 7, 8, 9, 10, 10
+        ];
+        let expected = b"AAT_TGTCG_CGTCGT_GTCGTCAAATT".to_vec();
+
+        let modules: Vec<Module> = vec![
+            (&b"TCT"[..]).into(),
+            (&b"GTC"[..], 5).into(),
+            (&b"AAA"[..]).into()
+        ];
+
+        let model = HMM::from(&modules).log();
+
+        let read = model.realign_read(&annotation, &read);
+        assert!(read == expected);
+    }
+
+    #[test]
+    fn predicts_single_letter_motifs() {
+        // motif_tuple = [
+        //     ('CTTGTTACTAAGCCTGATTT', 1),
+        //     ('A', 11),
+        //     ('TTACTTTCAGATGTCTGTCA', 1)    
+        // ]
+        // sequence = 'AAGCCTGATTTAAAAAAAAAAAAAATTACTTTCAGATGT'
+        // quality =  'FFFFFFFFFFFFFFF::FFF:FFFFFFF:FFFFFF:FFF'
+        //
+        // 4.019535548695593e-06
+        // [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+        //  21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21,
+        //  22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35]
+    }
 
     #[test]
     fn construct_hmm() {
@@ -324,7 +404,7 @@ mod tests {
         let transition = read_npy("data/log_trans_f32.npy").unwrap();
         let emission = read_npy("data/log_emit_f32.npy").unwrap();
 
-        let model = HMM { initial, transition, emission };
+        let model = HMM { states: Vec::new(), initial, transition, emission };
         println!("Initial strides: {:?}", model.initial.strides());
         println!("Initial shape: {:?}", model.initial.shape());
         println!("Transition strides: {:?}", model.transition.strides());
