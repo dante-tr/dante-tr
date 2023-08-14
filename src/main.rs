@@ -55,14 +55,13 @@ fn main() {
 
             let reconstructed_reference = model.reconstruct_sequence(&annotation);
             let reconstructed_read = model.realign_read(&annotation, &seq); 
+            let mods = model.reconstruct_mod_ids(&annotation);
 
             println!("{} {} {}", read.read_name().unwrap(), repeat, likelihood);
             println!("{}", str::from_utf8(&reconstructed_read).unwrap());
             println!("{}", str::from_utf8(&reconstructed_reference).unwrap());
-            println!("Motif assignment");
+            println!("{}", str::from_utf8(&mods).unwrap());
         }
-        println!();
-        //  report_row()
     }
 }
 

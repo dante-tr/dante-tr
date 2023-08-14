@@ -22,6 +22,8 @@ const P_SNP: f32 = 0.0005;
 const FREQ: f32 = 0.001;
 const DEL: usize = 2; // represents deletion of 1 nucleotide
 
+const ASCII_ZERO: u8 = 48;
+
 pub enum Module {
     Sequence(Vec<u8>),
     Repeat((Vec<u8>, usize)),
@@ -47,8 +49,8 @@ struct MDesc {
 
 enum State {
     Start,
-    Seq{nucl: u8},
-    Motif{nucl: u8},
+    Seq{c: u8, id: u8},
+    Motif{c: u8, id: u8},
     End,
     Ins,
 }
@@ -79,13 +81,14 @@ impl From<&Vec<Module>> for HMM {
 fn get_states(modules: &Vec<Module>) -> Vec<State> {
     let mut states: Vec<State> = Vec::new();
     states.push(State::Start);
-    for module in modules {
+    for (i, module) in modules.iter().enumerate() {
+        let id = i as u8;
         match module {
             Module::Sequence(x) => {
-                for &c in x { states.push(State::Seq{nucl: c}); }
+                for &c in x { states.push(State::Seq{c, id}); }
             },
             Module::Repeat((x, _)) => {
-                for &c in x { states.push(State::Motif{nucl: c}); }
+                for &c in x { states.push(State::Motif{c, id}); }
             }
         }
     }
@@ -233,7 +236,7 @@ fn emission_probabilities(states: &Vec<State>) -> ndarray::Array3<f32> {
                 if i == n_pos { p[[i, j, k]] = P_BASE_N; }
                 else { p[[i, j, k]] = (1.0 - P_BASE_N) / 4.0; }
             }
-            State::Seq{nucl: c} | State::Motif{nucl: c} => {
+            State::Seq{c, ..} | State::Motif{c, ..} => {
                 let c_pos = NUCLEOTIDE_INDEX[c as usize];
                 let x = p_c_eq_c_given_q(j);
 
@@ -317,10 +320,24 @@ impl HMM {
         for &i in path.iter() {
             match self.states[i] {
                 State::Start | State::Ins | State::End => { seq.push(b'-'); },
-                State::Seq{nucl: c} | State::Motif{nucl: c} => { seq.push(c); },
+                State::Seq{c, ..} | State::Motif{c, ..} => { seq.push(c); },
             }
         }
         return seq;
+    }
+
+    pub fn reconstruct_mod_ids(&self, path: &[usize]) -> Vec<u8> {
+        let mut ids = Vec::with_capacity(path.len());
+        for &i in path.iter() {
+            match self.states[i] {
+                State::Start | State::End => { ids.push(b'-'); },
+                State::Ins => { ids.push(b'I'); },
+                State::Seq {c:_, id} | State::Motif {c:_, id} => {
+                    ids.push(ASCII_ZERO + id);
+                }
+            }
+        }
+        return ids;
     }
 
     pub fn realign_read(&self, path: &[usize], seq: &[u8]) -> Vec<u8> {
@@ -369,6 +386,9 @@ mod tests {
         let rebuilt = model.reconstruct_sequence(&annotation);
         let expected = b"--TCTGTCGTCGTCGTC-GTCGTCAAA--".to_vec();
         assert!(rebuilt == expected);
+        let modules = model.reconstruct_mod_ids(&annotation);
+        let expected = b"--000111111111111I111111222--";
+        assert!(modules == expected);
 
     }
 
@@ -491,9 +511,9 @@ mod tests {
     fn emissions_are_correct() {
         let states = vec![
             State::Start,
-            State::Seq{nucl: b'T'}, State::Seq{nucl: b'C'}, State::Seq{nucl: b'T'},
-            State::Motif{nucl: b'G'}, State::Motif{nucl: b'T'}, State::Motif{nucl: b'C'},
-            State::Seq{nucl: b'A'}, State::Seq{nucl: b'A'}, State::Seq{nucl: b'A'},
+            State::Seq{c: b'T', id: 0}, State::Seq{c: b'C', id: 0}, State::Seq{c: b'T', id: 0},
+            State::Motif{c: b'G', id: 1}, State::Motif{c: b'T', id: 0}, State::Motif{c: b'C', id: 1},
+            State::Seq{c: b'A', id: 2}, State::Seq{c: b'A', id: 2}, State::Seq{c: b'A', id: 2},
             State::End,
             State::Ins, State::Ins, State::Ins, State::Ins,
             State::Ins, State::Ins, State::Ins, State::Ins
