@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use ndarray::{self, s, Axis, Array, stack, ArrayView1};
 // https://docs.rs/ndarray/latest/ndarray/doc/ndarray_for_numpy_users/index.html
 
@@ -54,6 +56,7 @@ enum State {
 #[derive(Default)]
 pub struct HMM {
     states: Vec<State>,
+    deletions: HashSet<(usize, usize)>,
     initial: ndarray::Array1<f32>,
     transition: ndarray::Array2<f32>,
     emission: ndarray::Array3<f32>,
@@ -63,12 +66,13 @@ impl From<&Vec<Module>> for HMM {
     fn from(modules: &Vec<Module>) -> Self {
         let states = get_states(modules);
         let description = get_description(modules);
+        let deletions = get_deletions(&states, &description);
 
         let initial = initial_probabilities(&states);
         let transition = transition_probabilities(&states, &description);
         let emission = emission_probabilities(&states);
 
-        HMM { states, initial, transition, emission }
+        HMM { states, deletions, initial, transition, emission }
     }
 }
 
@@ -107,6 +111,27 @@ fn get_description(modules: &Vec<Module>) -> Vec<MDesc> {
         }
     }
     return description;
+}
+
+fn get_deletions(states: &Vec<State>, desc: &Vec<MDesc>) -> HashSet<(usize, usize)> {
+    let mut deletions = HashSet::new();
+
+    let mut bg_end = 0;
+    while !matches!(states[bg_end], State::End) { bg_end += 1; }
+
+    for i in 0..=bg_end-DEL {
+        deletions.insert((i, i+DEL));
+    }
+
+    for m in desc.iter() {
+        if matches!(states[m.start], State::Seq{..}) { continue; }
+        for i in 0..m.len {
+            let del_start = m.start + i;
+            let del_end = m.start + (i + DEL) % m.len;
+            deletions.insert((del_start, del_end));
+        }
+    }
+    return deletions;
 }
 
 fn initial_probabilities(states: &Vec<State>) -> ndarray::Array1<f32> {
@@ -295,7 +320,15 @@ impl HMM {
     }
 
     pub fn realign_read(&self, path: &[usize], seq: &[u8]) -> Vec<u8> {
-        return Vec::new();
+        let mut new_seq = Vec::with_capacity(seq.len());
+        let mut j = 0;
+
+        for i in 0..path.len()-1 {
+            new_seq.push(seq[j]); j += 1;
+            if self.deletions.contains(&(path[i], path[i+1])) { new_seq.push(b'_'); }
+        }
+        new_seq.push(seq[j]);
+        return new_seq;
     }
 }
 
@@ -404,7 +437,9 @@ mod tests {
         let transition = read_npy("data/log_trans_f32.npy").unwrap();
         let emission = read_npy("data/log_emit_f32.npy").unwrap();
 
-        let model = HMM { states: Vec::new(), initial, transition, emission };
+        let model = HMM { 
+            states: Vec::new(), deletions: HashSet::new(), initial, transition, emission 
+        };
         println!("Initial strides: {:?}", model.initial.strides());
         println!("Initial shape: {:?}", model.initial.shape());
         println!("Transition strides: {:?}", model.transition.strides());
