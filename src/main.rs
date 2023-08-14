@@ -7,6 +7,7 @@ use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
 use std::str;
+use clap::Parser;
 
 use crate::repeats::TandemRepeat as TandemRepeat;
 use crate::hmm::HMM;
@@ -15,11 +16,26 @@ use crate::hmm::Module;
 mod repeats;
 mod hmm;
 
+// Predict short tandem repeat annotation
+#[derive(Parser, Debug)]
+struct Args {
+    /// Reference fasta file
+    #[arg(short, long)]
+    fasta: String,
+    /// HGVS nomenclature, one per line
+    #[arg(short, long)]
+    nomenclature: String,
+    /// BAM file, BAI index have to be present
+    #[arg(short, long)]
+    bam: String,
+}
+
 fn main() {
+    let args = Args::parse();
     // read reference
-    let references = read_reference("data/chromosomeX.fna");
+    let references = read_reference(&args.fasta);
     // read nomenclature
-    let hgvs = File::open("data/mini_HGVS.txt").unwrap();
+    let hgvs = File::open(&args.nomenclature).unwrap();
     let reader = BufReader::new(hgvs);
 
     // check nomenclature w.r.t. reference
@@ -35,7 +51,7 @@ fn main() {
     valid_repeats.par_iter().for_each(|repeat| {
         // load bam
         let mut reader = bam::indexed_reader::Builder::default()
-            .build_from_path("data/mini2.bam").unwrap();
+            .build_from_path(&args.bam).unwrap();
         let header = reader.read_header().unwrap();
 
         //  build HMM
