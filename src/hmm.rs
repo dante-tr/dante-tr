@@ -128,7 +128,9 @@ fn get_deletions(states: &Vec<State>, desc: &Vec<MDesc>) -> HashSet<(usize, usiz
         for i in 0..m.len {
             let del_start = m.start + i;
             let del_end = m.start + (i + DEL) % m.len;
-            deletions.insert((del_start, del_end));
+            if (del_start != m.start) & (del_end != m.start + m.len - 1) {
+                deletions.insert((del_start, del_end));
+            }
         }
     }
     return deletions;
@@ -168,7 +170,9 @@ fn transition_probabilities(states: &Vec<State>, desc: &Vec<MDesc>) -> ndarray::
         for i in 0..m.len {
             let del_start = m.start + i;
             let del_end = m.start + (i + DEL) % m.len;
-            p[[del_start, del_end]] = P_DEL;
+            if (del_start != m.start) & (del_end != m_end) {
+                p[[del_start, del_end]] = P_DEL;
+            }
         }
     }
 
@@ -341,7 +345,6 @@ mod tests {
     use ndarray_npy::read_npy;
     use ndarray::Array2;
     use ndarray::Array3;
-    use std::str;
 
     #[test]
     fn basic_test() {
@@ -392,18 +395,28 @@ mod tests {
 
     #[test]
     fn predicts_single_letter_motifs() {
-        // motif_tuple = [
-        //     ('CTTGTTACTAAGCCTGATTT', 1),
-        //     ('A', 11),
-        //     ('TTACTTTCAGATGTCTGTCA', 1)    
-        // ]
-        // sequence = 'AAGCCTGATTTAAAAAAAAAAAAAATTACTTTCAGATGT'
-        // quality =  'FFFFFFFFFFFFFFF::FFF:FFFFFFF:FFFFFF:FFF'
-        //
-        // 4.019535548695593e-06
-        // [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
-        //  21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21,
-        //  22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35]
+        let modules = vec![
+            (&b"CTTGTTACTAAGCCTGATTT"[..]).into(),
+            (&b"A"[..], 11).into(),
+            (&b"TTACTTTCAGATGTCTGTCA"[..]).into(),    
+        ];
+        let model = HMM::from(&modules).log();
+
+        let sequence =
+            b"AAGCCTGATTTAAAAAAAAAAAAAATTACTTTCAGATGT".to_vec();
+        let quality = 
+            b"FFFFFFFFFFFFFFF::FFF:FFFFFFF:FFFFFF:FFF".to_vec();
+        let (likelihood, annotation) = model.log_predict(&sequence, &quality);
+
+        assert!(
+            approx_eq!(f32, likelihood, 4.019535e-06_f32.ln(), (1e-3, 2)),
+            "{likelihood} != {}", 4.019535e-06_f32.ln()
+        );
+        assert!(annotation == vec![
+            10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+            21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21,
+            22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35
+        ]);
     }
 
     #[test]

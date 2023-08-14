@@ -53,13 +53,12 @@ fn main() {
             let qual: Vec<_> = read.quality_scores().as_ref().iter().map(|&x| remap(x)).collect();
             let (likelihood, annotation) = model.log_predict(&seq, &qual);
 
-            let new_seq = model.reconstruct_sequence(&annotation);
-            // let deletions = model.get_deletions(&annotation);
-            // let (seq, qual) = realign(seq, qual, deletions);
+            let reconstructed_reference = model.reconstruct_sequence(&annotation);
+            let reconstructed_read = model.realign_read(&annotation, &seq); 
 
             println!("{} {} {}", read.read_name().unwrap(), repeat, likelihood);
-            println!("{}", str::from_utf8(&seq).unwrap());
-            println!("New seq");
+            println!("{}", str::from_utf8(&reconstructed_read).unwrap());
+            println!("{}", str::from_utf8(&reconstructed_reference).unwrap());
             println!("Motif assignment");
         }
         println!();
