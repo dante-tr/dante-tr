@@ -32,35 +32,25 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
-    // read reference
     let references = read_reference(&args.fasta);
-    // read nomenclature
-    let hgvs = File::open(&args.nomenclature).unwrap();
-    let reader = BufReader::new(hgvs);
+    let repeats = read_nomenclature(&args.nomenclature);
 
-    // check nomenclature w.r.t. reference
     let mut valid_repeats = Vec::new();
-    for line in reader.lines() {
-        let line = line.unwrap().trim().to_owned();
-        let tr: TandemRepeat = line.parse().unwrap();
-        if is_present(&tr, &references) {
-            valid_repeats.push(tr);
+    for repeat in repeats {
+        if is_present(&repeat, &references) {
+            valid_repeats.push(repeat);
         }
     }
 
     valid_repeats.par_iter().for_each(|repeat| {
-        // load bam
         let mut reader = bam::indexed_reader::Builder::default()
             .build_from_path(&args.bam).unwrap();
         let header = reader.read_header().unwrap();
 
-        //  build HMM
         let modules = get_modules(&repeat, &references, 20);
         let model = HMM::from(&modules).log();
 
-        //  select relevant reads
-        let tmp = format!("{}:{}-{}", repeat.reference, repeat.start+1, repeat.end);
-        let region = tmp.parse().unwrap();
+        let region = format!("{}:{}-{}", repeat.reference, repeat.start+1, repeat.end).parse().unwrap();
         let reads = reader.query(&header, &region).unwrap();
 
         for read in reads {
@@ -105,6 +95,23 @@ fn read_reference(filename: &str) -> HashMap<String, Vec<u8>> {
     }
     return result;
 }
+
+fn read_nomenclature(filename: &str) -> Vec<TandemRepeat> {
+    let mut repeats = Vec::new();
+    
+    let file = File::open(filename).expect("Cannot find nomenclature file.");
+    let reader = BufReader::new(file);
+
+    for line in reader.lines() {
+        let line = line
+            .expect("Cannot read line from nomenclature file.")
+            .trim().to_owned();
+        let repeat = line.parse().expect("Cannot parse nomenclature.");
+        repeats.push(repeat);
+    }
+    return repeats;
+}
+
 
 fn ref_region<'a>(
     refseq: &'a HashMap<String, Vec<u8>>, id: &str, start: usize, end: usize
