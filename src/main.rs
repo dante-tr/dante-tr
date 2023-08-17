@@ -1,3 +1,4 @@
+use clap::Parser;
 use noodles::bam as bam;
 use noodles::fasta as fasta;
 use noodles::sam::record::quality_scores::Score;
@@ -7,14 +8,13 @@ use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
 use std::str;
-use clap::Parser;
 
-use crate::repeats::TandemRepeat as TandemRepeat;
 use crate::hmm::HMM;
 use crate::hmm::Module;
+use crate::repeats::TandemRepeat;
 
-mod repeats;
 mod hmm;
+mod repeats;
 
 // Predict short tandem repeat annotation
 #[derive(Parser, Debug)]
@@ -34,6 +34,7 @@ fn main() {
     let args = Args::parse();
     let references = read_reference(&args.fasta);
     let repeats = read_nomenclature(&args.nomenclature);
+    let bam_refs = read_bam_refs(&args.bam);
 
     let mut valid_repeats = Vec::new();
     for repeat in repeats {
@@ -112,6 +113,20 @@ fn read_nomenclature(filename: &str) -> Vec<TandemRepeat> {
     return repeats;
 }
 
+fn read_bam_refs(filename: &str) -> HashMap<String, usize> {
+    let mut result = HashMap::new();
+    
+    let file = File::open(filename).unwrap();
+    let header = bam::Reader::new(file).read_header().unwrap();
+
+    for s in header.reference_sequences().iter() {
+        let name = s.0.to_string();
+        let length = s.1.length().get();
+        result.insert(name.clone(), length);
+    }
+    return result;
+}
+
 
 fn ref_region<'a>(
     refseq: &'a HashMap<String, Vec<u8>>, id: &str, start: usize, end: usize
@@ -163,16 +178,43 @@ mod tests {
     use super::*;
 
     #[test]
-    fn can_load_bam() {
-        let mut reader = bam::indexed_reader::Builder::default()
-            .build_from_path("data/mini.bam").unwrap();
+    fn can_get_sequence_id_from_bam() {
+        let filename: &str = "data/mini2.bam";
+        let file = File::open(filename).unwrap();
+        let index = bam::bai::read(filename.to_owned() + ".bai").unwrap();
+        let mut reader = bam::IndexedReader::new(file.try_clone().unwrap(), index.clone());
 
         let header = reader.read_header().unwrap();
-
-        for result in reader.records(&header) {
-            let record = result.unwrap();
-            println!("{:?}", record);
+        let seqs = header.reference_sequences();
+        for s in seqs.iter() {
+            let name = s.0.to_string();
+            let length = s.1.length().get();
+            println!("{} {}", name, length);
         }
+    }
+
+    #[test]
+    fn can_get_sequence_id_from_fasta() {
+        let filename = "data/chromosomeX.fna";
+        let file = File::open(filename).unwrap();
+        let mut reader = fasta::Reader::new(BufReader::new(file));
+
+        for record in reader.records() {
+            let record = record.unwrap();
+            let name = record.name().to_string();
+            let length = record.sequence().len();
+            println!("{} {}", name, length);
+        }
+    }
+
+    #[test]
+    fn test_reference_checking() {
+        let references = read_reference("data/chromosomeX.fna");
+        let repeats = read_nomenclature("data/mini_HGVS.txt");
+        let bam_refs = read_bam_refs("data/mini2.bam");
+        println!("{:?}", references.keys());
+        println!("{:?}", repeats);
+        println!("{:?}", bam_refs);
     }
 
     #[test]
