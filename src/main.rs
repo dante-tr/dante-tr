@@ -215,6 +215,32 @@ mod tests {
         println!("{:?}", references.keys());
         println!("{:?}", repeats);
         println!("{:?}", bam_refs);
+
+        // check nomenclatures w.r.t. reference
+        for r in repeats {
+            let seq = match references.get(&r.reference) {
+                None => { println!("{} not in reference", r.reference); continue; }
+                Some(s) => { s }
+            };
+            if r.end > seq.len() { 
+                println!("{} is out of bound of reference", r);
+                continue;
+            }
+            println!("{} is correct", r);
+        }
+
+        // check bam w.r.t. reference
+        for (k, v) in bam_refs {
+            let seq = match references.get(&k) {
+                None => { println!("{} not in reference", k); continue; },
+                Some(s) => { s }
+            };
+            if v != seq.len() {
+                println!("{} seq is not the same", k);
+                continue;
+            }
+            println!("{} is correct", k);
+        } 
     }
 
     #[test]
