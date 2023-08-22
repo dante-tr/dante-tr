@@ -48,6 +48,7 @@ fn main() {
         }
     }
 
+    println!("read_id\tread_sn\tmotif\tlog_likelihood\tread\treference\tmodules");
     valid_repeats.par_iter().for_each(|repeat| {
         // load bam
         let mut reader = bam::indexed_reader::Builder::default()
@@ -63,7 +64,7 @@ fn main() {
         let region = tmp.parse().unwrap();
         let reads = reader.query(&header, &region).unwrap();
 
-        for read in reads {
+        for (i, read) in reads.enumerate() {
             let read = read.expect("Incorrect read.");
             let seq: Vec<_> = read.sequence().as_ref().iter().map(|&x| x.into()).collect();
             let qual: Vec<_> = read.quality_scores().as_ref().iter().map(|&x| remap(x)).collect();
@@ -73,8 +74,8 @@ fn main() {
             let reconstructed_read = model.realign_read(&annotation, &seq); 
             let mods = model.reconstruct_mod_ids(&annotation);
 
-            println!(">{} {} {}\n{}\n{}\n{}", 
-                read.read_name().unwrap(), repeat, likelihood,
+            println!("{}\t{}\t{}\t{}\t{}\t{}\t{}", 
+                read.read_name().unwrap(), i, repeat, likelihood,
                 str::from_utf8(&reconstructed_read).unwrap(),
                 str::from_utf8(&reconstructed_reference).unwrap(),
                 str::from_utf8(&mods).unwrap()
