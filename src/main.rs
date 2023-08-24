@@ -1,4 +1,3 @@
-use clap::Parser;
 use noodles::bam as bam;
 use noodles::fasta as fasta;
 use noodles::sam::record::quality_scores::Score;
@@ -8,33 +7,22 @@ use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
 use std::str;
+use clap::Parser;
 
 use crate::hmm::HMM;
 use crate::hmm::Module;
 use crate::repeats::TandemRepeat;
+use crate::cli::Args;
 
 mod hmm;
 mod repeats;
-
-// Predict short tandem repeat annotation
-#[derive(Parser, Debug)]
-struct Args {
-    /// Reference fasta file
-    #[arg(short, long)]
-    fasta: String,
-    /// HGVS nomenclature, one per line
-    #[arg(short, long)]
-    nomenclature: String,
-    /// BAM file, BAI index have to be present
-    #[arg(short, long)]
-    bam: String,
-}
+mod cli;
 
 fn main() {
     let args = Args::parse();
-    let references = read_reference(&args.fasta);
-    let repeats = read_nomenclature(&args.nomenclature);
-    let bam_refs = read_bam_refs(&args.bam);
+    let references = read_reference(&args.ref_file);
+    let repeats = read_nomenclature(&args.hgvs_file);
+    let bam_refs = read_bam_refs(&args.bam_file);
 
     let mut valid_repeats = Vec::new();
     for repeat in repeats {
@@ -45,7 +33,7 @@ fn main() {
 
     valid_repeats.par_iter().for_each(|repeat| {
         let mut reader = bam::indexed_reader::Builder::default()
-            .build_from_path(&args.bam).unwrap();
+            .build_from_path(&args.bam_file).unwrap();
         let header = reader.read_header().unwrap();
 
         let modules = get_modules(&repeat, &references, 20);
