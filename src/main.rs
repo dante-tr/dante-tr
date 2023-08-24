@@ -170,6 +170,90 @@ fn get_modules(
     return modules;
 }
 
+fn hgvs_wrt_ref_is_valid(repeats: &[TandemRepeat], references: &HashMap<String, Vec<u8>>) -> bool {
+    for tr in repeats {
+        let seq = match references.get(&tr.reference) {
+            None => {
+                println!("{} not found in reference.", tr.reference); 
+                return false;
+            }
+            Some(s) => { s }
+        };
+        if tr.end > seq.len() { 
+            println!("{}'s end is longer than reference sequence", tr);
+            return false;
+        }
+    }
+    return true;
+}
+
+fn bam_wrt_ref_is_valid(bam_refs: &HashMap<String, usize>, references: &HashMap<String, Vec<u8>>) -> bool {
+    for (id, &len) in bam_refs {
+        let seq = match references.get(id) {
+            None => {
+                println!("{} not found in reference.", id);
+                return false;
+            },
+            Some(s) => { s }
+        };
+        if len != seq.len() {
+            println!("{} lengths differ in bam and fasta.", id);
+            return false;
+        }
+    } 
+    return true;
+}
+
+fn fix_reference(
+    references: HashMap<String, Vec<u8>>, bam_refs: &HashMap<String, usize>, mapping: String
+) -> HashMap<String, Vec<u8>> {
+    return HashMap::new();
+}
+
+fn correct_ref(references: HashMap<String, Vec<u8>>) -> HashMap<String, Vec<u8>> {
+    let mut result = HashMap::new();
+    // chr1    248956422
+    // chr2    242193529
+    // chr3    198295559
+    // chr4    190214555
+    // chr5    181538259
+    // chr6    170805979
+    // chr7    159345973
+    // chr8    145138636
+    // chr9    138394717
+    // chr10   133797422
+    // chr11   135086622
+    // chr12   133275309
+    // chr13   114364328
+    // chr14   107043718
+    // chr15   101991189
+    // chr16   90338345
+    // chr17   83257441
+    // chr18   80373285
+    // chr19   58617616
+    // chr20   64444167
+    // chr21   46709983
+    // chr22   50818468
+    // chrX    156040895
+    // chrY    57227415
+    // chrM    16569
+
+//     for (id, seq) in references {
+//         let new_id = "".to_string();
+//         result.insert(new_id, seq);
+//     }
+//     for item in ref_map {
+//         let new_id = "".to_string();
+//         let seq = "N".repeat(1000);
+//         result.insert(new_id, seq);
+//     }
+    return result;
+}
+
+fn correct_repeats(repeats: Vec<TandemRepeat>) -> Vec<TandemRepeat> {
+    return repeats;
+}
+
 #[cfg(test)]
 mod tests {
     use hgvs::parser::HgvsVariant;
@@ -209,38 +293,29 @@ mod tests {
 
     #[test]
     fn test_reference_checking() {
-        let references = read_reference("data/chromosomeX.fna");
-        let repeats = read_nomenclature("data/mini_HGVS.txt");
-        let bam_refs = read_bam_refs("data/mini2.bam");
+        let bam_refs = read_bam_refs("/home/balaz/projects/STRs/remaSTR/data/real/twist_S22-157-01_S1.bam");
+        let mut references = read_reference("data/chromosomeX.fna");
+        let mut repeats = read_nomenclature("data/mini_HGVS.txt");
+        for (k, v) in &bam_refs { println!("{}\t{}", k, v); }
         println!("{:?}", references.keys());
         println!("{:?}", repeats);
-        println!("{:?}", bam_refs);
 
-        // check nomenclatures w.r.t. reference
-        for r in repeats {
-            let seq = match references.get(&r.reference) {
-                None => { println!("{} not in reference", r.reference); continue; }
-                Some(s) => { s }
-            };
-            if r.end > seq.len() { 
-                println!("{} is out of bound of reference", r);
-                continue;
+        if ! bam_wrt_ref_is_valid(&bam_refs, &references) {
+            println!("IDs in bam and reference differ. Attempting correction of reference... ");
+            references = correct_ref(references);
+            match bam_wrt_ref_is_valid(&bam_refs, &references) {
+                true => { println!("Success!"); }
+                false => { panic!("Unable to correct reference!"); }
             }
-            println!("{} is correct", r);
         }
-
-        // check bam w.r.t. reference
-        for (k, v) in bam_refs {
-            let seq = match references.get(&k) {
-                None => { println!("{} not in reference", k); continue; },
-                Some(s) => { s }
-            };
-            if v != seq.len() {
-                println!("{} seq is not the same", k);
-                continue;
+        if ! hgvs_wrt_ref_is_valid(&repeats, &references) {
+            println!("IDs in hgvs and reference differ. Attempting correction of hgvs... ");
+            repeats = correct_repeats(repeats);
+            match hgvs_wrt_ref_is_valid(&repeats, &references) {
+                true => { println!("Success!"); },
+                false => { panic!("Unable to correct repeats!"); }
             }
-            println!("{} is correct", k);
-        } 
+        }
     }
 
     #[test]
