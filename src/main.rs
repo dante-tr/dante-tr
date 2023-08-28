@@ -48,8 +48,8 @@ fn main() {
             let qual: Vec<_> = read.quality_scores().as_ref().iter().map(|&x| remap(x)).collect();
             let (likelihood, annotation) = model.log_predict(&seq, &qual);
 
-            let reconstructed_reference = model.reconstruct_sequence(&annotation);
             let reconstructed_read = model.realign_read(&annotation, &seq); 
+            let reconstructed_reference = model.reconstruct_sequence(&annotation);
             let mods = model.reconstruct_mod_ids(&annotation);
 
             println!(">{} {} {}\n{}\n{}\n{}", 
@@ -87,7 +87,7 @@ fn read_reference(filename: &str) -> HashMap<String, Vec<u8>> {
 
 fn read_nomenclature(filename: &str) -> Vec<TandemRepeat> {
     let mut repeats = Vec::new();
-    
+
     let file = File::open(filename).expect("Cannot find nomenclature file.");
     let reader = BufReader::new(file);
 
@@ -103,7 +103,7 @@ fn read_nomenclature(filename: &str) -> Vec<TandemRepeat> {
 
 fn read_bam_refs(filename: &str) -> HashMap<String, usize> {
     let mut result = HashMap::new();
-    
+
     let file = File::open(filename).unwrap();
     let header = bam::Reader::new(file).read_header().unwrap();
 
@@ -175,6 +175,23 @@ fn hgvs_wrt_ref_is_valid(repeats: &[TandemRepeat], references: &HashMap<String, 
     return true;
 }
 
+fn ref_wrt_bam_is_valid(bam_refs: &HashMap<String, usize>, references: &HashMap<String, Vec<u8>>) -> bool {
+    for (id, seq) in references {
+        let len = match bam_refs.get(id) {
+            Some(n) => { *n },
+            None => {
+                println!("{} not found in bam.", id);
+                return false;
+            }
+        };
+        if len != seq.len() {
+            println!("{} lengths in bam and fasta differ.", id);
+            return false;
+        }
+    }
+    return true;
+}
+
 fn bam_wrt_ref_is_valid(bam_refs: &HashMap<String, usize>, references: &HashMap<String, Vec<u8>>) -> bool {
     for (id, &len) in bam_refs {
         let seq = match references.get(id) {
@@ -196,7 +213,7 @@ fn fix_reference(
     references: HashMap<String, Vec<u8>>, bam_refs: &HashMap<String, usize>, mapping: &str
 ) -> HashMap<String, Vec<u8>> {
     let mut result = HashMap::new();
-    
+
     let m = HashMap::from([("NC_000023.11", "chrX")]);
     let mut br = bam_refs.clone();
     for (id, seq) in references {
@@ -207,11 +224,6 @@ fn fix_reference(
         result.insert(new_id.to_string(), seq);
         br.remove(&new_id[..]);
     }
-    // for item in ref_map {
-    //     let new_id = "".to_string();
-    //     let seq = "N".repeat(1000);
-    //     result.insert(new_id, seq);
-    // }
     return result;
 }
 
@@ -297,46 +309,19 @@ mod tests {
     }
 
     #[test]
-    fn test_reference_checking() {
-        let bam_refs = read_bam_refs("/home/balaz/projects/STRs/remaSTR/data/real/twist_S22-157-01_S1.bam");
-        let mut references = read_reference("data/chromosomeX.fna");
-        let mut repeats = read_nomenclature("data/mini_HGVS.txt");
-        for (k, v) in &bam_refs { println!("{}\t{}", k, v); }
-        println!("{:?}", references.keys());
-        println!("{:?}", repeats);
-
-        if ! bam_wrt_ref_is_valid(&bam_refs, &references) {
-            println!("IDs in bam and reference differ. Attempting correction of reference... ");
-            references = correct_ref(references);
-            match bam_wrt_ref_is_valid(&bam_refs, &references) {
-                true => { println!("Success!"); }
-                false => { panic!("Unable to correct reference!"); }
-            }
-        }
-        if ! hgvs_wrt_ref_is_valid(&repeats, &references) {
-            println!("IDs in hgvs and reference differ. Attempting correction of hgvs... ");
-            repeats = correct_repeats(repeats);
-            match hgvs_wrt_ref_is_valid(&repeats, &references) {
-                true => { println!("Success!"); },
-                false => { panic!("Unable to correct repeats!"); }
-            }
-        }
-    }
-
-    #[test]
     fn input_can_be_remapped() {
         let args = Args::try_parse_from([
             "remastr",
             "-f", "data/chromosomeX.fna",
             "-b", "data/real/twist_S22-157-01_S1.bam",
-            "-n", "data/chromosomeX.fna",
+            "-n", "data/HGVS.txt",
             "--map1", "data/chromosomeX_to_bam_map.txt"
         ]).unwrap();
 
         let bam_refs = read_bam_refs(&args.bam_file);
         let mut references = read_reference(&args.ref_file);
 
-        if ! bam_wrt_ref_is_valid(&bam_refs, &references) {
+        if ! ref_wrt_bam_is_valid(&bam_refs, &references) {
             println!("IDs in BAM and reference differ. Attempting correction of reference... ");
             if let Some(ref2bam) = args.ref2bam {
                 println!("Correcting with map provided in {}.", ref2bam);
@@ -345,12 +330,40 @@ mod tests {
                 println!("Correcting with best effort heuristic.");
             }
 
-            match bam_wrt_ref_is_valid(&bam_refs, &references) {
+            match ref_wrt_bam_is_valid(&bam_refs, &references) {
                 true => { println!("Success!"); }
                 false => { panic!("Unable to correct reference!"); }
             }
         }
+    }
 
+    #[test]
+    fn nomenclature_can_be_remapped() {
+        let args = Args::try_parse_from([
+            "remastr",
+            "-f", "data/chromosomeX.fna",
+            "-b", "data/real/twist_S22-157-01_S1.bam",
+            "-n", "data/HGVS.txt",
+            "--map1", "data/chromosomeX_to_bam_map.txt"
+        ]).unwrap();
+
+        let bam_refs = read_bam_refs(&args.bam_file);
+        let mut repeats = read_nomenclature("data/mini_HGVS.txt");
+
+        // if ! hgvs_wrt_bam_is_valid(&bam_refs, &repeats) {
+        //     println!("IDs in BAM and nomenclature differ. Attempting correction of reference... ");
+        //     if let Some(ref2bam) = args.ref2bam {
+        //         println!("Correcting with map provided in {}.", ref2bam);
+        //         references = fix_reference(references, &bam_refs, &ref2bam);
+        //     } else {
+        //         println!("Correcting with best effort heuristic.");
+        //     }
+
+        //     match ref_wrt_bam_is_valid(&bam_refs, &references) {
+        //         true => { println!("Success!"); }
+        //         false => { panic!("Unable to correct reference!"); }
+        //     }
+        // }
     }
 
     #[test]
