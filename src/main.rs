@@ -158,17 +158,34 @@ fn get_modules(
     return modules;
 }
 
-fn hgvs_wrt_ref_is_valid(repeats: &[TandemRepeat], references: &HashMap<String, Vec<u8>>) -> bool {
+// fn hgvs_wrt_ref_is_valid(repeats: &[TandemRepeat], references: &HashMap<String, Vec<u8>>) -> bool {
+//     for tr in repeats {
+//         let seq = match references.get(&tr.reference) {
+//             None => {
+//                 println!("{} not found in reference.", tr.reference); 
+//                 return false;
+//             }
+//             Some(s) => { s }
+//         };
+//         if tr.end > seq.len() { 
+//             println!("{}'s end is longer than reference sequence", tr);
+//             return false;
+//         }
+//     }
+//     return true;
+// }
+
+fn hgvs_wrt_bam_is_valid(bam_refs: &HashMap<String, usize>, repeats: &[TandemRepeat]) -> bool {
     for tr in repeats {
-        let seq = match references.get(&tr.reference) {
+        let len = match bam_refs.get(&tr.reference) {
+            Some(n) => { *n },
             None => {
-                println!("{} not found in reference.", tr.reference); 
+                println!("{} not found in bam.", &tr.reference);
                 return false;
             }
-            Some(s) => { s }
         };
-        if tr.end > seq.len() { 
-            println!("{}'s end is longer than reference sequence", tr);
+        if len < tr.end {
+            println!("reference sequence is shorter than {}'s end", tr);
             return false;
         }
     }
@@ -192,22 +209,22 @@ fn ref_wrt_bam_is_valid(bam_refs: &HashMap<String, usize>, references: &HashMap<
     return true;
 }
 
-fn bam_wrt_ref_is_valid(bam_refs: &HashMap<String, usize>, references: &HashMap<String, Vec<u8>>) -> bool {
-    for (id, &len) in bam_refs {
-        let seq = match references.get(id) {
-            None => {
-                println!("{} not found in reference.", id);
-                return false;
-            },
-            Some(s) => { s }
-        };
-        if len != seq.len() {
-            println!("{} lengths differ in bam and fasta.", id);
-            return false;
-        }
-    } 
-    return true;
-}
+// fn bam_wrt_ref_is_valid(bam_refs: &HashMap<String, usize>, references: &HashMap<String, Vec<u8>>) -> bool {
+//     for (id, &len) in bam_refs {
+//         let seq = match references.get(id) {
+//             None => {
+//                 println!("{} not found in reference.", id);
+//                 return false;
+//             },
+//             Some(s) => { s }
+//         };
+//         if len != seq.len() {
+//             println!("{} lengths differ in bam and fasta.", id);
+//             return false;
+//         }
+//     } 
+//     return true;
+// }
 
 fn fix_reference(
     references: HashMap<String, Vec<u8>>, bam_refs: &HashMap<String, usize>, mapping: &str
@@ -227,49 +244,22 @@ fn fix_reference(
     return result;
 }
 
-fn correct_ref(references: HashMap<String, Vec<u8>>) -> HashMap<String, Vec<u8>> {
-    let mut result = HashMap::new();
-    // chr1    248956422
-    // chr2    242193529
-    // chr3    198295559
-    // chr4    190214555
-    // chr5    181538259
-    // chr6    170805979
-    // chr7    159345973
-    // chr8    145138636
-    // chr9    138394717
-    // chr10   133797422
-    // chr11   135086622
-    // chr12   133275309
-    // chr13   114364328
-    // chr14   107043718
-    // chr15   101991189
-    // chr16   90338345
-    // chr17   83257441
-    // chr18   80373285
-    // chr19   58617616
-    // chr20   64444167
-    // chr21   46709983
-    // chr22   50818468
-    // chrX    156040895
-    // chrY    57227415
-    // chrM    16569
+fn fix_repeats(repeats: Vec<TandemRepeat>, mapping: &str) -> Vec<TandemRepeat> {
+    let mut result = Vec::with_capacity(repeats.len());
 
-//     for (id, seq) in references {
-//         let new_id = "".to_string();
-//         result.insert(new_id, seq);
-//     }
-//     for item in ref_map {
-//         let new_id = "".to_string();
-//         let seq = "N".repeat(1000);
-//         result.insert(new_id, seq);
-//     }
+    println!("Loading from {}", mapping);
+    let m = HashMap::from([("NC_000023.11", "chrX")]);
+
+    for tr in repeats {
+        let new_id = match m.get(&tr.reference[..]) {
+            Some(x) => { x.to_string() },
+            None => { panic!(); }
+        };
+        result.push(TandemRepeat{reference: new_id, ..tr})
+    }
     return result;
 }
 
-fn correct_repeats(repeats: Vec<TandemRepeat>) -> Vec<TandemRepeat> {
-    return repeats;
-}
 
 #[cfg(test)]
 mod tests {
@@ -350,20 +340,22 @@ mod tests {
         let bam_refs = read_bam_refs(&args.bam_file);
         let mut repeats = read_nomenclature("data/mini_HGVS.txt");
 
-        // if ! hgvs_wrt_bam_is_valid(&bam_refs, &repeats) {
-        //     println!("IDs in BAM and nomenclature differ. Attempting correction of reference... ");
-        //     if let Some(ref2bam) = args.ref2bam {
-        //         println!("Correcting with map provided in {}.", ref2bam);
-        //         references = fix_reference(references, &bam_refs, &ref2bam);
-        //     } else {
-        //         println!("Correcting with best effort heuristic.");
-        //     }
+        if ! hgvs_wrt_bam_is_valid(&bam_refs, &repeats) {
+            println!("IDs in BAM and nomenclature differ. Attempting correction of nomenclature... ");
+            if let Some(hgvs2bam) = args.hgvs2bam {
+                println!("Correcting with map provided in {}.", hgvs2bam);
+            } else if let Some(ref2bam) = args.ref2bam {
+                println!("Correcting with map provided in {}.", ref2bam);
+                repeats = fix_repeats(repeats, &ref2bam);
+            } else {
+                println!("Correcting with best effort heuristic.");
+            }
 
-        //     match ref_wrt_bam_is_valid(&bam_refs, &references) {
-        //         true => { println!("Success!"); }
-        //         false => { panic!("Unable to correct reference!"); }
-        //     }
-        // }
+            match hgvs_wrt_bam_is_valid(&bam_refs, &repeats) {
+                true => { println!("Success!"); }
+                false => { panic!("Unable to correct reference!"); }
+            }
+        }
     }
 
     #[test]
