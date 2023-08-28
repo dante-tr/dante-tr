@@ -269,36 +269,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn can_get_sequence_id_from_bam() {
-        let filename: &str = "data/mini2.bam";
-        let file = File::open(filename).unwrap();
-        let index = bam::bai::read(filename.to_owned() + ".bai").unwrap();
-        let mut reader = bam::IndexedReader::new(file.try_clone().unwrap(), index.clone());
-
-        let header = reader.read_header().unwrap();
-        let seqs = header.reference_sequences();
-        for s in seqs.iter() {
-            let name = s.0.to_string();
-            let length = s.1.length().get();
-            println!("{} {}", name, length);
-        }
-    }
-
-    #[test]
-    fn can_get_sequence_id_from_fasta() {
-        let filename = "data/chromosomeX.fna";
-        let file = File::open(filename).unwrap();
-        let mut reader = fasta::Reader::new(BufReader::new(file));
-
-        for record in reader.records() {
-            let record = record.unwrap();
-            let name = record.name().to_string();
-            let length = record.sequence().len();
-            println!("{} {}", name, length);
-        }
-    }
-
-    #[test]
     fn input_can_be_remapped() {
         let args = Args::try_parse_from([
             "remastr",
@@ -438,6 +408,36 @@ mod tests {
             println!("{}", line);
             let tr: TandemRepeat = line.parse().unwrap();
             println!("{:?}", tr);
+        }
+    }
+
+    #[test]
+    fn can_get_sequence_id_from_bam() {
+        let filename: &str = "data/mini2.bam";
+        let file = File::open(filename).unwrap();
+        let index = bam::bai::read(filename.to_owned() + ".bai").unwrap();
+        let mut reader = bam::IndexedReader::new(file.try_clone().unwrap(), index.clone());
+
+        let header = reader.read_header().unwrap();
+        let seqs = header.reference_sequences();
+        for s in seqs.iter() {
+            let name = s.0.to_string();
+            let length = s.1.length().get();
+            println!("{} {}", name, length);
+        }
+    }
+
+    #[test]
+    fn can_get_sequence_id_from_fasta() {
+        let filename = "data/chromosomeX.fna";
+        let file = File::open(filename).unwrap();
+        let mut reader = fasta::Reader::new(BufReader::new(file));
+
+        for record in reader.records() {
+            let record = record.unwrap();
+            let name = record.name().to_string();
+            let length = record.sequence().len();
+            println!("{} {}", name, length);
         }
     }
 }
