@@ -12,39 +12,41 @@ use clap::Parser;
 use crate::repeats::TandemRepeat as TandemRepeat;
 use crate::hmm::HMM;
 use crate::hmm::Module;
+use crate::consistency::ensure_consistency;
 
+mod consistency;
 mod repeats;
 mod hmm;
 
 // Predict short tandem repeat annotation
-#[derive(Parser, Debug)]
-struct Args {
-    /// Reference fasta file
-    #[arg(short, long)]
-    fasta: String,
-    /// HGVS nomenclature, one per line
-    #[arg(short, long)]
-    nomenclature: String,
-    /// BAM file, BAI index have to be present
-    #[arg(short, long)]
-    bam: String,
+#[derive(Parser)]
+pub struct Args {
+    /// Reference in FASTA format
+    #[arg(short='f')]
+    pub ref_file: String,
+
+    /// Reads mapped to reference in BAM format, index (.bai) has to be present
+    #[arg(short='b')]
+    pub bam_file: String,
+
+    /// Repeats in HGVS nomenclature, one per line
+    #[arg(short='n')]
+    pub hgvs_file: String,
 }
 
 fn main() {
     let args = Args::parse();
-    // read reference
-    let references = read_reference(&args.fasta);
-    // read nomenclature
-    let hgvs = File::open(&args.nomenclature).unwrap();
-    let reader = BufReader::new(hgvs);
 
-    // check nomenclature w.r.t. reference
+    let bam_refs = read_bam_refs(&args.bam_file);
+    let references = read_reference(&args.ref_file);
+    let repeats = read_nomenclature(&args.hgvs_file);
+
+    let (references, repeats) = ensure_consistency(bam_refs, references, repeats);
+
     let mut valid_repeats = Vec::new();
-    for line in reader.lines() {
-        let line = line.unwrap().trim().to_owned();
-        let tr: TandemRepeat = line.parse().unwrap();
-        if is_present(&tr, &references) {
-            valid_repeats.push(tr);
+    for repeat in repeats {
+        if is_present(&repeat, &references) {
+            valid_repeats.push(repeat);
         }
     }
 
@@ -52,7 +54,8 @@ fn main() {
     valid_repeats.par_iter().for_each(|repeat| {
         // load bam
         let mut reader = bam::indexed_reader::Builder::default()
-            .build_from_path(&args.bam).unwrap();
+            .build_from_path(&args.bam_file)
+            .expect("Unable to read the associated index (.bai).");
         let header = reader.read_header().unwrap();
 
         //  build HMM
@@ -84,9 +87,18 @@ fn main() {
     })
 }
 
-fn remap(x: Score) -> u8 {
-    let c: char = x.into();
-    return c as u8;
+fn read_bam_refs(filename: &str) -> HashMap<String, usize> {
+    let mut result = HashMap::new();
+
+    let file = File::open(filename).unwrap();
+    let header = bam::Reader::new(file).read_header().unwrap();
+
+    for s in header.reference_sequences().iter() {
+        let name = s.0.to_string();
+        let length = s.1.length().get();
+        result.insert(name.clone(), length);
+    }
+    return result;
 }
 
 fn read_reference(filename: &str) -> HashMap<String, Vec<u8>> {
@@ -105,6 +117,22 @@ fn read_reference(filename: &str) -> HashMap<String, Vec<u8>> {
         );
     }
     return result;
+}
+
+fn read_nomenclature(filename: &str) -> Vec<TandemRepeat> {
+    let mut repeats = Vec::new();
+
+    let file = File::open(filename).expect("Cannot find nomenclature file.");
+    let reader = BufReader::new(file);
+
+    for line in reader.lines() {
+        let line = line
+            .expect("Cannot read line from nomenclature file.")
+            .trim().to_owned();
+        let repeat = line.parse().expect("Cannot parse nomenclature.");
+        repeats.push(repeat);
+    }
+    return repeats;
 }
 
 fn ref_region<'a>(
@@ -147,6 +175,11 @@ fn get_modules(
     }
     modules.push(right_flank.into());
     return modules;
+}
+
+fn remap(x: Score) -> u8 {
+    let c: char = x.into();
+    return c as u8;
 }
 
 #[cfg(test)]
