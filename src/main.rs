@@ -17,6 +17,7 @@ use crate::cli::Args;
 mod hmm;
 mod repeats;
 mod cli;
+mod fuzzy;
 
 fn main() {
     let args = Args::parse();
@@ -158,175 +159,12 @@ fn get_modules(
     return modules;
 }
 
-// fn hgvs_wrt_ref_is_valid(repeats: &[TandemRepeat], references: &HashMap<String, Vec<u8>>) -> bool {
-//     for tr in repeats {
-//         let seq = match references.get(&tr.reference) {
-//             None => {
-//                 println!("{} not found in reference.", tr.reference); 
-//                 return false;
-//             }
-//             Some(s) => { s }
-//         };
-//         if tr.end > seq.len() { 
-//             println!("{}'s end is longer than reference sequence", tr);
-//             return false;
-//         }
-//     }
-//     return true;
-// }
-
-fn hgvs_wrt_bam_is_valid(bam_refs: &HashMap<String, usize>, repeats: &[TandemRepeat]) -> bool {
-    for tr in repeats {
-        let len = match bam_refs.get(&tr.reference) {
-            Some(n) => { *n },
-            None => {
-                println!("{} not found in bam.", &tr.reference);
-                return false;
-            }
-        };
-        if len < tr.end {
-            println!("reference sequence is shorter than {}'s end", tr);
-            return false;
-        }
-    }
-    return true;
-}
-
-fn ref_wrt_bam_is_valid(bam_refs: &HashMap<String, usize>, references: &HashMap<String, Vec<u8>>) -> bool {
-    for (id, seq) in references {
-        let len = match bam_refs.get(id) {
-            Some(n) => { *n },
-            None => {
-                println!("{} not found in bam.", id);
-                return false;
-            }
-        };
-        if len != seq.len() {
-            println!("{} lengths in bam and fasta differ.", id);
-            return false;
-        }
-    }
-    return true;
-}
-
-// fn bam_wrt_ref_is_valid(bam_refs: &HashMap<String, usize>, references: &HashMap<String, Vec<u8>>) -> bool {
-//     for (id, &len) in bam_refs {
-//         let seq = match references.get(id) {
-//             None => {
-//                 println!("{} not found in reference.", id);
-//                 return false;
-//             },
-//             Some(s) => { s }
-//         };
-//         if len != seq.len() {
-//             println!("{} lengths differ in bam and fasta.", id);
-//             return false;
-//         }
-//     } 
-//     return true;
-// }
-
-fn fix_reference(
-    references: HashMap<String, Vec<u8>>, bam_refs: &HashMap<String, usize>, mapping: &str
-) -> HashMap<String, Vec<u8>> {
-    let mut result = HashMap::new();
-
-    let m = HashMap::from([("NC_000023.11", "chrX")]);
-    let mut br = bam_refs.clone();
-    for (id, seq) in references {
-        let new_id = match m.get(&id[..]) {
-            Some(new_id) => { new_id },
-            None => { panic!(); } 
-        };
-        result.insert(new_id.to_string(), seq);
-        br.remove(&new_id[..]);
-    }
-    return result;
-}
-
-fn fix_repeats(repeats: Vec<TandemRepeat>, mapping: &str) -> Vec<TandemRepeat> {
-    let mut result = Vec::with_capacity(repeats.len());
-
-    println!("Loading from {}", mapping);
-    let m = HashMap::from([("NC_000023.11", "chrX")]);
-
-    for tr in repeats {
-        let new_id = match m.get(&tr.reference[..]) {
-            Some(x) => { x.to_string() },
-            None => { panic!(); }
-        };
-        result.push(TandemRepeat{reference: new_id, ..tr})
-    }
-    return result;
-}
-
-
 #[cfg(test)]
 mod tests {
     use hgvs::parser::HgvsVariant;
     use std::fs::File;
     use std::io::{prelude::*, BufReader};
     use super::*;
-
-    #[test]
-    fn input_can_be_remapped() {
-        let args = Args::try_parse_from([
-            "remastr",
-            "-f", "data/chromosomeX.fna",
-            "-b", "data/real/twist_S22-157-01_S1.bam",
-            "-n", "data/HGVS.txt",
-            "--map1", "data/chromosomeX_to_bam_map.txt"
-        ]).unwrap();
-
-        let bam_refs = read_bam_refs(&args.bam_file);
-        let mut references = read_reference(&args.ref_file);
-
-        if ! ref_wrt_bam_is_valid(&bam_refs, &references) {
-            println!("IDs in BAM and reference differ. Attempting correction of reference... ");
-            if let Some(ref2bam) = args.ref2bam {
-                println!("Correcting with map provided in {}.", ref2bam);
-                references = fix_reference(references, &bam_refs, &ref2bam);
-            } else {
-                println!("Correcting with best effort heuristic.");
-            }
-
-            match ref_wrt_bam_is_valid(&bam_refs, &references) {
-                true => { println!("Success!"); }
-                false => { panic!("Unable to correct reference!"); }
-            }
-        }
-    }
-
-    #[test]
-    fn nomenclature_can_be_remapped() {
-        let args = Args::try_parse_from([
-            "remastr",
-            "-f", "data/chromosomeX.fna",
-            "-b", "data/real/twist_S22-157-01_S1.bam",
-            "-n", "data/HGVS.txt",
-            "--map1", "data/chromosomeX_to_bam_map.txt"
-        ]).unwrap();
-
-        let bam_refs = read_bam_refs(&args.bam_file);
-        let mut repeats = read_nomenclature("data/mini_HGVS.txt");
-
-        if ! hgvs_wrt_bam_is_valid(&bam_refs, &repeats) {
-            println!("IDs in BAM and nomenclature differ. Attempting correction of nomenclature... ");
-            if let Some(hgvs2bam) = args.hgvs2bam {
-                println!("Correcting with map provided in {}.", hgvs2bam);
-            } else if let Some(ref2bam) = args.ref2bam {
-                println!("Correcting with map provided in {}.", ref2bam);
-                repeats = fix_repeats(repeats, &ref2bam);
-            } else {
-                println!("Correcting with best effort heuristic.");
-            }
-
-            match hgvs_wrt_bam_is_valid(&bam_refs, &repeats) {
-                true => { println!("Success!"); }
-                false => { panic!("Unable to correct reference!"); }
-            }
-        }
-    }
 
     #[test]
     fn can_load_fasta() {
