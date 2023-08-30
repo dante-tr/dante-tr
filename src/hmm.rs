@@ -319,7 +319,8 @@ impl HMM {
         let mut seq = Vec::with_capacity(path.len());
         for &i in path.iter() {
             match self.states[i] {
-                State::Start | State::Ins | State::End => { seq.push(b'-'); },
+                State::Start | State::End => { seq.push(b'-'); },
+                State::Ins => { seq.push(b'_'); }
                 State::Seq{c, ..} | State::Motif{c, ..} => { seq.push(c); },
             }
         }
@@ -384,7 +385,7 @@ mod tests {
         ]);
 
         let rebuilt = model.reconstruct_sequence(&annotation);
-        let expected = b"--TCTGTCGTCGTCGTC-GTCGTCAAA--".to_vec();
+        let expected = b"--TCTGTCGTCGTCGTC_GTCGTCAAA--".to_vec();
         assert!(rebuilt == expected);
         let modules = model.reconstruct_mod_ids(&annotation);
         let expected = b"--000111111111111I111111222--";
