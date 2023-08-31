@@ -1,3 +1,4 @@
+use clap::Parser;
 use noodles::bam as bam;
 use noodles::fasta as fasta;
 use noodles::sam::record::quality_scores::Score;
@@ -6,17 +7,18 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
+use std::io::Write;
 use std::str;
-use clap::Parser;
+use std::sync::{Arc, Mutex};
 
-use crate::repeats::TandemRepeat as TandemRepeat;
+use crate::consistency::ensure_consistency;
 use crate::hmm::HMM;
 use crate::hmm::Module;
-use crate::consistency::ensure_consistency;
+use crate::repeats::TandemRepeat as TandemRepeat;
 
 mod consistency;
-mod repeats;
 mod hmm;
+mod repeats;
 
 // Predict short tandem repeat annotation
 #[derive(Parser)]
@@ -32,6 +34,10 @@ pub struct Args {
     /// Repeats in HGVS nomenclature, one per line
     #[arg(short='n')]
     pub hgvs_file: String,
+
+    /// Output file in TSV format.
+    #[arg(short='o')]
+    pub out_file: String,
 }
 
 fn main() {
@@ -50,7 +56,11 @@ fn main() {
         }
     }
 
-    println!("read_id\tread_sn\tmotif\tlog_likelihood\tread\treference\tmodules");
+    let mut out = File::create(&args.out_file).expect("Cannot open file for writing.");
+    out.write_all(b"read_id\tread_sn\tmotif\tlog_likelihood\tread\treference\tmodules")
+        .expect("Cannot write to output file.");
+
+    let out = Arc::new(Mutex::new(out));
     valid_repeats.par_iter().for_each(|repeat| {
         // load bam
         let mut reader = bam::indexed_reader::Builder::default()
@@ -86,7 +96,8 @@ fn main() {
                 str::from_utf8(&mods).unwrap()
             ));
         }
-        print!("{buffer}");
+        out.lock().unwrap().write_all(buffer.as_bytes())
+            .expect("Cannot write to output file.");
     })
 }
 
