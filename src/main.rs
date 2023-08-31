@@ -67,6 +67,7 @@ fn main() {
         let region = tmp.parse().unwrap();
         let reads = reader.query(&header, &region).unwrap();
 
+        let mut buffer = String::new();
         for (i, read) in reads.enumerate() {
             let read = read.expect("Incorrect read.");
             let seq: Vec<_> = read.sequence().as_ref().iter().map(|&x| x.into()).collect();
@@ -77,13 +78,15 @@ fn main() {
             let reconstructed_read = model.realign_read(&annotation, &seq); 
             let mods = model.reconstruct_mod_ids(&annotation);
 
-            println!("{}\t{}\t{}\t{}\t{}\t{}\t{}", 
+            buffer.push_str(&format!(
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\n", 
                 read.read_name().unwrap(), i, repeat, likelihood,
                 str::from_utf8(&reconstructed_read).unwrap(),
                 str::from_utf8(&reconstructed_reference).unwrap(),
                 str::from_utf8(&mods).unwrap()
-            );
+            ));
         }
+        print!("{buffer}");
     })
 }
 
