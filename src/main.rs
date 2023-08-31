@@ -57,7 +57,7 @@ fn main() {
     }
 
     let mut out = File::create(&args.out_file).expect("Cannot open file for writing.");
-    out.write_all(b"read_id\tread_sn\tmotif\tlog_likelihood\tread\treference\tmodules")
+    out.write_all(b"motif\tread_sn\tread_id\tread\treference\tmodules\tlog_likelihood\n")
         .expect("Cannot write to output file.");
 
     let out = Arc::new(Mutex::new(out));
@@ -89,11 +89,13 @@ fn main() {
             let mods = model.reconstruct_mod_ids(&annotation);
 
             buffer.push_str(&format!(
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}\n", 
-                read.read_name().unwrap(), i, repeat, likelihood,
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                repeat, i,
+                read.read_name().unwrap(),
                 str::from_utf8(&reconstructed_read).unwrap(),
                 str::from_utf8(&reconstructed_reference).unwrap(),
-                str::from_utf8(&mods).unwrap()
+                str::from_utf8(&mods).unwrap(),
+                likelihood
             ));
         }
         out.lock().unwrap().write_all(buffer.as_bytes())
