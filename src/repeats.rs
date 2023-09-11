@@ -7,6 +7,7 @@ use nom::sequence::delimited;
 use std::fmt;
 use std::str;
 use std::collections::HashMap;
+use ndarray::{Array, Array2};
 
 #[derive(Default, Debug, PartialEq, Clone)]
 pub struct TandemRepeat {
@@ -34,7 +35,7 @@ impl fmt::Display for TandemRepeat {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // NC_000008.11:g.118366816_118366918TAAAA[13]TAA[1]TAAAA[7]
         write!(f, "{}:g.", self.reference)?;
-        write!(f, "{}_{}", self.start, self.end)?;
+        write!(f, "{}_{}", self.start+1, self.end)?;
         for i in 0..self.copy_number.len() {
             write!(f, "{}[{}]",
                 str::from_utf8(&self.copy_unit[i]).unwrap(),
@@ -113,27 +114,85 @@ pub fn is_present(tr: &TandemRepeat, seq: &HashMap<String, Vec<u8>>) -> bool {
     return true;
 }
 
-pub fn modify_repeat(tr: &TandemRepeat, seq: &HashMap<String, Vec<u8>>) -> TandemRepeat {
-    return tr.clone();
+const FLANK_SIZE: usize = 4;
+
+pub fn modify_repeat(repeat: &TandemRepeat, refs: &HashMap<String, Vec<u8>>)
+    -> TandemRepeat
+{
+    let repeat_seq = repeat.sequence();
+    let refs_seq = ref_region(
+        refs, &repeat.reference, repeat.start-FLANK_SIZE, repeat.end+FLANK_SIZE
+    ).unwrap().to_owned();
+
+    let dp = fill_dp_table(&repeat_seq, &refs_seq);
+    // find end
+    // find start
+    // report number of edits
+
+    return repeat.clone();
 }
 
+use ndarray::array;
+
+fn fill_dp_table(ref_seq: &[u8], mot_seq: &[u8]) -> Array2<u8> {
+    // TODO:
+    // let mut dp = Array::zeros((ref_seq.len(), mot_seq.len()));
+    // println!("{:?}", dp.strides());
+    // println!("{:?}", dp.shape());
+    return array![[1,2,3], [4,5,6]]
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn repeat_can_be_parsed() {
-        let s = "NM_000044.3:g.123_191CAG[25]";
-        let tr: TandemRepeat = s.parse().unwrap();
-        println!("{:?}", tr);
+    fn fromstr_and_display_traits_are_inverse() {
+        let inputs = [
+            "s1:g.10_14A[5]",
+            "s2:g.1_16AG[8]",
+            "NC_000008.11:g.118366816_118366918TAAAA[13]TAA[1]TAAAA[7]",
+            "NM_000044.3:g.123_191CAG[25]"
+        ];
+
+        for i in 0..inputs.len() {
+            let repeat = inputs[i].parse::<TandemRepeat>().unwrap();
+            let repr = format!("{}", repeat);
+            assert_eq!(inputs[i], repr);
+        }
     }
 
     #[test]
-    fn complex_repeat_can_be_parsed() {
-        let s = "NC_000008.11:g.118366816_118366918TAAAA[13]TAA[1]TAAAA[7]";
-        let tr: TandemRepeat = s.parse().unwrap();
-        println!("{:?}", tr);
+    fn test_dp_fill() {
+        let ref_seq = b"ACCCA";
+        let mot_seq = b"CCC";
+        let dp = array![
+            [0, 0, 0, 0, 0, 0],
+            [1, 1, 0, 0, 0, 1],
+            [2, 2, 1, 0, 0, 1],
+            [3, 3, 2, 1, 0, 1]
+        ];
+
+        let dp2 = fill_dp_table(&ref_seq[..], &mot_seq[..]);
+        assert_eq!(dp, dp2);
+    }
+
+    #[test]
+    fn modify_repeat_can_move_repeat() {
+        let motif = "s1:g.10_15A[5]";
+        let fasta = [
+            ("s1", "CCCCCCCAAAAACCCCCCC")
+        ];
+
+        let repeat = motif.parse().unwrap();
+        let refs: HashMap<String, Vec<u8>> = HashMap::from_iter(
+            fasta.iter().map(
+                |(id, seq)| ((*id).to_owned(), (*seq).as_bytes().to_owned())
+            )
+        );
+
+        let mod_rep = modify_repeat(&repeat, &refs);
+        println!("{}", mod_rep);
     }
 
     fn print_diff(tr: &TandemRepeat, refs: &HashMap<String, Vec<u8>>) {
