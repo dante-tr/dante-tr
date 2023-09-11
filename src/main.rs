@@ -1,20 +1,17 @@
 use clap::Parser;
-use noodles::bam as bam;
-use noodles::fasta as fasta;
+use noodles::{bam, fasta};
 use noodles::sam::record::quality_scores::Score;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::BufRead;
-use std::io::BufReader;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::str;
 use std::sync::{Arc, Mutex};
 
 use crate::consistency::ensure_consistency;
 use crate::hmm::HMM;
 use crate::hmm::Module;
-use crate::repeats::TandemRepeat as TandemRepeat;
+use crate::repeats::{TandemRepeat, is_present, modify_repeat};
 
 mod consistency;
 mod hmm;
@@ -49,12 +46,19 @@ fn main() {
 
     let (references, repeats) = ensure_consistency(bam_refs, references, repeats);
 
-    let mut valid_repeats = Vec::new();
-    for repeat in repeats {
-        if is_present(&repeat, &references) {
-            valid_repeats.push(repeat);
+    let valid_repeats = {
+        let mut x = Vec::new();
+        for repeat in repeats {
+            if is_present(&repeat, &references) {
+                x.push(repeat);
+            } else {
+                let mod_r = modify_repeat(&repeat, &references);
+                println!("{} -> {}", repeat, mod_r);
+                x.push(mod_r);
+            }
         }
-    }
+        x
+    };
 
     let mut out = File::create(&args.out_file).expect("Cannot open file for writing.");
     out.write_all(b"motif\tread_sn\tread_id\tread\treference\tmodules\tlog_likelihood\n")
@@ -151,28 +155,6 @@ fn read_nomenclature(filename: &str) -> Vec<TandemRepeat> {
     return repeats;
 }
 
-fn ref_region<'a>(
-    refseq: &'a HashMap<String, Vec<u8>>, id: &str, start: usize, end: usize
-) -> Option<&'a[u8]> {
-    let seq = match refseq.get(id) {
-        None => { return None; },
-        Some(x) => { x },
-    };
-    return Some(&seq[start..end]);
-}
-
-fn is_present(tr: &TandemRepeat, seq: &HashMap<String, Vec<u8>>) -> bool {
-    let ref_repeat = match ref_region(seq, &tr.reference, tr.start, tr.end) {
-        None => { return false; },
-        Some(x) => { x },
-    };
-    let hgvs_repeat = &tr.sequence();
-    if ref_repeat != hgvs_repeat {
-        return false;
-    }
-    return true;
-}
-
 fn get_modules(
     repeat: &TandemRepeat, refs: &HashMap<String, Vec<u8>>, flank_size: usize
 ) -> Vec<Module> {
@@ -250,30 +232,13 @@ mod tests {
             if is_present(&tr, &references) {
                 present_count += 1;
             } else {
-                println!("{}", tr);
-                print_diff(&tr, &references);
+                // println!("{}", tr);
+                // print_diff(&tr, &references);
                 // println!();
             }
             max_count += 1;
         }
         println!("Present repeats: {}/{}", present_count, max_count);
-    }
-
-    fn print_diff(tr: &TandemRepeat, refs: &HashMap<String, Vec<u8>>) {
-        let n = 10;
-        let rflank = ref_region(refs, &tr.reference, tr.start-n, tr.start).unwrap();
-        let ref_repeat = ref_region(refs, &tr.reference, tr.start, tr.end).unwrap();
-        let lflank = ref_region(refs, &tr.reference, tr.end, tr.end+n).unwrap();
-        println!("{} {} {}", 
-            str::from_utf8(rflank).unwrap(),
-            str::from_utf8(ref_repeat).unwrap(),
-            str::from_utf8(lflank).unwrap()
-        );
-        println!("{} {} {}",
-            " ".repeat(n),
-            str::from_utf8(&tr.sequence()).unwrap(),
-            " ".repeat(n)
-        );
     }
 
     #[test]

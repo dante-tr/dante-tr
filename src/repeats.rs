@@ -6,8 +6,9 @@ use nom::multi::many0;
 use nom::sequence::delimited;
 use std::fmt;
 use std::str;
+use std::collections::HashMap;
 
-#[derive(Default, Debug, PartialEq)]
+#[derive(Default, Debug, PartialEq, Clone)]
 pub struct TandemRepeat {
     pub reference: String,
     pub start: usize,
@@ -90,6 +91,33 @@ impl TandemRepeat {
     }
 }
 
+pub fn ref_region<'a>(
+    refseq: &'a HashMap<String, Vec<u8>>, id: &str, start: usize, end: usize
+) -> Option<&'a[u8]> {
+    let seq = match refseq.get(id) {
+        None => { return None; },
+        Some(x) => { x },
+    };
+    return Some(&seq[start..end]);
+}
+
+pub fn is_present(tr: &TandemRepeat, seq: &HashMap<String, Vec<u8>>) -> bool {
+    let ref_repeat = match ref_region(seq, &tr.reference, tr.start, tr.end) {
+        None => { return false; },
+        Some(x) => { x },
+    };
+    let hgvs_repeat = &tr.sequence();
+    if ref_repeat != hgvs_repeat {
+        return false;
+    }
+    return true;
+}
+
+pub fn modify_repeat(tr: &TandemRepeat, seq: &HashMap<String, Vec<u8>>) -> TandemRepeat {
+    return tr.clone();
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -106,5 +134,22 @@ mod tests {
         let s = "NC_000008.11:g.118366816_118366918TAAAA[13]TAA[1]TAAAA[7]";
         let tr: TandemRepeat = s.parse().unwrap();
         println!("{:?}", tr);
+    }
+
+    fn print_diff(tr: &TandemRepeat, refs: &HashMap<String, Vec<u8>>) {
+        let n = 10;
+        let rflank = ref_region(refs, &tr.reference, tr.start-n, tr.start).unwrap();
+        let ref_repeat = ref_region(refs, &tr.reference, tr.start, tr.end).unwrap();
+        let lflank = ref_region(refs, &tr.reference, tr.end, tr.end+n).unwrap();
+        println!("{} {} {}", 
+            str::from_utf8(rflank).unwrap(),
+            str::from_utf8(ref_repeat).unwrap(),
+            str::from_utf8(lflank).unwrap()
+        );
+        println!("{} {} {}",
+            " ".repeat(n),
+            str::from_utf8(&tr.sequence()).unwrap(),
+            " ".repeat(n)
+        );
     }
 }
