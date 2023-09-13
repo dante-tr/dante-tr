@@ -563,6 +563,7 @@ mod tests {
         return None;
     }
 
+    // maybe look at how outer_iter is implemented?
     // fn find_diff<D>(a1: ArrayView<f32, D>, a2: ArrayView<f32, D>, acc: (f32, i32)) -> Option<Vec<usize>>
     // where
     //     D: Dimension + RemoveAxis,

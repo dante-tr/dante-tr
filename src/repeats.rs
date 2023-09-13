@@ -116,6 +116,22 @@ pub fn is_present(tr: &TandemRepeat, seq: &HashMap<String, Vec<u8>>) -> bool {
 
 const FLANK_SIZE: usize = 4;
 
+use ndarray::ArrayView1;
+fn argmin(a: ArrayView1<u8>) -> usize {
+    let mut min_pos = 0;
+    let mut min_val = u8::MAX;
+    for (p, &v) in a.iter().enumerate() {
+        if v < min_val { min_pos = p; min_val = v; }
+    }
+    return min_pos;
+}
+
+use ndarray::ArrayView2;
+fn backtrack(dp: ArrayView2<u8>, end: usize) -> usize {
+    return 0;
+}
+
+use ndarray::s;
 pub fn modify_repeat(repeat: &TandemRepeat, refs: &HashMap<String, Vec<u8>>)
     -> TandemRepeat
 {
@@ -125,26 +141,41 @@ pub fn modify_repeat(repeat: &TandemRepeat, refs: &HashMap<String, Vec<u8>>)
     ).unwrap().to_owned();
 
     let dp = fill_dp_table(&repeat_seq, &refs_seq);
-    // find end
-    // find start
+    let end = argmin(dp.slice(s![repeat_seq.len(), ..]));
+    println!("{}", end);
+    // let start = backtrack(dp, end);
     // report number of edits
 
     return repeat.clone();
 }
 
-use ndarray::array;
+const INDEL: u8 = 1;
 
 fn fill_dp_table(ref_seq: &[u8], mot_seq: &[u8]) -> Array2<u8> {
-    // TODO:
-    // let mut dp = Array::zeros((ref_seq.len(), mot_seq.len()));
-    // println!("{:?}", dp.strides());
-    // println!("{:?}", dp.shape());
-    return array![[1,2,3], [4,5,6]]
+    let n = mot_seq.len() + 1;
+    let m = ref_seq.len() + 1;
+    let mut dp = Array::zeros((n, m));
+
+    for i in 0..n { dp[[i, 0]] = i as u8; }
+    for j in 0..m { dp[[0, j]] = 0; }
+
+    for i in 1..n {
+        for j in 1..m {
+            let edit = (mot_seq[i-1] != ref_seq[j-1]) as u8;
+            dp[[i, j]] = *[
+                dp[[i-1, j-1]] + edit,
+                dp[[i-1, j]] + INDEL,
+                dp[[i, j-1]] + INDEL
+            ].iter().min().unwrap();
+        }
+    }
+    return dp;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ndarray::array;
 
     #[test]
     fn fromstr_and_display_traits_are_inverse() {
@@ -175,6 +206,12 @@ mod tests {
 
         let dp2 = fill_dp_table(&ref_seq[..], &mot_seq[..]);
         assert_eq!(dp, dp2);
+        let end = argmin(dp.slice(s![3, ..]));
+        assert_eq!(4, end);
+        let dist = dp[[3, end]];
+        assert_eq!(0, dist);
+        let start = backtrack(dp.view(), end);
+        assert_eq!(1, start);
     }
 
     #[test]
