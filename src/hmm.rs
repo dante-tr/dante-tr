@@ -167,7 +167,9 @@ fn transition_probabilities(states: &Vec<State>, desc: &Vec<MDesc>) -> ndarray::
 
         // add insertion between repetitions
         let ins = bg_end + m_end;
-        p[[ins, m.start]] = 1.0 - 1.0/m_rep - P_INS;
+        if ins < states.len() {    // last -> bg does not have insertion
+            p[[ins, m.start]] = 1.0 - 1.0/m_rep - P_INS;
+        }
 
         // add deletions between repetitions
         for i in 0..m.len {
@@ -412,6 +414,14 @@ mod tests {
 
         let read = model.realign_read(&annotation, &read);
         assert!(read == expected);
+    }
+
+    #[test]
+    fn can_construct_from_single_module() {
+        let modules = vec![
+            (&b"ATTTT"[..], 30).into()
+        ];
+        let model = HMM::from(&modules).log();
     }
 
     #[test]

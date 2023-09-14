@@ -20,6 +20,8 @@ mod consistency;
 mod hmm;
 mod repeats;
 
+const FLANK: usize = 20;
+
 // Predict short tandem repeat annotation
 #[derive(Parser)]
 pub struct Args {
@@ -48,13 +50,7 @@ fn main() {
     let repeats = read_nomenclature(&args.hgvs_file);
 
     let (references, repeats) = ensure_consistency(bam_refs, references, repeats);
-
-    let mut valid_repeats = Vec::new();
-    for repeat in repeats {
-        if is_present(&repeat, &references) {
-            valid_repeats.push(repeat);
-        }
-    }
+    let valid_repeats = correct_repeats(&references, &repeats);
 
     let mut out = File::create(&args.out_file).expect("Cannot open file for writing.");
     out.write_all(b"motif\tread_sn\tread_id\tread\treference\tmodules\tlog_likelihood\n")
@@ -69,7 +65,7 @@ fn main() {
         let header = reader.read_header().unwrap();
 
         //  build HMM
-        let modules = get_modules(&repeat, &references, 20);
+        let modules = get_modules(&repeat, &references, FLANK);
         let model = HMM::from(&modules).log();
 
         //  select relevant reads
@@ -101,6 +97,44 @@ fn main() {
         out.lock().unwrap().write_all(buffer.as_bytes())
             .expect("Cannot write to output file.");
     })
+}
+
+fn correct_repeats(refs: &HashMap<String, Vec<u8>>, repeats: &Vec<TandemRepeat>) -> Vec<TandemRepeat> {
+    let mut valid_repeats = Vec::new();
+    for repeat in repeats.iter() {
+        if is_present(&repeat, &refs) {
+            valid_repeats.push(repeat.clone());
+        } else {
+            let mut modules = Vec::new();
+            modules_add_motif(&mut modules, &repeat);
+            let model = HMM::from(&modules).log();
+            let seq = ref_region(
+                refs, &repeat.reference, repeat.start-FLANK, repeat.end+FLANK
+            ).expect("Unable to get reference region.");
+            let qual = b"~".repeat(seq.len());
+
+            let (_, annotation) = model.log_predict(&seq, &qual);
+
+            let suggested_repeat = repeat.clone(); // TODO
+
+            let mut orig_motif = b"-".repeat(FLANK);
+            orig_motif.extend_from_slice(&repeat.sequence());
+            orig_motif.extend_from_slice(&b"-".repeat(FLANK));
+
+            let new_motif = model.reconstruct_sequence(&annotation);
+            let mods = model.reconstruct_mod_ids(&annotation);
+
+            println!(
+                "{} -> {}\n{}\n{}\n{}\n{}\n",
+                repeat, suggested_repeat,
+                str::from_utf8(&seq).unwrap(),
+                str::from_utf8(&orig_motif).unwrap(),
+                str::from_utf8(&new_motif).unwrap(),
+                str::from_utf8(&mods).unwrap(),
+            );
+        }
+    }
+    return valid_repeats;
 }
 
 fn read_bam_refs(filename: &str) -> HashMap<String, usize> {
@@ -186,11 +220,15 @@ fn get_modules(
 
     let mut modules = Vec::new();
     modules.push(left_flank.into());
-    for i in 0..repeat.copy_unit.len() {
-        modules.push((&repeat.copy_unit[i][..], repeat.copy_number[i]).into());
-    }
+    modules_add_motif(&mut modules, &repeat);
     modules.push(right_flank.into());
     return modules;
+}
+
+fn modules_add_motif(modules: &mut Vec<Module>, motif: &TandemRepeat) {
+    for i in 0..motif.copy_unit.len() {
+        modules.push((&motif.copy_unit[i][..], motif.copy_number[i]).into())
+    }
 }
 
 fn remap(x: Score) -> u8 {

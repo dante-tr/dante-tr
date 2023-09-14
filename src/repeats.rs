@@ -7,7 +7,7 @@ use nom::sequence::delimited;
 use std::fmt;
 use std::str;
 
-#[derive(Default, Debug, PartialEq)]
+#[derive(Default, Debug, PartialEq, Clone)]
 pub struct TandemRepeat {
     pub reference: String,
     pub start: usize,
