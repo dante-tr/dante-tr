@@ -90,6 +90,7 @@ impl TandemRepeat {
     }
 
     pub fn view(&self, from: usize, to: usize) -> Vec<u8> {
+        eprintln!("{} {} {} {}", from, self.start, self.end, to);
         if from <= self.start && self.end <= to {
             let mut v = b"-".repeat(to-from);
             let seq = self.sequence();
@@ -100,7 +101,8 @@ impl TandemRepeat {
             }
             return v;
         } else {
-            todo!();
+            eprintln!("View not yet implemented.");
+            return Vec::new();
         }
     }
 }
@@ -114,6 +116,13 @@ mod tests {
         let s = "NM_000044.3:g.123_191CAG[25]";
         let tr: TandemRepeat = s.parse().unwrap();
         println!("{:?}", tr);
+    }
+
+    #[test]
+    fn test_inner_motif_view() {
+        let motif: TandemRepeat = "S1:g.1_10A[10]".parse().unwrap();
+        let v = motif.view(0, 10);
+        println!("{}", str::from_utf8(&v).unwrap());
     }
 
     #[test]

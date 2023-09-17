@@ -101,15 +101,26 @@ fn main() {
 
 fn correct_repeats(refs: &HashMap<String, Vec<u8>>, repeats: &Vec<TandemRepeat>) -> Vec<TandemRepeat> {
     let mut valid_repeats = Vec::new();
-    for repeat in repeats.iter() {
-        if is_present(&repeat, &refs) {
-            valid_repeats.push(repeat.clone());
+    for motif in repeats.iter() {
+        if is_present(&motif, &refs) {
+            valid_repeats.push(motif.clone());
         } else {
-            let seq = ref_region(
-                refs, &repeat.reference, repeat.start-FLANK, repeat.end+FLANK
-            ).expect("Unable to get reference region.");
+            eprintln!("Motif {} is not present. Correcting...", motif);
+            let from = motif.start - FLANK;
+            let to = motif.end + FLANK;
+            let seq = ref_region(refs, &motif.reference, from, to)
+                .expect("Unable to get reference region.");
 
-            let corrected_repeat = correct_motif(&seq, &repeat, FLANK);
+            let corrected_motif = correct_motif(&seq, &motif, FLANK);
+            println!(
+                "{} -> {}\n{}\n{}\n{}",
+                motif, corrected_motif,
+                str::from_utf8(&seq).unwrap(),
+                str::from_utf8(&motif.view(from, to)).unwrap(),
+                str::from_utf8(&corrected_motif.view(from, to)).unwrap(),
+            );
+
+            valid_repeats.push(corrected_motif);
         }
     }
     return valid_repeats;
@@ -126,7 +137,13 @@ fn correct_motif(seq: &[u8], repeat: &TandemRepeat, flank: usize) -> TandemRepea
 
     let suggested_repeat = {
         let mut new_repeat = repeat.clone();
-        let start = annotation.iter().position(|&x| x != 0).unwrap();
+        let start = match annotation.iter().position(|&x| x != 0) {
+            None => {
+                eprintln!("Unable to match with reference.");
+                return new_repeat;
+            },
+            Some(x) => { x }
+        };
         let start = repeat.start - flank + start;
         new_repeat.start = start;
         new_repeat.end = start + repeat.sequence().len();
@@ -137,17 +154,6 @@ fn correct_motif(seq: &[u8], repeat: &TandemRepeat, flank: usize) -> TandemRepea
     orig_motif.extend_from_slice(&repeat.sequence());
     orig_motif.extend_from_slice(&b"-".repeat(flank));
 
-    let new_motif = model.reconstruct_sequence(&annotation);
-    let mods = model.reconstruct_mod_ids(&annotation);
-
-    println!(
-        "{} -> {}\n{}\n{}\n{}\n{}\n",
-        repeat, suggested_repeat,
-        str::from_utf8(&seq).unwrap(),
-        str::from_utf8(&orig_motif).unwrap(),
-        str::from_utf8(&new_motif).unwrap(),
-        str::from_utf8(&mods).unwrap(),
-    );
     return suggested_repeat;
 }
 
