@@ -33,7 +33,7 @@ impl fmt::Display for TandemRepeat {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // NC_000008.11:g.118366816_118366918TAAAA[13]TAA[1]TAAAA[7]
         write!(f, "{}:g.", self.reference)?;
-        write!(f, "{}_{}", self.start, self.end)?;
+        write!(f, "{}_{}", self.start+1, self.end)?;
         for i in 0..self.copy_number.len() {
             write!(f, "{}[{}]",
                 str::from_utf8(&self.copy_unit[i]).unwrap(),
@@ -87,6 +87,21 @@ impl TandemRepeat {
             }
         }
         return res;
+    }
+
+    pub fn view(&self, from: usize, to: usize) -> Vec<u8> {
+        if from <= self.start && self.end <= to {
+            let mut v = b"-".repeat(to-from);
+            let seq = self.sequence();
+            let mut j = 0;
+            for i in self.start-from..self.end-from {
+                v[i] = seq[j];
+                j += 1;
+            }
+            return v;
+        } else {
+            todo!();
+        }
     }
 }
 

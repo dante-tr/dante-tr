@@ -105,36 +105,63 @@ fn correct_repeats(refs: &HashMap<String, Vec<u8>>, repeats: &Vec<TandemRepeat>)
         if is_present(&repeat, &refs) {
             valid_repeats.push(repeat.clone());
         } else {
-            let mut modules = Vec::new();
-            modules_add_motif(&mut modules, &repeat);
-            let model = HMM::from(&modules).log();
             let seq = ref_region(
                 refs, &repeat.reference, repeat.start-FLANK, repeat.end+FLANK
             ).expect("Unable to get reference region.");
-            let qual = b"~".repeat(seq.len());
 
-            let (_, annotation) = model.log_predict(&seq, &qual);
-
-            let suggested_repeat = repeat.clone(); // TODO
-
-            let mut orig_motif = b"-".repeat(FLANK);
-            orig_motif.extend_from_slice(&repeat.sequence());
-            orig_motif.extend_from_slice(&b"-".repeat(FLANK));
-
-            let new_motif = model.reconstruct_sequence(&annotation);
-            let mods = model.reconstruct_mod_ids(&annotation);
-
-            println!(
-                "{} -> {}\n{}\n{}\n{}\n{}\n",
-                repeat, suggested_repeat,
-                str::from_utf8(&seq).unwrap(),
-                str::from_utf8(&orig_motif).unwrap(),
-                str::from_utf8(&new_motif).unwrap(),
-                str::from_utf8(&mods).unwrap(),
-            );
+            let corrected_repeat = correct_motif(&seq, &repeat, FLANK);
         }
     }
     return valid_repeats;
+}
+
+fn correct_motif(seq: &[u8], repeat: &TandemRepeat, flank: usize) -> TandemRepeat {
+    let qual = b"~".repeat(seq.len());
+
+    let mut modules = Vec::new();
+    modules_add_motif(&mut modules, &repeat); // TODO: make this function?
+
+    let model = HMM::from(&modules).log();
+    let (_, annotation) = model.log_predict(&seq, &qual);
+
+    let suggested_repeat = {
+        let mut new_repeat = repeat.clone();
+        let start = annotation.iter().position(|&x| x != 0).unwrap();
+        let start = repeat.start - flank + start;
+        new_repeat.start = start;
+        new_repeat.end = start + repeat.sequence().len();
+        new_repeat
+    };
+
+    let mut orig_motif = b"-".repeat(flank);
+    orig_motif.extend_from_slice(&repeat.sequence());
+    orig_motif.extend_from_slice(&b"-".repeat(flank));
+
+    let new_motif = model.reconstruct_sequence(&annotation);
+    let mods = model.reconstruct_mod_ids(&annotation);
+
+    println!(
+        "{} -> {}\n{}\n{}\n{}\n{}\n",
+        repeat, suggested_repeat,
+        str::from_utf8(&seq).unwrap(),
+        str::from_utf8(&orig_motif).unwrap(),
+        str::from_utf8(&new_motif).unwrap(),
+        str::from_utf8(&mods).unwrap(),
+    );
+    return suggested_repeat;
+}
+
+fn fn3(model: &HMM, annotation: &[usize]) -> (usize, usize) {
+    let start: usize = 0;
+    let end: usize = 6; //TODO: model.get_end();
+
+    let mut m_start = usize::MIN;
+    let mut m_end = usize::MAX;
+    for (i, &state) in annotation.iter().enumerate() {
+        if state == start { m_start = i; }
+        if state == end && m_end == usize::MAX { m_end = i; }
+    }
+    return (m_start + 1, m_end);
 }
 
 fn read_bam_refs(filename: &str) -> HashMap<String, usize> {
@@ -322,6 +349,28 @@ mod tests {
         println!("{:?}", tmp);
 
         println!("{}", tmp.accession().value);
+    }
+
+    #[test]
+    fn can_move_motif() {
+        let motif: TandemRepeat = "SEQ1:g.6_15CG[5]".parse().unwrap();
+        let flank = 5;
+        let from = motif.start - flank;
+        let to = motif.end + flank;
+        let seq = &b"AAAAAAACGCGCGCGCGAAA"[from..to];
+
+        let expected_motif: TandemRepeat = "SEQ1:g.8_17CG[5]".parse().unwrap();
+        let corrected_motif = correct_motif(&seq, &motif, flank);
+
+        println!(
+            "{} -> {}\n{}\n{}\n{}",
+            motif, corrected_motif,
+            str::from_utf8(&seq).unwrap(),
+            str::from_utf8(&motif.view(from, to)).unwrap(),
+            str::from_utf8(&corrected_motif.view(from, to)).unwrap(),
+        );
+
+        assert_eq!(expected_motif, corrected_motif);
     }
 
     #[test]
