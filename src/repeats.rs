@@ -23,8 +23,14 @@ impl FromStr for TandemRepeat {
     type Err = ParseTandemRepeatError;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        let (input, tr) = tandem_repeat(input).map_err(|_| ParseTandemRepeatError)?;
+        let (input, mut tr) = tandem_repeat(input).map_err(|_| ParseTandemRepeatError)?;
         if !input.is_empty() { return Err(ParseTandemRepeatError); }
+        let l = tr.sequence().len();
+        if tr.start + l != tr.end {
+            // eprintln!("{} has incorrect end.", tr);
+            tr.end = tr.start + l;
+            // eprintln!("Corrected to {}", tr);
+        }
         return Ok(tr);
     }
 }
@@ -90,15 +96,10 @@ impl TandemRepeat {
     }
 
     pub fn view(&self, from: usize, to: usize) -> Vec<u8> {
-        eprintln!("{} {} {} {}", from, self.start, self.end, to);
         if from <= self.start && self.end <= to {
             let mut v = b"-".repeat(to-from);
             let seq = self.sequence();
-            let mut j = 0;
-            for i in self.start-from..self.end-from {
-                v[i] = seq[j];
-                j += 1;
-            }
+            for i in 0..seq.len() { v[self.start-from+i] = seq[i]; }
             return v;
         } else {
             eprintln!("View not yet implemented.");

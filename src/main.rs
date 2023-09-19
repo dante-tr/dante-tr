@@ -105,22 +105,22 @@ fn correct_repeats(refs: &HashMap<String, Vec<u8>>, repeats: &Vec<TandemRepeat>)
         if is_present(&motif, &refs) {
             valid_repeats.push(motif.clone());
         } else {
-            eprintln!("Motif {} is not present. Correcting...", motif);
+            // eprintln!("Motif {} is not present. Correcting...", motif);
             let from = motif.start - FLANK;
             let to = motif.end + FLANK;
             let seq = ref_region(refs, &motif.reference, from, to)
                 .expect("Unable to get reference region.");
 
-            let corrected_motif = correct_motif(&seq, &motif, FLANK);
+            // let corrected_motif = correct_motif(&seq, &motif, FLANK);
             println!(
-                "{} -> {}\n{}\n{}\n{}",
-                motif, corrected_motif,
+                "{}\n{}\n{}\n",
+                motif,
                 str::from_utf8(&seq).unwrap(),
                 str::from_utf8(&motif.view(from, to)).unwrap(),
-                str::from_utf8(&corrected_motif.view(from, to)).unwrap(),
+                // str::from_utf8(&corrected_motif.view(from, to)).unwrap(),
             );
 
-            valid_repeats.push(corrected_motif);
+            // valid_repeats.push(corrected_motif);
         }
     }
     return valid_repeats;
@@ -321,8 +321,8 @@ mod tests {
             if is_present(&tr, &references) {
                 present_count += 1;
             } else {
-                println!("{}", tr);
-                print_diff(&tr, &references);
+                // println!("{}", tr);
+                // print_diff(&tr, &references);
                 // println!();
             }
             max_count += 1;
