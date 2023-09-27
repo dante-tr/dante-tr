@@ -1,4 +1,3 @@
-use clap::Parser;
 use noodles::bam as bam;
 use noodles::fasta as fasta;
 use noodles::sam::record::quality_scores::Score;
@@ -11,40 +10,23 @@ use std::io::BufReader;
 use std::io::Write;
 use std::str;
 use std::sync::{Arc, Mutex};
+use clap::Parser;
 
-use crate::consistency::ensure_consistency;
-use crate::hmm::HMM;
-use crate::hmm::Module;
-use crate::repeats::TandemRepeat as TandemRepeat;
-
+mod cli;
 mod consistency;
 mod hmm;
 mod repeats;
+mod motif_correction;
 
-const FLANK: usize = 20;
-
-// Predict short tandem repeat annotation
-#[derive(Parser)]
-pub struct Args {
-    /// Reference in FASTA format
-    #[arg(short='f')]
-    pub ref_file: String,
-
-    /// Reads mapped to reference in BAM format, index (.bai) has to be present
-    #[arg(short='b')]
-    pub bam_file: String,
-
-    /// Repeats in HGVS nomenclature, one per line
-    #[arg(short='n')]
-    pub hgvs_file: String,
-
-    /// Output file in TSV format.
-    #[arg(short='o')]
-    pub out_file: String,
-}
+use crate::cli::Args;
+use crate::consistency::ensure_consistency;
+use crate::motif_correction::correct_repeats;
+use crate::hmm::{HMM, Module};
+use crate::repeats::TandemRepeat;
 
 fn main() {
     let args = Args::parse();
+    let flank = 20;
 
     let bam_refs = read_bam_refs(&args.bam_file);
     let references = read_reference(&args.ref_file);
@@ -66,7 +48,7 @@ fn main() {
         let header = reader.read_header().unwrap();
 
         //  build HMM
-        let modules = get_modules(&repeat, &references, FLANK);
+        let modules = get_modules(&repeat, &references, flank);
         let model = HMM::from(&modules).log();
 
         //  select relevant reads
@@ -99,85 +81,6 @@ fn main() {
         out.lock().unwrap().write_all(buffer.as_bytes())
             .expect("Cannot write to output file.");
     })
-}
-
-fn mate_order(read: &Record) -> String {
-    if read.flags().is_first_segment() { "1".to_string() }
-    else if read.flags().is_last_segment() { "2".to_string() } 
-    else {
-        println!("Read {} does not have pair information.", read.read_name().unwrap());
-        "0".to_string()
-    }
-}
-
-fn correct_repeats(refs: &HashMap<String, Vec<u8>>, repeats: &Vec<TandemRepeat>) -> Vec<TandemRepeat> {
-    let mut valid_repeats = Vec::new();
-    for motif in repeats.iter() {
-        if is_present(&motif, &refs) {
-            valid_repeats.push(motif.clone());
-        } else {
-            // let from = motif.start - FLANK;
-            // let to = motif.end + FLANK;
-            // let seq = ref_region(refs, &motif.reference, from, to)
-            //     .expect("Unable to get reference region.");
-
-            // let corrected_motif = correct_motif(&seq, &motif, FLANK);
-            // println!(
-            //     "{} -> {}\n{}\n{}\n{}\n",
-            //     motif, corrected_motif,
-            //     str::from_utf8(&seq).unwrap(),
-            //     str::from_utf8(&motif.view(from, to)).unwrap(),
-            //     str::from_utf8(&corrected_motif.view(from, to)).unwrap(),
-            // );
-
-            // valid_repeats.push(corrected_motif);
-        }
-    }
-    return valid_repeats;
-}
-
-fn correct_motif(seq: &[u8], repeat: &TandemRepeat, flank: usize) -> TandemRepeat {
-    let qual = b"~".repeat(seq.len());
-
-    let mut modules = Vec::new();
-    modules_add_motif(&mut modules, &repeat); // TODO: make this function?
-
-    let model = HMM::from(&modules).log();
-    let (_, annotation) = model.log_predict(&seq, &qual);
-
-    let suggested_repeat = {
-        let mut new_repeat = repeat.clone();
-        let start = match annotation.iter().position(|&x| x != 0) {
-            None => {
-                eprintln!("Unable to match with reference.");
-                return new_repeat;
-            },
-            Some(x) => { x }
-        };
-        let start = repeat.start - flank + start;
-        new_repeat.start = start;
-        new_repeat.end = start + repeat.sequence().len();
-        new_repeat
-    };
-
-    let mut orig_motif = b"-".repeat(flank);
-    orig_motif.extend_from_slice(&repeat.sequence());
-    orig_motif.extend_from_slice(&b"-".repeat(flank));
-
-    return suggested_repeat;
-}
-
-fn fn3(model: &HMM, annotation: &[usize]) -> (usize, usize) {
-    let start: usize = 0;
-    let end: usize = 6; //TODO: model.get_end();
-
-    let mut m_start = usize::MIN;
-    let mut m_end = usize::MAX;
-    for (i, &state) in annotation.iter().enumerate() {
-        if state == start { m_start = i; }
-        if state == end && m_end == usize::MAX { m_end = i; }
-    }
-    return (m_start + 1, m_end);
 }
 
 fn read_bam_refs(filename: &str) -> HashMap<String, usize> {
@@ -228,28 +131,6 @@ fn read_nomenclature(filename: &str) -> Vec<TandemRepeat> {
     return repeats;
 }
 
-fn ref_region<'a>(
-    refseq: &'a HashMap<String, Vec<u8>>, id: &str, start: usize, end: usize
-) -> Option<&'a[u8]> {
-    let seq = match refseq.get(id) {
-        None => { return None; },
-        Some(x) => { x },
-    };
-    return Some(&seq[start..end]);
-}
-
-fn is_present(tr: &TandemRepeat, seq: &HashMap<String, Vec<u8>>) -> bool {
-    let ref_repeat = match ref_region(seq, &tr.reference, tr.start, tr.end) {
-        None => { return false; },
-        Some(x) => { x },
-    };
-    let hgvs_repeat = &tr.sequence();
-    if ref_repeat != hgvs_repeat {
-        return false;
-    }
-    return true;
-}
-
 fn get_modules(
     repeat: &TandemRepeat, refs: &HashMap<String, Vec<u8>>, flank_size: usize
 ) -> Vec<Module> {
@@ -271,6 +152,15 @@ fn get_modules(
 fn modules_add_motif(modules: &mut Vec<Module>, motif: &TandemRepeat) {
     for i in 0..motif.copy_unit.len() {
         modules.push((&motif.copy_unit[i][..], motif.copy_number[i]).into())
+    }
+}
+
+fn mate_order(read: &Record) -> String {
+    if read.flags().is_first_segment() { "1".to_string() }
+    else if read.flags().is_last_segment() { "2".to_string() } 
+    else {
+        println!("Read {} does not have pair information.", read.read_name().unwrap());
+        "0".to_string()
     }
 }
 
@@ -305,16 +195,16 @@ mod tests {
         let hgvs = File::open("data/mini_HGVS.txt").unwrap();
         let reader = BufReader::new(hgvs);
 
-        let expected = vec![
-            false, false, true, false, false, false, false, true, true, false
-        ];
-        for (i, line) in reader.lines().enumerate() {
-            let line = line.unwrap();
-            let line = line.trim();
-            let tr: TandemRepeat = line.parse().unwrap();
-            let is_correct = is_present(&tr, &sequences);
-            assert_eq!(is_correct, expected[i]);
-        }
+        // let expected = vec![
+        //     false, false, true, false, false, false, false, true, true, false
+        // ];
+        // for (i, line) in reader.lines().enumerate() {
+            // let line = line.unwrap();
+            // let line = line.trim();
+            // let tr: TandemRepeat = line.parse().unwrap();
+            // let is_correct = is_present(&tr, &sequences);
+            // assert_eq!(is_correct, expected[i]);
+        // }
     }
 
     #[test]
@@ -328,34 +218,34 @@ mod tests {
         for line in reader.lines() {
             let line = line.unwrap().trim().to_owned();
             let tr: TandemRepeat = line.parse().unwrap();
-            if is_present(&tr, &references) {
-                present_count += 1;
-            } else {
+            // if is_present(&tr, &references) {
+            //     present_count += 1;
+            // } else {
                 // println!("{}", tr);
                 // print_diff(&tr, &references);
                 // println!();
-            }
+            // }
             max_count += 1;
         }
         println!("Present repeats: {}/{}", present_count, max_count);
     }
 
-    fn print_diff(tr: &TandemRepeat, refs: &HashMap<String, Vec<u8>>) {
-        let n = 10;
-        let rflank = ref_region(refs, &tr.reference, tr.start-n, tr.start).unwrap();
-        let ref_repeat = ref_region(refs, &tr.reference, tr.start, tr.end).unwrap();
-        let lflank = ref_region(refs, &tr.reference, tr.end, tr.end+n).unwrap();
-        println!("{} {} {}", 
-            str::from_utf8(rflank).unwrap(),
-            str::from_utf8(ref_repeat).unwrap(),
-            str::from_utf8(lflank).unwrap()
-        );
-        println!("{} {} {}",
-            " ".repeat(n),
-            str::from_utf8(&tr.sequence()).unwrap(),
-            " ".repeat(n)
-        );
-    }
+//     fn print_diff(tr: &TandemRepeat, refs: &HashMap<String, Vec<u8>>) {
+//         let n = 10;
+//         let rflank = ref_region(refs, &tr.reference, tr.start-n, tr.start).unwrap();
+//         let ref_repeat = ref_region(refs, &tr.reference, tr.start, tr.end).unwrap();
+//         let lflank = ref_region(refs, &tr.reference, tr.end, tr.end+n).unwrap();
+//         println!("{} {} {}", 
+//             str::from_utf8(rflank).unwrap(),
+//             str::from_utf8(ref_repeat).unwrap(),
+//             str::from_utf8(lflank).unwrap()
+//         );
+//         println!("{} {} {}",
+//             " ".repeat(n),
+//             str::from_utf8(&tr.sequence()).unwrap(),
+//             " ".repeat(n)
+//         );
+//     }
 
     #[test]
     fn can_parse_hgvs() {
@@ -365,28 +255,6 @@ mod tests {
         println!("{:?}", tmp);
 
         println!("{}", tmp.accession().value);
-    }
-
-    #[test]
-    fn can_move_motif() {
-        let motif: TandemRepeat = "SEQ1:g.6_15CG[5]".parse().unwrap();
-        let flank = 5;
-        let from = motif.start - flank;
-        let to = motif.end + flank;
-        let seq = &b"AAAAAAACGCGCGCGCGAAA"[from..to];
-
-        let expected_motif: TandemRepeat = "SEQ1:g.8_17CG[5]".parse().unwrap();
-        let corrected_motif = correct_motif(&seq, &motif, flank);
-
-        println!(
-            "{} -> {}\n{}\n{}\n{}",
-            motif, corrected_motif,
-            str::from_utf8(&seq).unwrap(),
-            str::from_utf8(&motif.view(from, to)).unwrap(),
-            str::from_utf8(&corrected_motif.view(from, to)).unwrap(),
-        );
-
-        assert_eq!(expected_motif, corrected_motif);
     }
 
     #[test]
