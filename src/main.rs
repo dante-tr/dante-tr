@@ -2,6 +2,7 @@ use clap::Parser;
 use noodles::bam as bam;
 use noodles::fasta as fasta;
 use noodles::sam::record::quality_scores::Score;
+use noodles::sam::alignment::Record;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs::File;
@@ -53,7 +54,7 @@ fn main() {
     let valid_repeats = correct_repeats(&references, &repeats);
 
     let mut out = File::create(&args.out_file).expect("Cannot open file for writing.");
-    out.write_all(b"motif\tread_sn\tread_id\tread\treference\tmodules\tlog_likelihood\n")
+    out.write_all(b"motif\tread_sn\tread_id\tmate_order\tread\treference\tmodules\tlog_likelihood\n")
         .expect("Cannot write to output file.");
 
     let out = Arc::new(Mutex::new(out));
@@ -75,7 +76,7 @@ fn main() {
 
         let mut buffer = String::new();
         for (i, read) in reads.enumerate() {
-            let read = read.expect("Incorrect read.");
+            let read: Record = read.expect("Incorrect read.");
             let seq: Vec<_> = read.sequence().as_ref().iter().map(|&x| x.into()).collect();
             let qual: Vec<_> = read.quality_scores().as_ref().iter().map(|&x| remap(x)).collect();
             let (likelihood, annotation) = model.log_predict(&seq, &qual);
@@ -85,9 +86,10 @@ fn main() {
             let mods = model.reconstruct_mod_ids(&annotation);
 
             buffer.push_str(&format!(
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
                 repeat, i,
                 read.read_name().unwrap(),
+                mate_order(&read),
                 str::from_utf8(&reconstructed_read).unwrap(),
                 str::from_utf8(&reconstructed_reference).unwrap(),
                 str::from_utf8(&mods).unwrap(),
@@ -99,26 +101,34 @@ fn main() {
     })
 }
 
+fn mate_order(read: &Record) -> String {
+    if read.flags().is_first_segment() { "1".to_string() }
+    else if read.flags().is_last_segment() { "2".to_string() } 
+    else {
+        println!("Read {} does not have pair information.", read.read_name().unwrap());
+        "0".to_string()
+    }
+}
+
 fn correct_repeats(refs: &HashMap<String, Vec<u8>>, repeats: &Vec<TandemRepeat>) -> Vec<TandemRepeat> {
     let mut valid_repeats = Vec::new();
     for motif in repeats.iter() {
         if is_present(&motif, &refs) {
             valid_repeats.push(motif.clone());
         } else {
-            // eprintln!("Motif {} is not present. Correcting...", motif);
-            let from = motif.start - FLANK;
-            let to = motif.end + FLANK;
-            let seq = ref_region(refs, &motif.reference, from, to)
-                .expect("Unable to get reference region.");
+            // let from = motif.start - FLANK;
+            // let to = motif.end + FLANK;
+            // let seq = ref_region(refs, &motif.reference, from, to)
+            //     .expect("Unable to get reference region.");
 
             // let corrected_motif = correct_motif(&seq, &motif, FLANK);
-            println!(
-                "{}\n{}\n{}\n",
-                motif,
-                str::from_utf8(&seq).unwrap(),
-                str::from_utf8(&motif.view(from, to)).unwrap(),
-                // str::from_utf8(&corrected_motif.view(from, to)).unwrap(),
-            );
+            // println!(
+            //     "{} -> {}\n{}\n{}\n{}\n",
+            //     motif, corrected_motif,
+            //     str::from_utf8(&seq).unwrap(),
+            //     str::from_utf8(&motif.view(from, to)).unwrap(),
+            //     str::from_utf8(&corrected_motif.view(from, to)).unwrap(),
+            // );
 
             // valid_repeats.push(corrected_motif);
         }
