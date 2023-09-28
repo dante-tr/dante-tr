@@ -1,5 +1,8 @@
 use std::collections::HashMap;
 use std::str;
+use ndarray::ArrayView1;
+use ndarray::{Array, Array2};
+use ndarray::s;
 use crate::repeats::TandemRepeat;
 use crate::modules_add_motif;
 use crate::HMM;
@@ -12,21 +15,21 @@ pub fn correct_repeats(refs: &HashMap<String, Vec<u8>>, repeats: &Vec<TandemRepe
         if is_present(&motif, &refs) {
             valid_repeats.push(motif.clone());
         } else {
-            let from = motif.start - FLANK;
-            let to = motif.end + FLANK;
-            let seq = ref_region(refs, &motif.reference, from, to)
-                .expect("Unable to get reference region.");
+            // let from = motif.start - FLANK;
+            // let to = motif.end + FLANK;
+            // let seq = ref_region(refs, &motif.reference, from, to)
+            //     .expect("Unable to get reference region.");
 
-            let corrected_motif = correct_motif(&seq, &motif, FLANK);
-            println!(
-                "{} -> {}\n{}\n{}\n{}\n",
-                motif, corrected_motif,
-                str::from_utf8(&seq).unwrap(),
-                str::from_utf8(&motif.view(from, to)).unwrap(),
-                str::from_utf8(&corrected_motif.view(from, to)).unwrap(),
-            );
+            // let corrected_motif = correct_motif(&seq, &motif, FLANK);
+            // println!(
+            //     "{} -> {}\n{}\n{}\n{}\n",
+            //     motif, corrected_motif,
+            //     str::from_utf8(&seq).unwrap(),
+            //     str::from_utf8(&motif.view(from, to)).unwrap(),
+            //     str::from_utf8(&corrected_motif.view(from, to)).unwrap(),
+            // );
 
-            valid_repeats.push(corrected_motif);
+            // valid_repeats.push(corrected_motif);
         }
     }
     return valid_repeats;
@@ -85,22 +88,114 @@ fn correct_motif(seq: &[u8], repeat: &TandemRepeat, flank: usize) -> TandemRepea
     return suggested_repeat;
 }
 
-fn fn3(model: &HMM, annotation: &[usize]) -> (usize, usize) {
-    let start: usize = 0;
-    let end: usize = 6; //TODO: model.get_end();
+const INDEL:u8 = 1;
 
-    let mut m_start = usize::MIN;
-    let mut m_end = usize::MAX;
-    for (i, &state) in annotation.iter().enumerate() {
-        if state == start { m_start = i; }
-        if state == end && m_end == usize::MAX { m_end = i; }
+fn fill_dp_table(target: &[u8], query: &[u8]) -> Array2<u8> {
+    let n = query.len() + 1;
+    let m = target.len() + 1;
+    let mut dp = Array::zeros((n, m));
+
+    for i in 0..n { dp[[i, 0]] = i as u8; }
+    for j in 0..m { dp[[0, j]] = 0; }
+
+    for i in 1..n {
+        for j in 1..m {
+            let edit = (query[i-1] != target[j-1]) as u8;
+            dp[[i, j]] = *[
+                dp[[i-1, j-1]] + edit,
+                dp[[i-1, j]] + INDEL,
+                dp[[i, j-1]] + INDEL
+            ].iter().min().unwrap();
+        }
     }
-    return (m_start + 1, m_end);
+    return dp;
+}
+
+fn sgalign(target: &[u8], query: &[u8]) -> (Vec<u8>, Vec<u8>) {
+    let dp = fill_dp_table(target, query);
+    let cigar = get_cigar(dp, target, query);
+    let (aligned_target, aligned_query) = apply_cigar(&cigar, target, query);
+    return (aligned_target, aligned_query);
+}
+
+fn apply_cigar(cigar: &[Cigar], target: &[u8], query: &[u8]) -> (Vec<u8>, Vec<u8>) {
+    let mut new_target = Vec::new();
+    let mut new_query = Vec::new();
+
+    let mut i = 0;
+    let mut j = 0;
+    for c in cigar {
+        match c {
+            Cigar::M | Cigar::X => {
+                new_target.push(target[i]); i += 1;
+                new_query.push(query[j]); j += 1;
+            },
+            Cigar::I => {
+                new_target.push(b'-');
+                new_query.push(query[j]); j += 1;
+            },
+            Cigar::D | Cigar::N => {
+                new_target.push(target[i]); i += 1;
+                new_query.push(b'-');
+            },
+        }
+    }
+    return (new_target, new_query);
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Cigar {
+    M,  // match
+    X,  // substitution
+    I,  // insertion to target
+    D,  // deletion from target
+    N   // clipping in target
+}
+
+fn argmin(a: ArrayView1<u8>) -> usize {
+    let mut min_pos = 0;
+    let mut min_val = u8::MAX;
+    for (p, &v) in a.iter().enumerate() {
+        if v < min_val { min_pos = p; min_val = v; }
+    }
+    return min_pos;
+}
+
+fn get_cigar(a: Array2<u8>, target: &[u8], query: &[u8]) -> Vec<Cigar> {
+    let n = a.shape()[0];
+    let m = a.shape()[1];
+    let end = argmin(a.slice(s![n-1, ..]));
+
+    let mut cigar = Vec::new();
+    for _ in 0..m-1-end { cigar.push(Cigar::N); }
+
+    let mut i = n-1;
+    let mut j = end;
+    while i != 0 {
+        // if j == 0: push D and i--; but first write failing test;
+        let edit = (query[i-1] != target[j-1]) as u8;
+
+        if a[[i, j]] == a[[i-1, j]] + INDEL {
+            cigar.push(Cigar::D);
+            i -= 1;
+        } else if a[[i, j]] == a[[i-1, j-1]] + edit {
+            if edit == 0 { cigar.push(Cigar::M); }
+            else { cigar.push(Cigar::X); }
+            i -= 1; j -= 1;
+        } else if a[[i, j]] == a[[i, j-1]] + INDEL {
+            cigar.push(Cigar::I);
+            j -= 1;
+        }
+    }
+    for _ in 0..j { cigar.push(Cigar::N); }
+    cigar.reverse();
+    return cigar;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ndarray::array;
 
     #[test]
     fn can_move_motif() {
@@ -122,6 +217,44 @@ mod tests {
         );
 
         assert_eq!(expected_motif, corrected_motif);
+    }
+
+    #[test]
+    fn test_semiglobal_align() {
+        let motif: TandemRepeat = "S1:g.1_18AACCCT[3]".parse().unwrap();
+        let reference = b"TGTAACCCGAAACCTCAAAGCCTAACCCTAACCCTAACCCCTACAGTTGAGGTCCCCC".to_vec();
+
+        let seq_local = reference;
+        let seq_global = motif.sequence();
+        let (s1, s2) = sgalign(&seq_local, &seq_global);
+        println!("{}", str::from_utf8(&s1).unwrap());
+        println!("{}", str::from_utf8(&s2).unwrap());
+    }
+
+    #[test]
+    fn test_semiglobal_align_simple() {
+        let reference = b"ACCCA".to_vec();
+        let query = b"CCC".to_vec();
+        let (s1, s2) = sgalign(&reference, &query);
+        println!("{}", str::from_utf8(&s1).unwrap());
+        println!("{}", str::from_utf8(&s2).unwrap());
+    }
+
+    #[test]
+    fn test_dp_to_cigar() {
+        let target = b"ACCCA".to_vec();
+        let query = b"CCC".to_vec();
+        let dp = array![
+            [0, 0, 0, 0, 0, 0],
+            [1, 1, 0, 0, 0, 1],
+            [2, 2, 1, 0, 0, 1],
+            [3, 3, 2, 1, 0, 1]
+        ];
+
+        use Cigar as C;
+        let exp_cigar = vec![C::N, C::M, C::M, C::M, C::N];
+        let cigar = get_cigar(dp, &target, &query);
+        assert_eq!(exp_cigar, cigar);
     }
 }
 

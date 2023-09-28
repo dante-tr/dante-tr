@@ -421,7 +421,7 @@ mod tests {
         let modules = vec![
             (&b"ATTTT"[..], 30).into()
         ];
-        let model = HMM::from(&modules).log();
+        let _model = HMM::from(&modules).log();
     }
 
     #[test]
