@@ -1,7 +1,7 @@
 # remaSTR
 
 ## Description
-Given a set of reads aligned to reference and a set of short tandem repeat (STR) motifs, remaSTR annotates each read with an information about the length of repeated regions. This information is used in subsequent analysis in Dante. RemaSTR utilizes fast compiled language (Rust) and multithreading to calculate the annotations quickly, enabling Dante to scale to milions of reads and thousands of motifs.
+Given a set of reads aligned to reference and a set of short tandem repeat (STR) motifs, remaSTR annotates each read with an information about the length of repeated regions. This information is used in subsequent analysis in [Dante](https://github.com/marcelTBI/dante-remaSTR). RemaSTR utilizes fast compiled language (Rust) and multithreading to calculate the annotations quickly, enabling Dante to scale to milions of reads and thousands of motifs.
 
 ## Installation
 Assuming rust is [installed](https://www.rust-lang.org/tools/install), run:
