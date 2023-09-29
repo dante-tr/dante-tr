@@ -111,9 +111,12 @@ fn fill_dp_table(target: &[u8], query: &[u8]) -> Array2<u8> {
     return dp;
 }
 
+use counter::Counter;
 fn sgalign(target: &[u8], query: &[u8]) -> (Vec<u8>, Vec<u8>) {
     let dp = fill_dp_table(target, query);
     let cigar = get_cigar(dp, target, query);
+    let count: Counter<_> = cigar.iter().collect();
+    println!("{:?}", count);
     let (aligned_target, aligned_query) = apply_cigar(&cigar, target, query);
     return (aligned_target, aligned_query);
 }
@@ -130,20 +133,24 @@ fn apply_cigar(cigar: &[Cigar], target: &[u8], query: &[u8]) -> (Vec<u8>, Vec<u8
                 new_target.push(target[i]); i += 1;
                 new_query.push(query[j]); j += 1;
             },
-            Cigar::I => {
-                new_target.push(b'-');
+            Cigar::D => {
+                new_target.push(b'_');
                 new_query.push(query[j]); j += 1;
             },
-            Cigar::D | Cigar::N => {
+            Cigar::I => {
+                new_target.push(target[i]); i += 1;
+                new_query.push(b'_');
+            },
+            Cigar::N => {
                 new_target.push(target[i]); i += 1;
                 new_query.push(b'-');
-            },
+            }
         }
     }
     return (new_target, new_query);
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 enum Cigar {
     M,  // match
     X,  // substitution
@@ -221,14 +228,19 @@ mod tests {
 
     #[test]
     fn test_semiglobal_align() {
-        let motif: TandemRepeat = "S1:g.1_18AACCCT[3]".parse().unwrap();
+        let mut motif: TandemRepeat = "S1:g.1_18AACCCT[3]".parse().unwrap();
         let reference = b"TGTAACCCGAAACCTCAAAGCCTAACCCTAACCCTAACCCCTACAGTTGAGGTCCCCC".to_vec();
 
         let seq_local = reference;
-        let seq_global = motif.sequence();
-        let (s1, s2) = sgalign(&seq_local, &seq_global);
-        println!("{}", str::from_utf8(&s1).unwrap());
-        println!("{}", str::from_utf8(&s2).unwrap());
+
+        for i in 3..10 {
+            motif.copy_number[0] = i;
+            let seq_global = motif.sequence();
+            let (s1, s2) = sgalign(&seq_local, &seq_global);
+            println!("{}", str::from_utf8(&s1).unwrap());
+            println!("{}", str::from_utf8(&s2).unwrap());
+            println!();
+        }
     }
 
     #[test]
@@ -255,6 +267,19 @@ mod tests {
         let exp_cigar = vec![C::N, C::M, C::M, C::M, C::N];
         let cigar = get_cigar(dp, &target, &query);
         assert_eq!(exp_cigar, cigar);
+    }
+
+    #[test]
+    fn test_cigar_with_deletion() {
+        let target = b"GGGGAACCCCTGGGG".to_vec();
+        let query = b"AACCCT".to_vec();
+        let dp = fill_dp_table(&target, &query);
+        println!("{:?}", dp);
+        let cigar = get_cigar(dp, &target, &query);
+        println!("{:?}", cigar);
+
+        // use Cigar as C;
+        // let exp_cigar = vec![NNNNMMMMMDMNNNN];
     }
 }
 
