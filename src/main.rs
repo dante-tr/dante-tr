@@ -271,5 +271,13 @@ mod tests {
             println!("{:?}", tr);
         }
     }
+
+    #[test]
+    fn does_not_overflow() {
+        let references = read_reference("data/chromosomeX.fna");
+        let motif: TandemRepeat = "NC_000023.11:g.284585_284614AC[15]".parse().unwrap();
+        let repeats = vec![motif];
+        correct_repeats(&references, &repeats);
+    }
 }
 
