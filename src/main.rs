@@ -33,7 +33,12 @@ fn main() {
     let (names, repeats) = read_motifs(&args.motif_file);
 
     let (references, repeats) = ensure_consistency(bam_refs, references, repeats);
-    let repeats = correct_repeats(&references, &repeats);
+
+    let mut repeats = repeats;
+    if args.correction {
+        repeats = correct_repeats(&references, &repeats);
+    }
+    let repeats = repeats;
 
     let mut out = File::create(&args.out_file).expect("Cannot open file for writing.");
     out.write_all(b"name\tmotif\tread_sn\tread_id\tmate_order\tread\treference\tmodules\tlog_likelihood\n")
@@ -216,7 +221,7 @@ fn mate_order(read: &Record) -> String {
     if read.flags().is_first_segment() { "1".to_string() }
     else if read.flags().is_last_segment() { "2".to_string() } 
     else {
-        println!("Read {} does not have pair information.", read.read_name().unwrap());
+        // println!("Read {} does not have pair information.", read.read_name().unwrap());
         "0".to_string()
     }
 }

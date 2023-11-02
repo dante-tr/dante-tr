@@ -15,6 +15,10 @@ pub struct Args {
     #[arg(short='m')]
     pub motif_file: String,
 
+    /// Correct repeats
+    #[arg(short='c')]
+    pub correction: bool,
+
     /// Output file in TSV format.
     #[arg(short='o')]
     pub out_file: String,
@@ -55,6 +59,7 @@ mod test {
             "-f", "data/chromosomeX.fna",
             "-m", "data/nomenclature_hgs_1Q_wo_names.tsv",
             "-b", "data/mini2.bam",
+            "-c",
             "-o", "tmp.txt"
         ].iter()).unwrap();
         println!("{:?}", args);

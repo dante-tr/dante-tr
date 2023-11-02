@@ -12,6 +12,7 @@ use crate::HMM;
 const FLANK:usize = 20;
 
 pub fn correct_repeats(refs: &HashMap<String, Vec<u8>>, repeats: &Vec<TandemRepeat>) -> Vec<TandemRepeat> {
+    println!("Correcting motifs.");
     let mut valid_repeats = Vec::new();
     for motif in repeats.iter() {
         if is_present(&motif, &refs) {
