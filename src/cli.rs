@@ -11,9 +11,13 @@ pub struct Args {
     #[arg(short='b')]
     pub bam_file: String,
 
-    /// Repeats in HGVS nomenclature, one per line
-    #[arg(short='n')]
-    pub hgvs_file: String,
+    /// Repeats in HGVS nomenclature, one per line or TSV with name and HGVS
+    #[arg(short='m')]
+    pub motif_file: String,
+
+    /// Correct repeats
+    #[arg(short='c')]
+    pub correction: bool,
 
     /// Output file in TSV format.
     #[arg(short='o')]
@@ -41,11 +45,24 @@ mod test {
         let args = Args::try_parse_from([
             "remastr",
             "-f", "data/chromosomeX.fna",
-            "-n", "data/mini_HGVS.txt",
+            "-m", "data/mini_HGVS.txt",
             "-b", "data/mini2.bam",
             "-o", "tmp.txt"
         ].iter()).unwrap();
-        println!("{:?}", args)
+        println!("{:?}", args);
+    }
+
+    #[test]
+    fn cli_example() {
+        let args = Args::try_parse_from([
+            "remastr",
+            "-f", "data/chromosomeX.fna",
+            "-m", "data/nomenclature_hgs_1Q_wo_names.tsv",
+            "-b", "data/mini2.bam",
+            "-c",
+            "-o", "tmp.txt"
+        ].iter()).unwrap();
+        println!("{:?}", args);
     }
 }
 
