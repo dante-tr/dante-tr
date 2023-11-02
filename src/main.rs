@@ -30,17 +30,17 @@ fn main() {
 
     let bam_refs = read_bam_refs(&args.bam_file);
     let references = read_reference(&args.ref_file);
-    let repeats = read_nomenclature(&args.hgvs_file);
+    let (names, repeats) = read_motifs(&args.motif_file);
 
     let (references, repeats) = ensure_consistency(bam_refs, references, repeats);
-    let valid_repeats = correct_repeats(&references, &repeats);
+    let repeats = correct_repeats(&references, &repeats);
 
     let mut out = File::create(&args.out_file).expect("Cannot open file for writing.");
-    out.write_all(b"motif\tread_sn\tread_id\tmate_order\tread\treference\tmodules\tlog_likelihood\n")
+    out.write_all(b"name\tmotif\tread_sn\tread_id\tmate_order\tread\treference\tmodules\tlog_likelihood\n")
         .expect("Cannot write to output file.");
 
     let out = Arc::new(Mutex::new(out));
-    valid_repeats.par_iter().for_each(|repeat| {
+    repeats.par_iter().enumerate().for_each(|(idx, repeat)| {
         // load bam
         let mut reader = bam::indexed_reader::Builder::default()
             .build_from_path(&args.bam_file)
@@ -56,6 +56,10 @@ fn main() {
         let region = tmp.parse().unwrap();
         let reads = reader.query(&header, &region).unwrap();
 
+        let name;
+        if let Some(x) = &names { name = x[idx].clone(); }
+        else { name = "None".to_owned(); }
+
         let mut buffer = String::new();
         for (i, read) in reads.enumerate() {
             let read: Record = read.expect("Incorrect read.");
@@ -68,8 +72,8 @@ fn main() {
             let mods = model.reconstruct_mod_ids(&annotation);
 
             buffer.push_str(&format!(
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
-                repeat, i,
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                name, repeat, i,
                 read.read_name().unwrap(),
                 mate_order(&read),
                 str::from_utf8(&reconstructed_read).unwrap(),
@@ -113,6 +117,59 @@ fn read_reference(filename: &str) -> HashMap<String, Vec<u8>> {
         );
     }
     return result;
+}
+
+fn read_motifs(filename: &str) -> (Option<Vec<String>>, Vec<TandemRepeat>) {
+    let names;
+    let repeats;
+
+    if is_named_format(filename) {
+        let (n, r) = read_nomenclature_with_names(filename);
+        repeats = r;
+        names = Some(n);
+    } else {
+        repeats = read_nomenclature(filename);
+        names = None;
+    }
+
+    return (names, repeats);
+}
+
+fn is_named_format(filename: &str) -> bool {
+    let file = File::open(filename).expect("Cannot find nomenclature file.");
+    let reader = BufReader::new(file);
+    let count = reader
+        .lines().next().expect("Empty nomenclature file?")
+        .expect("Cannot read line from nomenclature file.")
+        .trim().to_owned()
+        .split('\t').count();
+
+    match count {
+        1 => { false },
+        2 => { true },
+        _ => { panic!("Unexpected number of columns in nomenclature file.") }
+    }
+}
+
+fn read_nomenclature_with_names(filename: &str) -> (Vec<String>, Vec<TandemRepeat>) {
+    let file = File::open(filename).expect("Cannot find nomenclature file.");
+    let reader = BufReader::new(file);
+
+    let mut repeats = Vec::new();
+    let mut names = Vec::new();
+    for line in reader.lines() {
+        let line = line
+            .expect("Cannot read line from nomenclature file.")
+            .trim().to_owned();
+        let mut split = line.split('\t');
+        let name = split.next().expect("Missing name.").to_owned();
+        let repeat = split.next().expect("Missing motif.")
+            .parse().expect("Cannot parse nomenclature");
+
+        names.push(name);
+        repeats.push(repeat);
+    }
+    return (names, repeats);
 }
 
 fn read_nomenclature(filename: &str) -> Vec<TandemRepeat> {
@@ -205,6 +262,19 @@ mod tests {
             // let is_correct = is_present(&tr, &sequences);
             // assert_eq!(is_correct, expected[i]);
         // }
+    }
+
+    #[test]
+    fn can_read_tsv_nomenclature() {
+        let filename = "data/nomenclature_hgs_1Q_with_names.tsv";
+        let (names1, motifs1) = read_motifs(&filename);
+
+        let filename = "data/nomenclature_hgs_1Q_wo_names.tsv";
+        let (names2, motifs2) = read_motifs(&filename);
+
+        assert_eq!(motifs1, motifs2);
+        assert_eq!(names2, None);
+        assert_ne!(names1, None);
     }
 
     #[test]
