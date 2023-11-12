@@ -343,16 +343,23 @@ impl HMM {
         return ids;
     }
 
-    pub fn realign_read(&self, path: &[usize], seq: &[u8]) -> Vec<u8> {
+    pub fn realign(&self, path: &[usize], seq: &[u8]) -> (Vec<usize>, Vec<u8>) {
+        let mut new_path = Vec::with_capacity(path.len());
         let mut new_seq = Vec::with_capacity(seq.len());
-        let mut j = 0;
 
         for i in 0..path.len()-1 {
-            new_seq.push(seq[j]); j += 1;
-            if self.deletions.contains(&(path[i], path[i+1])) { new_seq.push(b'_'); }
+            new_path.push(path[i]);
+            new_seq.push(seq[i]);
+            // deletions should be maybe represented by HashMap
+            // with keys (from, to) and values representing the nondeleted path
+            if self.deletions.contains(&(path[i], path[i+1])) {
+                new_path.push(path[i]+1);
+                new_seq.push(b'_');
+            }
         }
-        new_seq.push(seq[j]);
-        return new_seq;
+        new_path.push(*path.last().unwrap());
+        new_seq.push(*seq.last().unwrap());
+        return (new_path, new_seq);
     }
 }
 
@@ -392,7 +399,29 @@ mod tests {
         let modules = model.reconstruct_mod_ids(&annotation);
         let expected = b"--000111111111111I111111222--";
         assert!(modules == expected);
+    }
 
+    #[test]
+    fn reconstructed_output_has_the_same_length() {
+        let modules: Vec<Module> = vec![
+            (&b"ATACAAAAAAAAAAAAAAAA"[..]).into(),
+            (&b"GAA"[..], 6).into(),
+            (&b"AATAAAGAAAAGTTAGCCGG"[..]).into()
+        ];
+        let model = HMM::from(&modules).log();
+
+        let seq =  b"AAATAAAAAAAAAAAAAAAAAAAAGAAGAAGAAGAAGAAGAAGAAGAAGAAAATAAAGAAAAGTTAGCCGG".to_vec();
+        let qual = b"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF".to_vec();
+
+        let (_, annotation) = model.log_predict(&seq, &qual);
+
+        let (new_annot, read) = model.realign(&annotation, &seq); 
+        let rref = model.reconstruct_sequence(&new_annot);
+        let mods = model.reconstruct_mod_ids(&new_annot);
+
+        assert_eq!(read, b"AAATAAAAAAAAAAAAAAAAAA_AAGAAGAAGAAGAAGAAGAAGAAGAAGAAAATAAAGAAAAGTTAGCCGG");
+        assert_eq!(rref, b"--ATACAAAAAAAAAAAAAAAAGAAGAAGAAGAAGAAGAAGAAGAAGAAGAAAATAAAGAAAAGTTAGCCGG");
+        assert_eq!(mods, b"--0000000000000000000011111111111111111111111111111122222222222222222222");
     }
 
     #[test]
@@ -412,7 +441,7 @@ mod tests {
 
         let model = HMM::from(&modules).log();
 
-        let read = model.realign_read(&annotation, &read);
+        let (_, read) = model.realign(&annotation, &read);
         assert!(read == expected);
     }
 

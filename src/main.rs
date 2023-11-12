@@ -72,9 +72,9 @@ fn main() {
             let qual: Vec<_> = read.quality_scores().as_ref().iter().map(|&x| remap(x)).collect();
             let (likelihood, annotation) = model.log_predict(&seq, &qual);
 
-            let reconstructed_reference = model.reconstruct_sequence(&annotation);
-            let reconstructed_read = model.realign_read(&annotation, &seq); 
-            let mods = model.reconstruct_mod_ids(&annotation);
+            let (new_annot, reconstructed_read) = model.realign(&annotation, &seq);
+            let reconstructed_reference = model.reconstruct_sequence(&new_annot);
+            let mods = model.reconstruct_mod_ids(&new_annot);
 
             buffer.push_str(&format!(
                 "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
