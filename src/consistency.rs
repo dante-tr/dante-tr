@@ -11,7 +11,7 @@ pub fn ensure_consistency(
     let bam_variant = Variant::detect(id);
     let id = fna_refs.iter().next().expect("FASTA should have at least one record.").0;
     let fna_variant = Variant::detect(id);
-    let id = &repeats.iter().next().expect("HGVS should have at least one record.").reference;
+    let id = &repeats.first().expect("HGVS should have at least one record.").reference;
     let hgvs_variant = Variant::detect(id);
 
     if (bam_variant.is_chr() || fna_variant.is_chr() || hgvs_variant.is_chr())

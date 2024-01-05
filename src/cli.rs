@@ -31,13 +31,13 @@ mod test {
     #[test]
     fn empty_args_prints_help() {
         let args = Args::try_parse_from(["remastr"].iter()).err().unwrap();
-        println!("{}", args.to_string()); 
+        println!("{}", args); 
     }
 
     #[test]
     fn prints_help() {
         let args = Args::try_parse_from(["remastr", "-h"].iter()).err().unwrap();
-        println!("{}", args.to_string());
+        println!("{}", args);
     }
 
     #[test]

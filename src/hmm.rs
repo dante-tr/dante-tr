@@ -469,8 +469,8 @@ mod tests {
         let (likelihood, annotation) = model.log_predict(&sequence, &quality);
 
         assert!(
-            approx_eq!(f32, likelihood, 4.019535e-06_f32.ln(), (1e-3, 2)),
-            "{likelihood} != {}", 4.019535e-06_f32.ln()
+            approx_eq!(f32, likelihood, 4.019_535e-6_f32.ln(), (1e-3, 2)),
+            "{likelihood} != {}", 4.019_535e-6_f32.ln()
         );
         assert!(annotation == vec![
             10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
@@ -602,13 +602,20 @@ mod tests {
         return None;
     }
 
-    // fn find_diff<D>(a1: ArrayView<f32, D>, a2: ArrayView<f32, D>, acc: (f32, i32)) -> Option<Vec<usize>>
+    // use ndarray::Dimension;
+    // use ndarray::RemoveAxis;
+    // maybe look at how outer_iter is implemented?
+    // fn find_diff<D>(
+    //     a1: ArrayView<f32, D>, a2: ArrayView<f32, D>, acc: (f32, i32)
+    // ) -> Option<Vec<usize>>
     // where
-    //     D: Dimension + RemoveAxis,
-    //     [usize; 1]: NdIndex<D>
+    //     D: Dimension + RemoveAxis
     // {
+    //     let tmp = a1.outer_iter();
     //     let shp = a1.shape();
     //     if shp.len() == 1 {
+    //         for i in a1.outer_iter() {
+    //         }
     //         for i in 0..shp[0] {
     //             if !approx_eq!(f32, a1[[i]], a2[[i]], acc) {
     //                 return Some(vec![i]);

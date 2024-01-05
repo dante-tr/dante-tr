@@ -70,9 +70,9 @@ fn tandem_repeat(input: &str) -> IResult<&str, TandemRepeat> {
 
     let mut copy_unit = Vec::new();
     let mut copy_number = Vec::new();
-    for i in 0..repeats.len() {
-        copy_unit.push(repeats[i].0.clone());
-        copy_number.push(repeats[i].1);
+    for r in &repeats {
+        copy_unit.push(r.0.clone());
+        copy_number.push(r.1);
     }
 
     Ok((input, TandemRepeat {

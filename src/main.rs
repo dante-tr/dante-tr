@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
+use std::io::Error;
 use std::io::Write;
 use std::str;
 use std::sync::{Arc, Mutex};
@@ -53,7 +54,7 @@ fn main() {
         let header = reader.read_header().unwrap();
 
         //  build HMM
-        let modules = get_modules(&repeat, &references, flank);
+        let modules = get_modules(repeat, &references, flank);
         let model = HMM::from(&modules).log();
 
         //  select relevant reads
@@ -65,31 +66,50 @@ fn main() {
         if let Some(x) = &names { name = x[idx].clone(); }
         else { name = "None".to_owned(); }
 
-        let mut buffer = String::new();
-        for (i, read) in reads.enumerate() {
-            let read: Record = read.expect("Incorrect read.");
-            let seq: Vec<_> = read.sequence().as_ref().iter().map(|&x| x.into()).collect();
-            let qual: Vec<_> = read.quality_scores().as_ref().iter().map(|&x| remap(x)).collect();
-            let (likelihood, annotation) = model.log_predict(&seq, &qual);
-
-            let (new_annot, reconstructed_read) = model.realign(&annotation, &seq);
-            let reconstructed_reference = model.reconstruct_sequence(&new_annot);
-            let mods = model.reconstruct_mod_ids(&new_annot);
-
-            buffer.push_str(&format!(
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
-                name, repeat, i,
-                read.read_name().unwrap(),
-                mate_order(&read),
-                str::from_utf8(&reconstructed_read).unwrap(),
-                str::from_utf8(&reconstructed_reference).unwrap(),
-                str::from_utf8(&mods).unwrap(),
-                likelihood
-            ));
-        }
-        out.lock().unwrap().write_all(buffer.as_bytes())
+        let (annotation, _annotated_reads) = annotate_reads(reads, model, name, repeat);
+        out.lock().unwrap().write_all(annotation.as_bytes())
             .expect("Cannot write to output file.");
     })
+}
+
+fn annotate_reads<T>(reads: T, model: HMM, name: String, repeat: &TandemRepeat)
+    -> (String, Vec<Record>)
+where
+    T: Iterator<Item = Result<Record, Error>>
+{
+    let mut annotation_str = String::new();
+    let mut annotated_reads = Vec::<Record>::new();
+    for (i, read) in reads.enumerate() {
+        let read: Record = read.expect("Incorrect read.");
+        if read.flags().is_duplicate() { continue; }
+        // if read.flags().is_qc_fail() { continue; }
+        // match read.mapping_quality() {
+        //     None => { println!("No mapping quality present.") },
+        //     Some(q) => { if q < noodles::noodles_sam::record::MappingQuality(30) {continue;}}
+        //     
+        // }
+
+        annotated_reads.push(read.clone());
+        let seq: Vec<_> = read.sequence().as_ref().iter().map(|&x| x.into()).collect();
+        let qual: Vec<_> = read.quality_scores().as_ref().iter().map(|&x| remap(x)).collect();
+        let (likelihood, annotation) = model.log_predict(&seq, &qual);
+
+        let (new_annot, reconstructed_read) = model.realign(&annotation, &seq);
+        let reconstructed_reference = model.reconstruct_sequence(&new_annot);
+        let mods = model.reconstruct_mod_ids(&new_annot);
+
+        annotation_str.push_str(&format!(
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+            name, repeat, i,
+            read.read_name().unwrap(),
+            mate_order(&read),
+            str::from_utf8(&reconstructed_read).unwrap(),
+            str::from_utf8(&reconstructed_reference).unwrap(),
+            str::from_utf8(&mods).unwrap(),
+            likelihood
+        ));
+    }
+    return (annotation_str, annotated_reads);
 }
 
 fn read_bam_refs(filename: &str) -> HashMap<String, usize> {
@@ -116,7 +136,7 @@ fn read_reference(filename: &str) -> HashMap<String, Vec<u8>> {
 
         result.insert(
             record.name().to_string(),
-            (&record.sequence()[..]).to_vec()
+            (record.sequence()[..]).to_vec()
             // ^- Is there a better way to get Vec<u8>
             // Do I need Vec<u8>? Cannot I leave it as Sequence?
         );
@@ -206,7 +226,7 @@ fn get_modules(
 
     let mut modules = Vec::new();
     modules.push(left_flank.into());
-    modules_add_motif(&mut modules, &repeat);
+    modules_add_motif(&mut modules, repeat);
     modules.push(right_flank.into());
     return modules;
 }
@@ -253,9 +273,9 @@ mod tests {
 
     #[test]
     fn can_load_fasta() {
-        let sequences = read_reference("data/chromosomeX.fna");
-        let hgvs = File::open("data/mini_HGVS.txt").unwrap();
-        let reader = BufReader::new(hgvs);
+        // let sequences = read_reference("data/chromosomeX.fna");
+        // let hgvs = File::open("data/mini_HGVS.txt").unwrap();
+        // let reader = BufReader::new(hgvs);
 
         // let expected = vec![
         //     false, false, true, false, false, false, false, true, true, false
@@ -272,10 +292,10 @@ mod tests {
     #[test]
     fn can_read_tsv_nomenclature() {
         let filename = "data/nomenclature_hgs_1Q_with_names.tsv";
-        let (names1, motifs1) = read_motifs(&filename);
+        let (names1, motifs1) = read_motifs(filename);
 
         let filename = "data/nomenclature_hgs_1Q_wo_names.tsv";
-        let (names2, motifs2) = read_motifs(&filename);
+        let (names2, motifs2) = read_motifs(filename);
 
         assert_eq!(motifs1, motifs2);
         assert_eq!(names2, None);
@@ -284,7 +304,7 @@ mod tests {
 
     #[test]
     fn count_present() {
-        let references = read_reference("data/chromosomeX.fna");
+        // let references = read_reference("data/chromosomeX.fna");
         let hgvs = File::open("data/HGVS.txt").unwrap();
         let reader = BufReader::new(hgvs);
 
