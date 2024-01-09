@@ -1,7 +1,8 @@
-use noodles::bam as bam;
-use noodles::fasta as fasta;
-use noodles::sam::record::quality_scores::Score;
+use clap::Parser;
+use noodles::bam;
+use noodles::fasta;
 use noodles::sam::alignment::Record;
+use noodles::sam::record::quality_scores::Score;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs::File;
@@ -11,18 +12,17 @@ use std::io::Error;
 use std::io::Write;
 use std::str;
 use std::sync::{Arc, Mutex};
-use clap::Parser;
 
 mod cli;
 mod consistency;
 mod hmm;
-mod repeats;
 mod motif_correction;
+mod repeats;
 
 use crate::cli::Args;
 use crate::consistency::ensure_consistency;
+use crate::hmm::{Module, HMM};
 use crate::motif_correction::correct_repeats;
-use crate::hmm::{HMM, Module};
 use crate::repeats::TandemRepeat;
 
 fn main() {
@@ -58,7 +58,7 @@ fn main() {
         let model = HMM::from(&modules).log();
 
         //  select relevant reads
-        let tmp = format!("{}:{}-{}", repeat.reference, repeat.start+1, repeat.end);
+        let tmp = format!("{}:{}-{}", repeat.reference, repeat.start + 1, repeat.end);
         let region = tmp.parse().unwrap();
         let reads = reader.query(&header, &region).unwrap();
 
@@ -67,15 +67,14 @@ fn main() {
         else { name = "None".to_owned(); }
 
         let (annotation, _annotated_reads) = annotate_reads(reads, model, name, repeat);
-        out.lock().unwrap().write_all(annotation.as_bytes())
-            .expect("Cannot write to output file.");
+        out.lock().unwrap().write_all(annotation.as_bytes()).expect("Cannot write to output file.");
     })
 }
 
 fn annotate_reads<T>(reads: T, model: HMM, name: String, repeat: &TandemRepeat)
     -> (String, Vec<Record>)
 where
-    T: Iterator<Item = Result<Record, Error>>
+    T: Iterator<Item = Result<Record, Error>>,
 {
     let mut annotation_str = String::new();
     let mut annotated_reads = Vec::<Record>::new();
@@ -86,7 +85,7 @@ where
         // match read.mapping_quality() {
         //     None => { println!("No mapping quality present.") },
         //     Some(q) => { if q < noodles::noodles_sam::record::MappingQuality(30) {continue;}}
-        //     
+        //
         // }
 
         annotated_reads.push(read.clone());
@@ -127,19 +126,15 @@ fn read_bam_refs(filename: &str) -> HashMap<String, usize> {
 }
 
 fn read_reference(filename: &str) -> HashMap<String, Vec<u8>> {
-    let mut reader = fasta::reader::Builder
-        .build_from_path(filename).unwrap();
+    let mut reader = fasta::reader::Builder.build_from_path(filename).unwrap();
 
     let mut result = HashMap::new();
     for record in reader.records() {
         let record = record.unwrap();
 
-        result.insert(
-            record.name().to_string(),
-            (record.sequence()[..]).to_vec()
-            // ^- Is there a better way to get Vec<u8>
-            // Do I need Vec<u8>? Cannot I leave it as Sequence?
-        );
+        result.insert(record.name().to_string(), (record.sequence()[..]).to_vec());
+        // Is there a better way to get Vec<u8> than this? --------^
+        // Do I need Vec<u8>? Cannot I leave it as Sequence?
     }
     return result;
 }
@@ -183,13 +178,10 @@ fn read_nomenclature_with_names(filename: &str) -> (Vec<String>, Vec<TandemRepea
     let mut repeats = Vec::new();
     let mut names = Vec::new();
     for line in reader.lines() {
-        let line = line
-            .expect("Cannot read line from nomenclature file.")
-            .trim().to_owned();
+        let line = line.expect("Cannot read line from nomenclature file.").trim().to_owned();
         let mut split = line.split('\t');
         let name = split.next().expect("Missing name.").to_owned();
-        let repeat = split.next().expect("Missing motif.")
-            .parse().expect("Cannot parse nomenclature");
+        let repeat = split.next().expect("Missing motif.").parse().expect("Cannot parse nomenclature");
 
         names.push(name);
         repeats.push(repeat);
@@ -204,9 +196,7 @@ fn read_nomenclature(filename: &str) -> Vec<TandemRepeat> {
     let reader = BufReader::new(file);
 
     for line in reader.lines() {
-        let line = line
-            .expect("Cannot read line from nomenclature file.")
-            .trim().to_owned();
+        let line = line.expect("Cannot read line from nomenclature file.").trim().to_owned();
         let repeat = line.parse().expect("Cannot parse nomenclature.");
         repeats.push(repeat);
     }
@@ -253,15 +243,15 @@ fn remap(x: Score) -> u8 {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use hgvs::parser::HgvsVariant;
     use std::fs::File;
-    use std::io::{prelude::*, BufReader};
-    use super::*;
+    use std::io::BufReader;
 
     #[test]
     fn can_load_bam() {
         let mut reader = bam::indexed_reader::Builder::default()
-            .build_from_path("data/mini.bam").unwrap();
+            .build_from_path("data/test/mini.bam").unwrap();
 
         let header = reader.read_header().unwrap();
 
@@ -291,10 +281,10 @@ mod tests {
 
     #[test]
     fn can_read_tsv_nomenclature() {
-        let filename = "data/nomenclature_hgs_1Q_with_names.tsv";
+        let filename = "data/test/nomenclature_hgs_1Q_with_names.tsv";
         let (names1, motifs1) = read_motifs(filename);
 
-        let filename = "data/nomenclature_hgs_1Q_wo_names.tsv";
+        let filename = "data/test/nomenclature_hgs_1Q_wo_names.tsv";
         let (names2, motifs2) = read_motifs(filename);
 
         assert_eq!(motifs1, motifs2);
@@ -305,7 +295,7 @@ mod tests {
     #[test]
     fn count_present() {
         // let references = read_reference("data/chromosomeX.fna");
-        let hgvs = File::open("data/HGVS.txt").unwrap();
+        let hgvs = File::open("data/test/HGVS.txt").unwrap();
         let reader = BufReader::new(hgvs);
 
         let mut present_count = 0;
@@ -354,7 +344,7 @@ mod tests {
 
     #[test]
     fn can_read_and_parse_hgvs_file() {
-        let file = "data/mini_HGVS.txt";
+        let file = "data/test/mini_HGVS.txt";
         let file = File::open(file).unwrap();
         let reader = BufReader::new(file);
 
@@ -369,10 +359,9 @@ mod tests {
 
     #[test]
     fn does_not_overflow() {
-        let references = read_reference("data/chromosomeX.fna");
+        let references = read_reference("data/test/chromosomeX.fna");
         let motif: TandemRepeat = "NC_000023.11:g.284585_284614AC[15]".parse().unwrap();
         let repeats = vec![motif];
         correct_repeats(&references, &repeats);
     }
 }
-

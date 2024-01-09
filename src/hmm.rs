@@ -488,7 +488,7 @@ mod tests {
         ];
 
         let model = HMM::from(&modules);
-        let expected: Array2<f32> = read_npy("data/log_trans_f32.npy").unwrap();
+        let expected: Array2<f32> = read_npy("data/test/log_trans_f32.npy").unwrap();
         let expected = expected.map(|&x| x.exp());
 
         let diff = find_diff_ndarray2(expected.view(), model.transition.view(), (1e-4, 2));
@@ -506,9 +506,9 @@ mod tests {
 
     #[test]
     fn prediction_works() {
-        let initial = read_npy("data/log_init_f32.npy").unwrap();
-        let transition = read_npy("data/log_trans_f32.npy").unwrap();
-        let emission = read_npy("data/log_emit_f32.npy").unwrap();
+        let initial = read_npy("data/test/log_init_f32.npy").unwrap();
+        let transition = read_npy("data/test/log_trans_f32.npy").unwrap();
+        let emission = read_npy("data/test/log_emit_f32.npy").unwrap();
 
         let model = HMM { 
             states: Vec::new(), deletions: HashSet::new(), initial, transition, emission 
@@ -559,7 +559,7 @@ mod tests {
             State::Ins, State::Ins, State::Ins, State::Ins
         ];
         let obtained = emission_probabilities(&states).map(|&x| x.ln());
-        let expected: Array3<f32> = read_npy("data/log_emit_f32.npy").unwrap();
+        let expected: Array3<f32> = read_npy("data/test/log_emit_f32.npy").unwrap();
         assert_eq_ndarray3(expected.view(), obtained.view(), (1e-3, 2));
     }
 
