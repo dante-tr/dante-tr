@@ -18,7 +18,8 @@ mod consistency;
 mod hmm;
 mod motif_correction;
 mod repeats;
-mod experimental;
+// mod experimental;
+mod bam_index;
 
 use crate::cli::Args;
 use crate::consistency::ensure_consistency;

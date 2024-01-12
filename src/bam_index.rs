@@ -1,18 +1,15 @@
-use noodles::bam;
-use noodles::bam::bai;
-use noodles::csi::index::reference_sequence::bin::Chunk;
-use noodles::csi::index::Indexer;
-use noodles::sam;
-use noodles::sam::alignment::Record;
+use noodles::bam::{self as bam, bai};
+use noodles::csi::binning_index::{index::reference_sequence::bin::Chunk, Indexer};
+use noodles::sam::{self as sam, alignment::Record};
 use std::fs::File;
 use std::io;
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn is_coordinate_sorted(header: &sam::Header) -> bool {
+    use sam::header::record::value::map::header::SortOrder;
+
     if let Some(hd) = header.header() {
         if let Some(sort_order) = hd.sort_order() {
-            use sam::header::record::value::map::header::SortOrder;
             return sort_order == SortOrder::Coordinate;
         }
     }
@@ -28,7 +25,6 @@ fn create_bai_file<P: AsRef<Path>>(bam_file: P) -> io::Result<()> {
     }
 
     let mut builder = Indexer::default();
-    // builder.set_header(&header);
     let mut start_position = reader.virtual_position();
 
     let mut record = Record::default();
@@ -73,15 +69,14 @@ mod test {
         let bam_path = "data/real/ilr_lib3.bam";
         let bai_path = bai(bam_path);
         if !bai_path.exists() {
-            // https://github.com/zaeleus/noodles/blob/master/noodles-bam/examples/bam_index.rs
             println!("Create .bai for bam file.");
             create_bai_file(bam_path).expect("Cannot create .bai file.");
         }
 
-        // let mut reader = bam::indexed_reader::Builder::default()
-        //     .build_from_path(bam_path)
-        //     .expect("Unable to read the associated index (.bai).");
+        let mut reader = bam::indexed_reader::Builder::default()
+            .build_from_path(bam_path)
+            .expect("Unable to read the associated index (.bai).");
 
-        // let header = reader.read_header().unwrap();
+        let _header = reader.read_header().unwrap();
     }
 }
