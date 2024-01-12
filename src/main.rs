@@ -18,6 +18,7 @@ mod consistency;
 mod hmm;
 mod motif_correction;
 mod repeats;
+mod experimental;
 
 use crate::cli::Args;
 use crate::consistency::ensure_consistency;
@@ -36,9 +37,7 @@ fn main() {
     let (references, repeats) = ensure_consistency(bam_refs, references, repeats);
 
     let mut repeats = repeats;
-    if args.correction {
-        repeats = correct_repeats(&references, &repeats);
-    }
+    if args.correction { repeats = correct_repeats(&references, &repeats); }
     let repeats = repeats;
 
     let mut out = File::create(&args.out_file).expect("Cannot open file for writing.");
