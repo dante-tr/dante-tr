@@ -2,6 +2,7 @@ use clap::Parser;
 use noodles::bam;
 use noodles::fasta;
 use noodles::sam::alignment::Record;
+use noodles::sam::record::MappingQuality;
 use noodles::sam::record::quality_scores::Score;
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -18,7 +19,6 @@ mod consistency;
 mod hmm;
 mod motif_correction;
 mod repeats;
-// mod experimental;
 mod bam_index;
 
 use crate::cli::Args;
@@ -26,11 +26,16 @@ use crate::consistency::ensure_consistency;
 use crate::hmm::{Module, HMM};
 use crate::motif_correction::correct_repeats;
 use crate::repeats::TandemRepeat;
+use crate::bam_index::check_bai;
+
+const Q30: u8 = 30;
 
 fn main() {
     let args = Args::parse();
     let flank = 20;
 
+    // checks
+    check_bai(&args.bam_file);
     let bam_refs = read_bam_refs(&args.bam_file);
     let references = read_reference(&args.ref_file);
     let (names, repeats) = read_motifs(&args.motif_file);
@@ -41,10 +46,20 @@ fn main() {
     if args.correction { repeats = correct_repeats(&references, &repeats); }
     let repeats = repeats;
 
+    // initialize output files
     let mut out = File::create(&args.out_file).expect("Cannot open file for writing.");
-    out.write_all(b"name\tmotif\tread_sn\tread_id\tmate_order\tread\treference\tmodules\tlog_likelihood\n")
-        .expect("Cannot write to output file.");
+    out.write_all(
+        b"name\tmotif\tread_sn\tread_id\tmate_order\tread\treference\tmodules\tlog_likelihood\n"
+    ).expect("Cannot write to output file.");
 
+    let new_bam = File::create("filtered.bam").expect("Cannot open file for writing.");
+    let mut writer = bam::Writer::new(new_bam);
+
+    let file = File::open(&args.bam_file).unwrap();
+    let header = bam::Reader::new(file).read_header().unwrap();
+    writer.write_header(&header).unwrap();
+
+    let out_bam = Arc::new(Mutex::new(writer));
     let out = Arc::new(Mutex::new(out));
     repeats.par_iter().enumerate().for_each(|(idx, repeat)| {
         // load bam
@@ -67,8 +82,21 @@ fn main() {
         else { name = "None".to_owned(); }
 
         let (annotation, _annotated_reads) = annotate_reads(reads, model, name, repeat);
+
+        // write to files
         out.lock().unwrap().write_all(annotation.as_bytes()).expect("Cannot write to output file.");
-    })
+        for record in _annotated_reads {
+            out_bam.lock().unwrap().write_record(&header, &record).expect("Cannot write to out bam.");
+        }
+    });
+    // check_bai("filtered.bam");
+}
+
+fn mapq_less_than(rec: &Record, x: u8) -> bool {
+    let x = MappingQuality::new(x)
+        .expect("Mapq is from 0 to 254. 255 is reserved for None.");
+    let Some(q) = rec.mapping_quality() else { return false };
+    return q < x;
 }
 
 fn annotate_reads<T>(reads: T, model: HMM, name: String, repeat: &TandemRepeat)
@@ -81,12 +109,7 @@ where
     for (i, read) in reads.enumerate() {
         let read: Record = read.expect("Incorrect read.");
         if read.flags().is_duplicate() { continue; }
-        // if read.flags().is_qc_fail() { continue; }
-        // match read.mapping_quality() {
-        //     None => { println!("No mapping quality present.") },
-        //     Some(q) => { if q < noodles::noodles_sam::record::MappingQuality(30) {continue;}}
-        //
-        // }
+        if mapq_less_than(&read, Q30) { continue; }
 
         annotated_reads.push(read.clone());
         let seq: Vec<_> = read.sequence().as_ref().iter().map(|&x| x.into()).collect();

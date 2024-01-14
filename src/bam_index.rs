@@ -60,6 +60,14 @@ fn bai<P: AsRef<Path>>(bam: P) -> PathBuf {
     return bai;
 }
 
+pub fn check_bai<P: AsRef<Path>>(bam: P) {
+    let bai_path = bai(&bam);
+    if !bai_path.exists() {
+        println!("BAM index (.bai) does not exist. Creating...");
+        create_bai_file(&bam).expect("Cannot create index file.");
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
