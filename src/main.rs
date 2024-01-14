@@ -9,7 +9,6 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
-use std::io::Error;
 use std::io::Write;
 use std::str;
 use std::sync::{Arc, Mutex};
@@ -72,20 +71,26 @@ fn main() {
         let modules = get_modules(repeat, &references, flank);
         let model = HMM::from(&modules).log();
 
+        // find name
+        let name = match &names {
+            None => { "None".to_owned() },
+            Some(x) => { x[idx].clone() },
+        };
+
         //  select relevant reads
         let tmp = format!("{}:{}-{}", repeat.reference, repeat.start + 1, repeat.end);
         let region = tmp.parse().unwrap();
-        let reads = reader.query(&header, &region).unwrap();
+        let reads = reader
+            .query(&header, &region).unwrap()
+            .map(|x| x.expect("Incorrect read."))
+            .filter(|x| !x.flags().is_duplicate())
+            .filter(|x| !mapq_less_than(x, Q30));
 
-        let name;
-        if let Some(x) = &names { name = x[idx].clone(); }
-        else { name = "None".to_owned(); }
-
-        let (annotation, _annotated_reads) = annotate_reads(reads, model, name, repeat);
+        let (annotation, annotated_reads) = annotate_reads(reads, model, name, repeat);
 
         // write to files
         out.lock().unwrap().write_all(annotation.as_bytes()).expect("Cannot write to output file.");
-        for record in _annotated_reads {
+        for record in annotated_reads {
             out_bam.lock().unwrap().write_record(&header, &record).expect("Cannot write to out bam.");
         }
     });
@@ -102,16 +107,14 @@ fn mapq_less_than(rec: &Record, x: u8) -> bool {
 fn annotate_reads<T>(reads: T, model: HMM, name: String, repeat: &TandemRepeat)
     -> (String, Vec<Record>)
 where
-    T: Iterator<Item = Result<Record, Error>>,
+    T: Iterator<Item = Record>,
 {
     let mut annotation_str = String::new();
     let mut annotated_reads = Vec::<Record>::new();
     for (i, read) in reads.enumerate() {
-        let read: Record = read.expect("Incorrect read.");
-        if read.flags().is_duplicate() { continue; }
-        if mapq_less_than(&read, Q30) { continue; }
 
         annotated_reads.push(read.clone());
+
         let seq: Vec<_> = read.sequence().as_ref().iter().map(|&x| x.into()).collect();
         let qual: Vec<_> = read.quality_scores().as_ref().iter().map(|&x| remap(x)).collect();
         let (likelihood, annotation) = model.log_predict(&seq, &qual);
@@ -321,11 +324,12 @@ mod tests {
         let hgvs = File::open("data/test/HGVS.txt").unwrap();
         let reader = BufReader::new(hgvs);
 
-        let mut present_count = 0;
+        // let mut present_count = 0;
+        let present_count = 0;
         let mut max_count = 0;
         for line in reader.lines() {
             let line = line.unwrap().trim().to_owned();
-            let tr: TandemRepeat = line.parse().unwrap();
+            let _tr: TandemRepeat = line.parse().unwrap();
             // if is_present(&tr, &references) {
             //     present_count += 1;
             // } else {
