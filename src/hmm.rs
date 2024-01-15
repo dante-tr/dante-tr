@@ -56,7 +56,7 @@ enum State {
 }
 
 #[derive(Default)]
-pub struct HMM {
+pub struct Hmm {
     states: Vec<State>,
     deletions: HashSet<(usize, usize)>,
     initial: ndarray::Array1<f32>,
@@ -64,7 +64,7 @@ pub struct HMM {
     emission: ndarray::Array3<f32>,
 }
 
-impl From<&Vec<Module>> for HMM {
+impl From<&Vec<Module>> for Hmm {
     fn from(modules: &Vec<Module>) -> Self {
         let states = get_states(modules);
         let description = get_description(modules);
@@ -74,11 +74,11 @@ impl From<&Vec<Module>> for HMM {
         let transition = transition_probabilities(&states, &description);
         let emission = emission_probabilities(&states);
 
-        HMM { states, deletions, initial, transition, emission }
+        Hmm { states, deletions, initial, transition, emission }
     }
 }
 
-fn get_states(modules: &Vec<Module>) -> Vec<State> {
+fn get_states(modules: &[Module]) -> Vec<State> {
     let mut states: Vec<State> = Vec::new();
     states.push(State::Start);
     for (i, module) in modules.iter().enumerate() {
@@ -98,7 +98,7 @@ fn get_states(modules: &Vec<Module>) -> Vec<State> {
     return states;
 }
 
-fn get_description(modules: &Vec<Module>) -> Vec<MDesc> {
+fn get_description(modules: &[Module]) -> Vec<MDesc> {
     let mut start = 1;
     let mut description = Vec::new();
     for module in modules {
@@ -116,7 +116,7 @@ fn get_description(modules: &Vec<Module>) -> Vec<MDesc> {
     return description;
 }
 
-fn get_deletions(states: &Vec<State>, desc: &Vec<MDesc>) -> HashSet<(usize, usize)> {
+fn get_deletions(states: &[State], desc: &[MDesc]) -> HashSet<(usize, usize)> {
     let mut deletions = HashSet::new();
 
     let mut bg_end = 0;
@@ -269,7 +269,7 @@ fn argmax(a: ArrayView1<f32>) -> usize {
     return max_pos;
 }
 
-impl HMM {
+impl Hmm {
     /// Returns the most likely path and its log-likelihood of (seq, qual) given HMM.
     /// Assumes HMM with more than 0 states and probabilities in log space.
     pub fn log_predict(&self, seq: &[u8], qual: &[u8]) -> (f32, Vec<usize>) {
@@ -384,7 +384,7 @@ mod tests {
         let seq =  b"AATCTGTCGTCGTCGTCAGTCGTCAAATT".to_vec();
         let qual = b":F::FF:,F,FFFFFFF,FF,FFF:F,FF".to_vec();
 
-        let model = HMM::from(&modules).log();
+        let model = Hmm::from(&modules).log();
         let (likelihood, annotation) = model.log_predict(&seq, &qual);
 
         assert!(approx_eq!(f32, likelihood, 7.106122e-13_f32.ln(), (1e-4, 2)));
@@ -408,7 +408,7 @@ mod tests {
             (&b"GAA"[..], 6).into(),
             (&b"AATAAAGAAAAGTTAGCCGG"[..]).into()
         ];
-        let model = HMM::from(&modules).log();
+        let model = Hmm::from(&modules).log();
 
         let seq =  b"AAATAAAAAAAAAAAAAAAAAAAAGAAGAAGAAGAAGAAGAAGAAGAAGAAAATAAAGAAAAGTTAGCCGG".to_vec();
         let qual = b"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF".to_vec();
@@ -439,7 +439,7 @@ mod tests {
             (&b"AAA"[..]).into()
         ];
 
-        let model = HMM::from(&modules).log();
+        let model = Hmm::from(&modules).log();
 
         let (_, read) = model.realign(&annotation, &read);
         assert!(read == expected);
@@ -450,7 +450,7 @@ mod tests {
         let modules = vec![
             (&b"ATTTT"[..], 30).into()
         ];
-        let _model = HMM::from(&modules).log();
+        let _model = Hmm::from(&modules).log();
     }
 
     #[test]
@@ -460,7 +460,7 @@ mod tests {
             (&b"A"[..], 11).into(),
             (&b"TTACTTTCAGATGTCTGTCA"[..]).into(),    
         ];
-        let model = HMM::from(&modules).log();
+        let model = Hmm::from(&modules).log();
 
         let sequence =
             b"AAGCCTGATTTAAAAAAAAAAAAAATTACTTTCAGATGT".to_vec();
@@ -487,7 +487,7 @@ mod tests {
             (&b"AAA"[..]).into()
         ];
 
-        let model = HMM::from(&modules);
+        let model = Hmm::from(&modules);
         let expected: Array2<f32> = read_npy("data/test/log_trans_f32.npy").unwrap();
         let expected = expected.map(|&x| x.exp());
 
@@ -510,7 +510,7 @@ mod tests {
         let transition = read_npy("data/test/log_trans_f32.npy").unwrap();
         let emission = read_npy("data/test/log_emit_f32.npy").unwrap();
 
-        let model = HMM { 
+        let model = Hmm { 
             states: Vec::new(), deletions: HashSet::new(), initial, transition, emission 
         };
         println!("Initial strides: {:?}", model.initial.strides());

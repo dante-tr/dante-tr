@@ -27,7 +27,7 @@ mod repeats;
 use crate::bam_index::check_bai;
 use crate::cli::Args;
 use crate::consistency::ensure_consistency;
-use crate::hmm::{Module, HMM};
+use crate::hmm::{Module, Hmm};
 use crate::motif_correction::correct_repeats;
 use crate::repeats::TandemRepeat;
 
@@ -64,7 +64,7 @@ fn main() {
 
         //  build HMM
         let modules = get_modules(repeat, &references, args.flank);
-        let model = HMM::from(&modules).log();
+        let model = Hmm::from(&modules).log();
 
         // find name
         let name = match &names {
@@ -129,7 +129,7 @@ fn mapq_less_than(rec: &Record, x: u8) -> bool {
     return q < x;
 }
 
-fn annotate_reads<T>(reads: T, model: HMM, name: String, repeat: &TandemRepeat)
+fn annotate_reads<T>(reads: T, model: Hmm, name: String, repeat: &TandemRepeat)
     -> (String, Vec<Record>)
 where
     T: Iterator<Item = Record>,

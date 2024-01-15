@@ -1,11 +1,37 @@
-use std::str::FromStr;
-use nom::IResult;
 use nom::bytes::complete::{tag, take_until};
 use nom::character::complete::{alpha1, alphanumeric0, digit1};
 use nom::multi::many0;
 use nom::sequence::delimited;
+use nom::IResult;
 use std::fmt;
 use std::str;
+use std::str::FromStr;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repeat_can_be_parsed() {
+        let s = "NM_000044.3:g.123_191CAG[25]";
+        let tr: TandemRepeat = s.parse().unwrap();
+        println!("{:?}", tr);
+    }
+
+    #[test]
+    fn test_inner_motif_view() {
+        let motif: TandemRepeat = "S1:g.1_10A[10]".parse().unwrap();
+        let v = motif.view(0, 10);
+        println!("{}", str::from_utf8(&v).unwrap());
+    }
+
+    #[test]
+    fn complex_repeat_can_be_parsed() {
+        let s = "NC_000008.11:g.118366816_118366918TAAAA[13]TAA[1]TAAAA[7]";
+        let tr: TandemRepeat = s.parse().unwrap();
+        println!("{:?}", tr);
+    }
+}
 
 #[derive(Default, Debug, PartialEq, Clone)]
 pub struct TandemRepeat {
@@ -13,7 +39,7 @@ pub struct TandemRepeat {
     pub start: usize,
     pub end: usize,
     pub copy_unit: Vec<Vec<u8>>,
-    pub copy_number: Vec<usize>
+    pub copy_number: Vec<usize>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -39,12 +65,9 @@ impl fmt::Display for TandemRepeat {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // NC_000008.11:g.118366816_118366918TAAAA[13]TAA[1]TAAAA[7]
         write!(f, "{}:g.", self.reference)?;
-        write!(f, "{}_{}", self.start+1, self.end)?;
+        write!(f, "{}_{}", self.start + 1, self.end)?;
         for i in 0..self.copy_number.len() {
-            write!(f, "{}[{}]",
-                str::from_utf8(&self.copy_unit[i]).unwrap(),
-                self.copy_number[i]
-            )?;
+            write!(f, "{}[{}]", str::from_utf8(&self.copy_unit[i]).unwrap(), self.copy_number[i])?;
         }
         Ok(())
     }
@@ -54,7 +77,7 @@ fn parse_repeat(input: &str) -> IResult<&str, (Vec<u8>, usize)> {
     let (remaining, unit) = alpha1(input)?;
     let unit = unit.as_bytes().to_vec();
     let (remaining, number) = delimited(tag("["), digit1, tag("]"))(remaining)?;
-    let number = number.parse().unwrap();   // this is safe due to previous line
+    let number = number.parse().unwrap(); // this is safe due to previous line
     return Ok((remaining, (unit, number)));
 }
 
@@ -62,10 +85,10 @@ fn tandem_repeat(input: &str) -> IResult<&str, TandemRepeat> {
     let (input, reference) = take_until(":")(input)?;
     let (input, _) = delimited(tag(":"), alphanumeric0, tag("."))(input)?;
     let (input, start) = digit1(input)?;
-    let start: usize = start.parse().unwrap();  // this is safe
+    let start: usize = start.parse().unwrap(); // this is safe
     let (input, _) = tag("_")(input)?;
     let (input, end) = digit1(input)?;
-    let end: usize = end.parse().unwrap();      // this is safe
+    let end: usize = end.parse().unwrap(); // this is safe
     let (input, repeats) = many0(parse_repeat)(input)?;
 
     let mut copy_unit = Vec::new();
@@ -95,9 +118,10 @@ impl TandemRepeat {
         return res;
     }
 
+    #[cfg(test)]
     pub fn view(&self, from: usize, to: usize) -> Vec<u8> {
         if from <= self.start && self.end <= to {
-            let mut v = b"-".repeat(to-from);
+            let mut v = b"-".repeat(to - from);
             let seq = self.sequence();
             for i in 0..seq.len() { v[self.start-from+i] = seq[i]; }
             return v;
@@ -108,28 +132,3 @@ impl TandemRepeat {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn repeat_can_be_parsed() {
-        let s = "NM_000044.3:g.123_191CAG[25]";
-        let tr: TandemRepeat = s.parse().unwrap();
-        println!("{:?}", tr);
-    }
-
-    #[test]
-    fn test_inner_motif_view() {
-        let motif: TandemRepeat = "S1:g.1_10A[10]".parse().unwrap();
-        let v = motif.view(0, 10);
-        println!("{}", str::from_utf8(&v).unwrap());
-    }
-
-    #[test]
-    fn complex_repeat_can_be_parsed() {
-        let s = "NC_000008.11:g.118366816_118366918TAAAA[13]TAA[1]TAAAA[7]";
-        let tr: TandemRepeat = s.parse().unwrap();
-        println!("{:?}", tr);
-    }
-}

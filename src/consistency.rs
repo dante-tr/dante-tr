@@ -38,7 +38,7 @@ enum Variant { Chr, NC, Other }
 impl Variant {
     fn is_chr(&self) -> bool { *self == Variant::Chr }
     fn is_nc(&self) -> bool { *self == Variant::NC }
-    fn detect(id: &String) -> Variant {
+    fn detect(id: &str) -> Variant {
         if id.starts_with("chr") { return Variant::Chr; }
         if id.starts_with("NC") { return Variant::NC; }
         return Variant::Other;
@@ -46,12 +46,14 @@ impl Variant {
 }
 
 const MAP: [(&str, &str); 24] = [
-    ("NC_000001", "chr1"),  ("NC_000002", "chr2"),  ("NC_000003", "chr3"),  ("NC_000004", "chr4"),
-    ("NC_000005", "chr5"),  ("NC_000006", "chr6"),  ("NC_000007", "chr7"),  ("NC_000008", "chr8"),
-    ("NC_000009", "chr9"),  ("NC_000010", "chr10"), ("NC_000011", "chr11"), ("NC_000012", "chr12"),
-    ("NC_000013", "chr13"), ("NC_000014", "chr14"), ("NC_000015", "chr15"), ("NC_000016", "chr16"),
-    ("NC_000017", "chr17"), ("NC_000018", "chr18"), ("NC_000019", "chr19"), ("NC_000020", "chr20"),
-    ("NC_000021", "chr21"), ("NC_000022", "chr22"), ("NC_000023", "chrX"),  ("NC_000024", "chrY"),
+    ("NC_000001", "chr1"),  ("NC_000002", "chr2"),  ("NC_000003", "chr3"),
+    ("NC_000004", "chr4"),  ("NC_000005", "chr5"),  ("NC_000006", "chr6"),
+    ("NC_000007", "chr7"),  ("NC_000008", "chr8"),  ("NC_000009", "chr9"),
+    ("NC_000010", "chr10"), ("NC_000011", "chr11"), ("NC_000012", "chr12"),
+    ("NC_000013", "chr13"), ("NC_000014", "chr14"), ("NC_000015", "chr15"),
+    ("NC_000016", "chr16"), ("NC_000017", "chr17"), ("NC_000018", "chr18"),
+    ("NC_000019", "chr19"), ("NC_000020", "chr20"), ("NC_000021", "chr21"),
+    ("NC_000022", "chr22"), ("NC_000023", "chrX"),  ("NC_000024", "chrY"),
 ];
 
 fn remap_fna(fna_refs: HashMap<String, Vec<u8>>) -> HashMap<String, Vec<u8>> {
@@ -59,9 +61,9 @@ fn remap_fna(fna_refs: HashMap<String, Vec<u8>>) -> HashMap<String, Vec<u8>> {
     for (id, seq) in fna_refs.iter() {
         let id = id.split('.').next()
             .expect("Fasta ID is not in form NC_000000.0");
-        for i in 0..MAP.len() {
-            if id == MAP[i].0 {
-                result.insert(MAP[i].1.to_string(), seq.clone());
+        for item in &MAP {
+            if id == item.0 {
+                result.insert(item.1.to_string(), seq.clone());
             }
         }
     }
@@ -73,11 +75,11 @@ fn remap_hgvs(repeats: Vec<TandemRepeat>) -> Vec<TandemRepeat> {
     for repeat in repeats {
         let name = repeat.reference;
         let id = name.split('.').next()
-            .expect(&format!("{name} is not in form NC_000000.0"));
-        for i in 0..MAP.len() {
-            if id == MAP[i].0 {
+            .unwrap_or_else(|| panic!("{name} is not in form NC_000000.0"));
+        for item in &MAP {
+            if id == item.0 {
                 result.push(TandemRepeat{
-                    reference: MAP[i].1.to_string(),
+                    reference: item.1.to_string(),
                     start: repeat.start,
                     end: repeat.end,
                     copy_unit: repeat.copy_unit.clone(),
