@@ -1,41 +1,44 @@
 use clap::Parser;
 use noodles::bam;
+use noodles::bam::Writer;
 use noodles::fasta;
+use noodles::sam::Header;
 use noodles::sam::alignment::Record;
-use noodles::sam::record::MappingQuality;
 use noodles::sam::record::quality_scores::Score;
+use noodles::sam::record::MappingQuality;
+use noodles::bgzf as bgzf;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
 use std::io::Write;
+use std::path::Path;
 use std::str;
 use std::sync::{Arc, Mutex};
 
+mod bam_index;
 mod cli;
 mod consistency;
 mod hmm;
 mod motif_correction;
 mod repeats;
-mod bam_index;
 
+use crate::bam_index::check_bai;
 use crate::cli::Args;
 use crate::consistency::ensure_consistency;
 use crate::hmm::{Module, HMM};
 use crate::motif_correction::correct_repeats;
 use crate::repeats::TandemRepeat;
-use crate::bam_index::check_bai;
-
-const Q30: u8 = 30;
 
 fn main() {
     let args = Args::parse();
-    let flank = 20;
 
     // checks
     check_bai(&args.bam_file);
-    let bam_refs = read_bam_refs(&args.bam_file);
+    let header = header(&args.bam_file);
+
+    let bam_refs = read_bam_refs(&header);
     let references = read_reference(&args.ref_file);
     let (names, repeats) = read_motifs(&args.motif_file);
 
@@ -45,21 +48,13 @@ fn main() {
     if args.correction { repeats = correct_repeats(&references, &repeats); }
     let repeats = repeats;
 
-    // initialize output files
-    let mut out = File::create(&args.out_file).expect("Cannot open file for writing.");
-    out.write_all(
-        b"name\tmotif\tread_sn\tread_id\tmate_order\tread\treference\tmodules\tlog_likelihood\n"
-    ).expect("Cannot write to output file.");
+    { // scope for out_tsv and out_bam
+    let out_tsv = init_tsv(&args.output);
+    let out_tsv = Arc::new(Mutex::new(out_tsv));
 
-    let new_bam = File::create("filtered.bam").expect("Cannot open file for writing.");
-    let mut writer = bam::Writer::new(new_bam);
+    let out_bam = init_bam(&args.output, &header);
+    let out_bam = Arc::new(Mutex::new(out_bam));
 
-    let file = File::open(&args.bam_file).unwrap();
-    let header = bam::Reader::new(file).read_header().unwrap();
-    writer.write_header(&header).unwrap();
-
-    let out_bam = Arc::new(Mutex::new(writer));
-    let out = Arc::new(Mutex::new(out));
     repeats.par_iter().enumerate().for_each(|(idx, repeat)| {
         // load bam
         let mut reader = bam::indexed_reader::Builder::default()
@@ -68,13 +63,13 @@ fn main() {
         let header = reader.read_header().unwrap();
 
         //  build HMM
-        let modules = get_modules(repeat, &references, flank);
+        let modules = get_modules(repeat, &references, args.flank);
         let model = HMM::from(&modules).log();
 
         // find name
         let name = match &names {
-            None => { "None".to_owned() },
-            Some(x) => { x[idx].clone() },
+            None => "None".to_owned(),
+            Some(x) => x[idx].clone(),
         };
 
         //  select relevant reads
@@ -84,17 +79,47 @@ fn main() {
             .query(&header, &region).unwrap()
             .map(|x| x.expect("Incorrect read."))
             .filter(|x| !x.flags().is_duplicate())
-            .filter(|x| !mapq_less_than(x, Q30));
+            .filter(|x| !mapq_less_than(x, args.q));
 
         let (annotation, annotated_reads) = annotate_reads(reads, model, name, repeat);
 
         // write to files
-        out.lock().unwrap().write_all(annotation.as_bytes()).expect("Cannot write to output file.");
+        out_tsv.lock().unwrap().write_all(annotation.as_bytes()).expect("Cannot write to output file.");
         for record in annotated_reads {
             out_bam.lock().unwrap().write_record(&header, &record).expect("Cannot write to out bam.");
         }
     });
-    // check_bai("filtered.bam");
+    }
+
+    println!("Annotation finished successfully.");
+    // TODO:
+    // sort bam
+    // create bai index
+    //     let filename = args.output.to_string() + ".bam";
+    //     check_bai(filename);
+}
+
+fn header<P: AsRef<Path>>(bam_filename: P) -> Header {
+    let file = File::open(bam_filename).unwrap();
+    let header = bam::Reader::new(file).read_header().unwrap();
+    return header;
+}
+
+fn init_tsv(prefix: &str) -> File {
+    let filename = prefix.to_string() + ".tsv";
+    let mut out = File::create(filename).expect("Cannot open file for writing.");
+    out.write_all(
+        b"name\tmotif\tread_sn\tread_id\tmate_order\tread\treference\tmodules\tlog_likelihood\n"
+    ).expect("Cannot write to output file.");
+    return out;
+}
+
+fn init_bam(prefix: &str, header: &Header) -> Writer<bgzf::Writer<File>> {
+    let filename = prefix.to_string() + ".bam";
+    let new_bam = File::create(filename).expect("Cannot open file for writing.");
+    let mut writer = bam::Writer::new(new_bam);
+    writer.write_header(header).unwrap();
+    return writer;
 }
 
 fn mapq_less_than(rec: &Record, x: u8) -> bool {
@@ -137,12 +162,8 @@ where
     return (annotation_str, annotated_reads);
 }
 
-fn read_bam_refs(filename: &str) -> HashMap<String, usize> {
+fn read_bam_refs(header: &Header) -> HashMap<String, usize> {
     let mut result = HashMap::new();
-
-    let file = File::open(filename).unwrap();
-    let header = bam::Reader::new(file).read_header().unwrap();
-
     for s in header.reference_sequences().iter() {
         let name = s.0.to_string();
         let length = s.1.length().get();

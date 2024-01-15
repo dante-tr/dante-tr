@@ -7,7 +7,7 @@ pub struct Args {
     #[arg(short='f')]
     pub ref_file: String,
 
-    /// Reads mapped to reference in BAM format, index (.bai) has to be present
+    /// Reads mapped to reference in BAM format
     #[arg(short='b')]
     pub bam_file: String,
 
@@ -15,13 +15,22 @@ pub struct Args {
     #[arg(short='m')]
     pub motif_file: String,
 
+    /// Output prefix. remaSTR outputs annotations (<OUTPUT>.tsv) and annotated reads (<OUTPUT>.bam).
+    /// BAM contains only reads which overlap with motif positions and pass the filters.
+    #[arg(short='o', verbatim_doc_comment)]
+    pub output: String,
+
     /// Correct repeats
     #[arg(short='c')]
     pub correction: bool,
 
-    /// Output file in TSV format.
-    #[arg(short='o')]
-    pub out_file: String,
+    /// Flank size
+    #[arg(long="flank", default_value_t=30)]
+    pub flank: usize,
+
+    /// Minimum mapping quality to annotate
+    #[arg(long="quality", default_value_t=30)]
+    pub q: u8,
 }
 
 #[cfg(test)]
@@ -47,7 +56,7 @@ mod test {
             "-f", "data/chromosomeX.fna",
             "-m", "data/mini_HGVS.txt",
             "-b", "data/mini2.bam",
-            "-o", "tmp.txt"
+            "-o", "tmp"
         ].iter()).unwrap();
         println!("{:?}", args);
     }
@@ -60,7 +69,7 @@ mod test {
             "-m", "data/nomenclature_hgs_1Q_wo_names.tsv",
             "-b", "data/mini2.bam",
             "-c",
-            "-o", "tmp.txt"
+            "-o", "tmp"
         ].iter()).unwrap();
         println!("{:?}", args);
     }
