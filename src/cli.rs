@@ -59,6 +59,7 @@ mod test {
             "-o", "tmp"
         ].iter()).unwrap();
         println!("{:?}", args);
+        assert!(!args.correction);
     }
 
     #[test]
@@ -72,6 +73,7 @@ mod test {
             "-o", "tmp"
         ].iter()).unwrap();
         println!("{:?}", args);
+        assert!(args.correction);
     }
 }
 

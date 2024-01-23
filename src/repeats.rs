@@ -49,21 +49,14 @@ impl FromStr for TandemRepeat {
     type Err = ParseTandemRepeatError;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        let (input, mut tr) = tandem_repeat(input).map_err(|_| ParseTandemRepeatError)?;
+        let (input, tr) = tandem_repeat(input).map_err(|_| ParseTandemRepeatError)?;
         if !input.is_empty() { return Err(ParseTandemRepeatError); }
-        let l = tr.sequence().len();
-        if tr.start + l != tr.end {
-            // eprintln!("{} has incorrect end.", tr);
-            tr.end = tr.start + l;
-            // eprintln!("Corrected to {}", tr);
-        }
         return Ok(tr);
     }
 }
 
 impl fmt::Display for TandemRepeat {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // NC_000008.11:g.118366816_118366918TAAAA[13]TAA[1]TAAAA[7]
         write!(f, "{}:g.", self.reference)?;
         write!(f, "{}_{}", self.start + 1, self.end)?;
         for i in 0..self.copy_number.len() {
@@ -71,6 +64,13 @@ impl fmt::Display for TandemRepeat {
         }
         Ok(())
     }
+}
+
+#[test]
+fn fmt_is_inverse_to_parse() {
+    let motif1 = "NC_000008.11:g.118366816_118366918TAAAA[20]";
+    let motif2 = format!("{}", motif1.parse::<TandemRepeat>().unwrap());
+    assert_eq!(motif1, motif2);
 }
 
 fn parse_repeat(input: &str) -> IResult<&str, (Vec<u8>, usize)> {
@@ -116,6 +116,15 @@ impl TandemRepeat {
             }
         }
         return res;
+    }
+
+    fn _correct_boundary(&mut self) {
+        let l = self.sequence().len();
+        if self.start + l != self.end {
+            eprintln!("{} has incorrect end.", self);
+            self.end = self.start + l;
+            eprintln!("Corrected to {}", self);
+        }
     }
 
     #[cfg(test)]
