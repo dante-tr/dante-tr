@@ -8,6 +8,7 @@ use noodles::sam::record::quality_scores::Score;
 use noodles::sam::record::MappingQuality;
 use noodles::bgzf as bgzf;
 use rayon::prelude::*;
+use core::panic;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufRead;
@@ -227,11 +228,16 @@ fn read_nomenclature_with_names(filename: &str) -> Vec<TandemRepeat> {
     let reader = BufReader::new(file);
 
     let mut repeats = Vec::new();
-    for line in reader.lines() {
+    for (i, line) in reader.lines().enumerate() {
         let line = line.expect("Cannot read line from nomenclature file.").trim().to_owned();
-        let mut split = line.split('\t');
-        let name = split.next().expect("Missing name.").to_owned();
-        let mut repeat: TandemRepeat = split.next().expect("Missing motif.").parse().expect("Cannot parse nomenclature");
+        let split: Vec<_> = line.split('\t').collect();
+        assert!(split.len() == 2, "Malformatted line, expected format is <name>\\t<hgvs_nomenclature>\\n.");
+        let name = split[0].to_owned();
+        let mut repeat: TandemRepeat = split[1].parse()
+            .unwrap_or_else(|_| panic!("\
+                line {}: Nomenclature {} malformatted. \
+                Accepted format is <chr>:g.<start>_<end><sequence>[repetitions].\
+            ", i+1, split[1]));
         repeat.name = Some(name);
 
         repeats.push(repeat);
@@ -245,9 +251,14 @@ fn read_nomenclature(filename: &str) -> Vec<TandemRepeat> {
     let file = File::open(filename).expect("Cannot find nomenclature file.");
     let reader = BufReader::new(file);
 
-    for line in reader.lines() {
+    for (i, line) in reader.lines().enumerate() {
         let line = line.expect("Cannot read line from nomenclature file.").trim().to_owned();
-        let repeat = line.parse().expect("Cannot parse nomenclature.");
+        let repeat = line.parse()
+            .unwrap_or_else(|_| panic!("\
+                line {}: Nomenclature {} malformatted.\
+                Accepted format is <chr>:g.<start>_<end><sequence>[repetitions].\
+            ", i+1, line));
+
         repeats.push(repeat);
     }
     return repeats;
