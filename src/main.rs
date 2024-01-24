@@ -14,6 +14,7 @@ use std::io::BufRead;
 use std::io::BufReader;
 use std::io::Write;
 use std::path::Path;
+use std::path::PathBuf;
 use std::str;
 use std::sync::{Arc, Mutex};
 
@@ -40,7 +41,7 @@ fn main() {
 
     let bam_refs = read_bam_refs(&header);
     let references = read_reference(&args.ref_file);
-    let (names, repeats) = read_motifs(&args.motif_file);
+    let repeats = read_motifs(&args.motif_file);
 
     let (references, repeats) = ensure_consistency(bam_refs, references, repeats);
 
@@ -52,10 +53,15 @@ fn main() {
     let out_tsv = init_tsv(&args.output);
     let out_tsv = Arc::new(Mutex::new(out_tsv));
 
-    let out_bam = init_bam(&args.output, &header);
-    let out_bam = Arc::new(Mutex::new(out_bam));
+    let out_bam = if args.out_bam {
+        let out_bam = init_bam(&args.output, &header);
+        let out_bam = Arc::new(Mutex::new(out_bam));
+        Some(out_bam)
+    } else {
+        None
+    };
 
-    repeats.par_iter().enumerate().for_each(|(idx, repeat)| {
+    repeats.par_iter().for_each(|repeat| {
         // load bam
         let mut reader = bam::indexed_reader::Builder::default()
             .build_from_path(&args.bam_file)
@@ -66,30 +72,30 @@ fn main() {
         let modules = get_modules(repeat, &references, args.flank);
         let model = Hmm::from(&modules).log();
 
-        // find name
-        let name = match &names {
-            None => "None".to_owned(),
-            Some(x) => x[idx].clone(),
-        };
-
         //  select relevant reads
         let tmp = format!("{}:{}-{}", repeat.reference, repeat.start + 1, repeat.end);
         let region = tmp.parse().unwrap();
         let reads = reader
             .query(&header, &region).unwrap()
             .map(|x| x.expect("Incorrect read."))
-            .filter(|x| !x.flags().is_duplicate())
+            .filter(|x| !(args.dedup && x.flags().is_duplicate()))
             .filter(|x| !mapq_less_than(x, args.q));
 
-        let (annotation, annotated_reads) = annotate_reads(reads, model, name, repeat);
+        let (annotation, annotated_reads) = annotate_reads(reads, model, repeat);
 
         // write to files
         out_tsv.lock().unwrap().write_all(annotation.as_bytes()).expect("Cannot write to output file.");
-        for record in annotated_reads {
-            out_bam.lock().unwrap().write_record(&header, &record).expect("Cannot write to out bam.");
+        match &out_bam {
+            None => {},
+            Some(mutex) => {
+                let mut writer = mutex.lock().unwrap();
+                for record in annotated_reads {
+                    writer.write_record(&header, &record).expect("Cannot write to out bam.");
+                }
+            }
         }
     });
-    }
+    } // end scope for out_tsv and out_bam
 
     println!("Annotation finished successfully.");
     // TODO:
@@ -105,8 +111,7 @@ fn header<P: AsRef<Path>>(bam_filename: P) -> Header {
     return header;
 }
 
-fn init_tsv(prefix: &str) -> File {
-    let filename = prefix.to_string() + ".tsv";
+fn init_tsv(filename: &str) -> File {
     let mut out = File::create(filename).expect("Cannot open file for writing.");
     out.write_all(
         b"name\tmotif\tread_sn\tread_id\tmate_order\tread\treference\tmodules\tlog_likelihood\n"
@@ -114,8 +119,9 @@ fn init_tsv(prefix: &str) -> File {
     return out;
 }
 
-fn init_bam(prefix: &str, header: &Header) -> Writer<bgzf::Writer<File>> {
-    let filename = prefix.to_string() + ".bam";
+fn init_bam(tsv_file: &str, header: &Header) -> Writer<bgzf::Writer<File>> {
+    let mut filename = PathBuf::from(tsv_file);
+    filename.set_extension("bam");
     let new_bam = File::create(filename).expect("Cannot open file for writing.");
     let mut writer = bam::Writer::new(new_bam);
     writer.write_header(header).unwrap();
@@ -129,7 +135,7 @@ fn mapq_less_than(rec: &Record, x: u8) -> bool {
     return q < x;
 }
 
-fn annotate_reads<T>(reads: T, model: Hmm, name: String, repeat: &TandemRepeat)
+fn annotate_reads<T>(reads: T, model: Hmm, repeat: &TandemRepeat)
     -> (String, Vec<Record>)
 where
     T: Iterator<Item = Record>,
@@ -147,6 +153,10 @@ where
         let (new_annot, reconstructed_read) = model.realign(&annotation, &seq);
         let reconstructed_reference = model.reconstruct_sequence(&new_annot);
         let mods = model.reconstruct_mod_ids(&new_annot);
+        let name: String = match &repeat.name {
+            Some(x) => x.to_string(),
+            None    => "None".to_string(),
+        };
 
         annotation_str.push_str(&format!(
             "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
@@ -186,20 +196,14 @@ fn read_reference(filename: &str) -> HashMap<String, Vec<u8>> {
     return result;
 }
 
-fn read_motifs(filename: &str) -> (Option<Vec<String>>, Vec<TandemRepeat>) {
-    let names;
-    let repeats;
-
-    if is_named_format(filename) {
-        let (n, r) = read_nomenclature_with_names(filename);
-        repeats = r;
-        names = Some(n);
+fn read_motifs(filename: &str) -> Vec<TandemRepeat> {
+    let repeats = if is_named_format(filename) {
+        read_nomenclature_with_names(filename)
     } else {
-        repeats = read_nomenclature(filename);
-        names = None;
-    }
+        read_nomenclature(filename)
+    };
 
-    return (names, repeats);
+    return repeats;
 }
 
 fn is_named_format(filename: &str) -> bool {
@@ -218,22 +222,21 @@ fn is_named_format(filename: &str) -> bool {
     }
 }
 
-fn read_nomenclature_with_names(filename: &str) -> (Vec<String>, Vec<TandemRepeat>) {
+fn read_nomenclature_with_names(filename: &str) -> Vec<TandemRepeat> {
     let file = File::open(filename).expect("Cannot find nomenclature file.");
     let reader = BufReader::new(file);
 
     let mut repeats = Vec::new();
-    let mut names = Vec::new();
     for line in reader.lines() {
         let line = line.expect("Cannot read line from nomenclature file.").trim().to_owned();
         let mut split = line.split('\t');
         let name = split.next().expect("Missing name.").to_owned();
-        let repeat = split.next().expect("Missing motif.").parse().expect("Cannot parse nomenclature");
+        let mut repeat: TandemRepeat = split.next().expect("Missing motif.").parse().expect("Cannot parse nomenclature");
+        repeat.name = Some(name);
 
-        names.push(name);
         repeats.push(repeat);
     }
-    return (names, repeats);
+    return repeats;
 }
 
 fn read_nomenclature(filename: &str) -> Vec<TandemRepeat> {
@@ -291,6 +294,7 @@ fn remap(x: Score) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::iter::zip;
     use hgvs::parser::HgvsVariant;
     use std::fs::File;
     use std::io::BufReader;
@@ -329,14 +333,18 @@ mod tests {
     #[test]
     fn can_read_tsv_nomenclature() {
         let filename = "data/test/nomenclature_hgs_1Q_with_names.tsv";
-        let (names1, motifs1) = read_motifs(filename);
+        let motifs1 = read_motifs(filename);
 
         let filename = "data/test/nomenclature_hgs_1Q_wo_names.tsv";
-        let (names2, motifs2) = read_motifs(filename);
+        let motifs2 = read_motifs(filename);
 
-        assert_eq!(motifs1, motifs2);
-        assert_eq!(names2, None);
-        assert_ne!(names1, None);
+        for (m1, m2) in zip(motifs1, motifs2) {
+            assert_eq!(m1.reference, m2.reference);
+            assert_eq!(m1.start, m2.start);
+            assert_eq!(m1.end, m2.end);
+            assert_eq!(m1.copy_unit, m2.copy_unit);
+            assert_eq!(m1.copy_number, m2.copy_number);
+        }
     }
 
     #[test]

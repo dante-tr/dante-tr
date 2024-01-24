@@ -35,6 +35,7 @@ mod tests {
 
 #[derive(Default, Debug, PartialEq, Clone)]
 pub struct TandemRepeat {
+    pub name: Option<String>,
     pub reference: String,
     pub start: usize,
     pub end: usize,
@@ -99,6 +100,7 @@ fn tandem_repeat(input: &str) -> IResult<&str, TandemRepeat> {
     }
 
     Ok((input, TandemRepeat {
+        name: None,
         reference: reference.to_string(),
                             // HGVS is 1-based
         start: start - 1,   // 1-based -> 0-based
@@ -118,13 +120,15 @@ impl TandemRepeat {
         return res;
     }
 
-    fn _correct_boundary(&mut self) {
-        let l = self.sequence().len();
-        if self.start + l != self.end {
-            eprintln!("{} has incorrect end.", self);
-            self.end = self.start + l;
-            eprintln!("Corrected to {}", self);
+    pub fn correct_boundary(&self) -> Self {
+        let mut new = self.clone();
+        let l = new.sequence().len();
+        if new.start + l != new.end {
+            eprintln!("{} has incorrect end.", new);
+            new.end = new.start + l;
+            eprintln!("Corrected to {}", new);
         }
+        return new;
     }
 
     #[cfg(test)]

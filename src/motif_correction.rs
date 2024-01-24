@@ -143,8 +143,9 @@ pub fn correct_repeats(refs: &HashMap<String, Vec<u8>>, repeats: &[TandemRepeat]
     println!("Correcting motifs.");
     let mut valid_repeats = Vec::new();
     for motif in repeats.iter() {
-        if is_present(motif, refs) {
-            valid_repeats.push(motif.clone());
+        let motif = motif.correct_boundary();
+        if is_present(&motif, refs) {
+            valid_repeats.push(motif);
         } else {
             // let from = motif.start - FLANK;
             // let to = motif.end + FLANK;

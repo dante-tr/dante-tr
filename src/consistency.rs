@@ -79,6 +79,7 @@ fn remap_hgvs(repeats: Vec<TandemRepeat>) -> Vec<TandemRepeat> {
         for item in &MAP {
             if id == item.0 {
                 result.push(TandemRepeat{
+                    name: repeat.name.clone(),
                     reference: item.1.to_string(),
                     start: repeat.start,
                     end: repeat.end,
