@@ -16,5 +16,14 @@ rayon = "1.7.0"
 clap = { version = "4.3.21", features = ["derive"] }
 counter = "0.5.7"
 
+[[bin]]
+name = "annotate"
+path = "src/annotate.rs"
+test = true
+
+[[bin]]
+name = "remastr"
+path = "src/main.rs"
+
 # [profile.test.build-override]
 # rustflags = ["-Awarnings"]
