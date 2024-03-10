@@ -1,6 +1,8 @@
-use noodles::fasta;
+use noodles::fastq;
 use std::str;
 use clap::Parser;
+use std::fs::File;
+use std::io::BufReader;
 
 mod hmm;
 mod io;
@@ -17,9 +19,13 @@ pub struct Args {
     #[arg(short='f')]
     pub ref_file: String,
 
-    /// Reads in FASTA format
+    /// Reads in FASTQ format
     #[arg(short='r')]
     pub read_file: String,
+
+    /// Quality score used for reads
+    #[arg(short='s')]
+    pub score: Option<char>,
 
     /// HGVS nomenclature
     #[arg(short='n')]
@@ -28,6 +34,7 @@ pub struct Args {
     /// Flank size
     #[arg(long="flank", default_value_t=30)]
     pub flank: usize,
+
 }
 
 
@@ -48,12 +55,16 @@ fn main() {
     let modules = get_modules(&repeat, &references, args.flank);
     let model = Hmm::from(&modules).log();
 
-    let mut reader = fasta::reader::Builder.build_from_path(reads).unwrap();
+    let mut reader = fastq::Reader::new(BufReader::new(File::open(reads).unwrap()));
     for record in reader.records() {
         let record = record.unwrap();
 
-        let seq = record.sequence().as_ref().to_vec();
-        let qual = vec![b'I'; seq.len()];
+        let seq = record.sequence().to_vec();
+        let qual = if let Some(x) = args.score {
+            vec![x as u8; seq.len()]
+        } else {
+            record.quality_scores().to_vec()
+        };
 
         let (likelihood, annotation) = model.log_predict(&seq, &qual);
         let (new_annot, reconstructed_read) = model.realign(&annotation, &seq);

@@ -83,7 +83,7 @@ fn main() {
             .filter(|x| !(args.dedup && x.flags().is_duplicate()))
             .filter(|x| !mapq_less_than(x, args.q));
 
-        let (annotation, annotated_reads) = annotate_reads(reads, model, repeat);
+        let (annotation, annotated_reads) = annotate_reads(reads, model, repeat, &args);
 
         // write to files
         out_tsv.lock().unwrap().write_all(annotation.as_bytes()).expect("Cannot write to output file.");
@@ -137,7 +137,7 @@ fn mapq_less_than(rec: &Record, x: u8) -> bool {
     return q < x;
 }
 
-fn annotate_reads<T>(reads: T, model: Hmm, repeat: &TandemRepeat)
+fn annotate_reads<T>(reads: T, model: Hmm, repeat: &TandemRepeat, args: &Args)
     -> (String, Vec<Record>)
 where
     T: Iterator<Item = Record>,
@@ -149,7 +149,13 @@ where
         annotated_reads.push(read.clone());
 
         let seq: Vec<_> = read.sequence().as_ref().iter().map(|&x| x.into()).collect();
-        let qual: Vec<_> = read.quality_scores().as_ref().iter().map(|&x| remap(x)).collect();
+        let qual = if let Some(x) = args.score {
+            vec![x as u8; seq.len()]
+        } else {
+            read.quality_scores().as_ref().iter().map(|&x| remap(x)).collect()
+        };
+
+
         let (likelihood, annotation) = model.log_predict(&seq, &qual);
 
         let (new_annot, reconstructed_read) = model.realign(&annotation, &seq);

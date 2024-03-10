@@ -43,6 +43,10 @@ pub struct Args {
     /// Minimum mapping quality to annotate
     #[arg(long="quality", default_value_t=30)]
     pub q: u8,
+
+    /// Quality score used for reads
+    #[arg(short='s')]
+    pub score: Option<char>,
 }
 
 #[test]
@@ -73,7 +77,8 @@ fn test_cli_minimal() {
         correction: false,
         dedup     : false,
         flank     : 30,
-        q         : 30
+        q         : 30,
+        score     : None
     };
     assert_eq!(args, result);
 }
@@ -101,7 +106,8 @@ fn test_cli_maximal() {
         correction: true,
         dedup     : true,
         flank     : 40,
-        q         : 20
+        q         : 20,
+        score     : None
     };
     assert_eq!(args, result);
 }
