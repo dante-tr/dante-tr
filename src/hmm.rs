@@ -71,7 +71,7 @@ impl From<&Vec<Module>> for Hmm {
         let deletions = get_deletions(&states, &description);
 
         let initial = initial_probabilities(&states);
-        let transition = transition_probabilities2(&states, &description);
+        let transition = transition_probabilities(&states, &description);
         let emission = emission_probabilities(&states);
 
         Hmm { states, deletions, initial, transition, emission }
@@ -551,7 +551,7 @@ mod tests {
         ]);
     }
 
-    #[ignore = "deprecated"]
+    // #[ignore = "deprecated"]
     #[test]
     fn construct_hmm() {
         let modules: Vec<Module> = vec![
