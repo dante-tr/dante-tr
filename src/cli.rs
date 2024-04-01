@@ -1,4 +1,5 @@
 use clap::Parser;
+use clap::ArgAction;
 
 // Predict short tandem repeat annotation
 #[derive(Parser, Debug, PartialEq, Eq)]
@@ -47,6 +48,10 @@ pub struct Args {
     /// Quality score used for reads
     #[arg(short='s')]
     pub score: Option<char>,
+
+    /// Print quality scores. Only used for debugging
+    #[arg(long="print-quality", action)]
+    pub print_quality: bool,
 }
 
 #[test]
@@ -78,7 +83,8 @@ fn test_cli_minimal() {
         dedup     : false,
         flank     : 30,
         q         : 30,
-        score     : None
+        score     : None,
+        print_quality : false
     };
     assert_eq!(args, result);
 }
@@ -107,7 +113,8 @@ fn test_cli_maximal() {
         dedup     : true,
         flank     : 40,
         q         : 20,
-        score     : None
+        score     : None,
+        print_quality : false
     };
     assert_eq!(args, result);
 }

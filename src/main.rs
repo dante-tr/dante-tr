@@ -116,7 +116,7 @@ fn header<P: AsRef<Path>>(bam_filename: P) -> Header {
 fn init_tsv(filename: &str) -> File {
     let mut out = File::create(filename).expect("Cannot open file for writing.");
     out.write_all(
-        b"name\tmotif\tread_sn\tread_id\tmate_order\tread\treference\tmodules\tlog_likelihood\n"
+        b"name\tmotif\tread_sn\tread_id\tmate_order\tread\treference\tmodules\tquality\tlog_likelihood\n"
     ).expect("Cannot write to output file.");
     return out;
 }
@@ -149,14 +149,18 @@ where
         annotated_reads.push(read.clone());
 
         let seq: Vec<_> = read.sequence().as_ref().iter().map(|&x| x.into()).collect();
-        let qual = if let Some(x) = args.score {
-            vec![x as u8; seq.len()]
-        } else {
-            read.quality_scores().as_ref().iter().map(|&x| remap(x)).collect()
-        };
+        let qual: Vec<_> = read.quality_scores().as_ref().iter().map(|&x| remap(x)).collect();
+
+        let qual_mod = 
+            if let Some(x) = args.score { vec![x as u8; seq.len()] } 
+            else { qual.clone() };
+
+        let qual_str =
+            if args.print_quality { qual.clone() }
+            else { vec![] };
 
 
-        let (likelihood, annotation) = model.log_predict(&seq, &qual);
+        let (likelihood, annotation) = model.log_predict(&seq, &qual_mod);
 
         let (new_annot, reconstructed_read) = model.realign(&annotation, &seq);
         let reconstructed_reference = model.reconstruct_sequence(&new_annot);
@@ -167,13 +171,14 @@ where
         };
 
         annotation_str.push_str(&format!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
             name, repeat, i,
             read.read_name().unwrap(),
             mate_order(&read),
             str::from_utf8(&reconstructed_read).unwrap(),
             str::from_utf8(&reconstructed_reference).unwrap(),
             str::from_utf8(&mods).unwrap(),
+            str::from_utf8(&qual_str).unwrap(),
             likelihood
         ));
     }
