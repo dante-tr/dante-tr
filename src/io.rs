@@ -12,7 +12,10 @@ pub fn read_reference(filename: &str) -> HashMap<String, Vec<u8>> {
     for record in reader.records() {
         let record = record.unwrap();
 
-        result.insert(record.name().to_string(), (record.sequence()[..]).to_vec());
+        result.insert(
+            str::from_utf8(record.name()).unwrap().to_string(), 
+            (record.sequence()[..]).to_vec()
+        );
         // Is there a better way to get Vec<u8> than this? --------^
         // Do I need Vec<u8>? Cannot I leave it as Sequence?
     }

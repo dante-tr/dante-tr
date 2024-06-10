@@ -1,10 +1,8 @@
 use clap::Parser;
 use noodles::bam;
-use noodles::bam::Writer;
+use noodles::bam::io::Writer;
 use noodles::sam::Header;
-use noodles::sam::alignment::Record;
-use noodles::sam::record::quality_scores::Score;
-use noodles::sam::record::MappingQuality;
+use noodles::sam::alignment::record::mapping_quality::MappingQuality;
 use noodles::bgzf as bgzf;
 use rayon::prelude::*;
 use core::panic;
@@ -65,7 +63,94 @@ fn main() {
 
     repeats.par_iter().for_each(|repeat| {
         // load bam
-        let mut reader = bam::indexed_reader::Builder::default()
+        let mut reader = bam::io::indexed_reader::Builder::default()
+            .build_from_path(&args.bam_file)
+            .expect("Unable to read the associated index (.bai).");
+        let header = reader.read_header().unwrap();
+
+        //  build HMM
+        let modules = get_modules(repeat, &references, args.flank);
+        let model = Hmm::from(&modules).log();
+
+        //  select relevant reads
+        let tmp = format!("{}:{}-{}", repeat.reference, repeat.start + 1, repeat.end);
+        let region = tmp.parse().unwrap();
+        let reads = reader
+            .query(&header, &region).unwrap()
+            .map(|x| x.expect("Incorrect read."))
+            .filter(|x| !(args.dedup && x.flags().is_duplicate()))
+            .filter(|x| !mapq_less_than(x, args.q));
+
+        let (annotation, annotated_reads) = annotate_reads(reads, model, repeat, &args);
+
+        // write to files
+        out_tsv.lock().unwrap().write_all(annotation.as_bytes()).expect("Cannot write to output file.");
+        match &out_bam {
+            None => {},
+            Some(mutex) => {
+                let mut writer = mutex.lock().unwrap();
+                for record in annotated_reads {
+                    writer.write_record(&header, &record).expect("Cannot write to out bam.");
+                }
+            }
+        }
+    });
+    } // end scope for out_tsv and out_bam
+
+    println!("Annotation finished successfully.");
+    // TODO:
+    // sort bam
+    // create bai index
+    //     let filename = args.output.to_string() + ".bam";
+    //     check_bai(filename);
+}
+
+#[ignore = "too long"]
+#[test]
+fn test_single_threaded() {
+    let args = Args {
+        ref_file  : "data/real/grch38_decoy.fa".to_string(),
+        bam_file  : "data/real/wgs_05K.bam".to_string(),
+        motif_file: "data/2024-03-01/predominant.tsv".to_string(),
+        output    : "tmp.txt".to_string(),
+        out_bam   : false,
+        correction: false,
+        dedup     : false,
+        flank     : 30,
+        q         : 30,
+        score     : None,
+        print_quality : false
+    };
+
+    // checks
+    check_bai(&args.bam_file);
+    let header = header(&args.bam_file);
+
+    let bam_refs = read_bam_refs(&header);
+    let references = read_reference(&args.ref_file);
+    let repeats = read_motifs(&args.motif_file);
+
+    let (references, repeats) = ensure_consistency(bam_refs, references, repeats);
+
+    let mut repeats = repeats;
+    if args.correction { repeats = correct_repeats(&references, &repeats); }
+    let repeats = repeats;
+
+    { // scope for out_tsv and out_bam
+    let out_tsv = init_tsv(&args.output);
+    let out_tsv = Arc::new(Mutex::new(out_tsv));
+
+    let out_bam = if args.out_bam {
+        let out_bam = init_bam(&args.output, &header);
+        let out_bam = Arc::new(Mutex::new(out_bam));
+        Some(out_bam)
+    } else {
+        None
+    };
+
+    repeats.iter().for_each(|repeat| {
+        // load bam
+        let mut reader = bam::io::indexed_reader::Builder::default()
             .build_from_path(&args.bam_file)
             .expect("Unable to read the associated index (.bai).");
         let header = reader.read_header().unwrap();
@@ -109,7 +194,7 @@ fn main() {
 
 fn header<P: AsRef<Path>>(bam_filename: P) -> Header {
     let file = File::open(bam_filename).unwrap();
-    let header = bam::Reader::new(file).read_header().unwrap();
+    let header = bam::io::Reader::new(file).read_header().unwrap();
     return header;
 }
 
@@ -125,12 +210,12 @@ fn init_bam(tsv_file: &str, header: &Header) -> Writer<bgzf::Writer<File>> {
     let mut filename = PathBuf::from(tsv_file);
     filename.set_extension("bam");
     let new_bam = File::create(filename).expect("Cannot open file for writing.");
-    let mut writer = bam::Writer::new(new_bam);
+    let mut writer = bam::io::Writer::new(new_bam);
     writer.write_header(header).unwrap();
     return writer;
 }
 
-fn mapq_less_than(rec: &Record, x: u8) -> bool {
+fn mapq_less_than(rec: &bam::Record, x: u8) -> bool {
     let x = MappingQuality::new(x)
         .expect("Mapq is from 0 to 254. 255 is reserved for None.");
     let Some(q) = rec.mapping_quality() else { return false };
@@ -138,20 +223,20 @@ fn mapq_less_than(rec: &Record, x: u8) -> bool {
 }
 
 fn annotate_reads<T>(reads: T, model: Hmm, repeat: &TandemRepeat, args: &Args)
-    -> (String, Vec<Record>)
+    -> (String, Vec<bam::Record>)
 where
-    T: Iterator<Item = Record>,
+    T: Iterator<Item = bam::Record>,
 {
     let mut annotation_str = String::new();
-    let mut annotated_reads = Vec::<Record>::new();
+    let mut annotated_reads = Vec::<bam::Record>::new();
     for (i, read) in reads.enumerate() {
 
         annotated_reads.push(read.clone());
 
-        let seq: Vec<_> = read.sequence().as_ref().iter().map(|&x| x.into()).collect();
-        let qual: Vec<_> = read.quality_scores().as_ref().iter().map(|&x| remap(x)).collect();
+        let seq: Vec<_> = read.sequence().iter().collect();
+        let qual: Vec<_> = read.quality_scores().as_ref().iter().map(|x| x + 33).collect();
 
-        let qual_mod = 
+        let qual_mod =
             if let Some(x) = args.score { vec![x as u8; seq.len()] } 
             else { qual.clone() };
 
@@ -173,7 +258,7 @@ where
         annotation_str.push_str(&format!(
             "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
             name, repeat, i,
-            read.read_name().unwrap(),
+            str::from_utf8(read.name().unwrap().as_bytes()).unwrap(),
             mate_order(&read),
             str::from_utf8(&reconstructed_read).unwrap(),
             str::from_utf8(&reconstructed_reference).unwrap(),
@@ -262,18 +347,13 @@ fn read_nomenclature(filename: &str) -> Vec<TandemRepeat> {
     return repeats;
 }
 
-fn mate_order(read: &Record) -> String {
+fn mate_order(read: &bam::Record) -> String {
     if read.flags().is_first_segment() { "1".to_string() }
     else if read.flags().is_last_segment() { "2".to_string() } 
     else {
         // println!("Read {} does not have pair information.", read.read_name().unwrap());
         "0".to_string()
     }
-}
-
-fn remap(x: Score) -> u8 {
-    let c: char = x.into();
-    return c as u8;
 }
 
 #[cfg(test)]
@@ -286,12 +366,12 @@ mod tests {
 
     #[test]
     fn can_load_bam() {
-        let mut reader = bam::indexed_reader::Builder::default()
+        use noodles::bam::io::reader;
+        let mut reader = reader::Builder
             .build_from_path("data/test/mini.bam").unwrap();
 
-        let header = reader.read_header().unwrap();
-
-        for result in reader.records(&header) {
+        reader.read_header().unwrap(); // this is necessary here
+        for result in reader.records() {
             let record = result.unwrap();
             println!("{:?}", record);
         }

@@ -1,5 +1,5 @@
 use clap::Parser;
-use clap::ArgAction;
+// use clap::ArgAction;
 
 // Predict short tandem repeat annotation
 #[derive(Parser, Debug, PartialEq, Eq)]
