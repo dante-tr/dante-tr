@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use ndarray::{self, s, Axis, Array, stack, ArrayView1};
 // https://docs.rs/ndarray/latest/ndarray/doc/ndarray_for_numpy_users/index.html
@@ -15,6 +15,7 @@ const NUCLEOTIDE_INDEX: [usize; 256] = {
     map[b'N' as usize] = 4;
     map
 };
+const NUCLEOTIDE_BACKDEX: [u8; 5] = [b'A', b'C', b'G', b'T', b'N'];
 const P_BASE_N: f32 = 0.001;
 const P_INS: f32 = 1e-4;
 const P_DEL: f32 = 1e-4;
@@ -139,7 +140,7 @@ fn get_deletions(states: &[State], desc: &[MDesc]) -> HashSet<(usize, usize)> {
     return deletions;
 }
 
-fn initial_probabilities(states: &Vec<State>) -> ndarray::Array1<f32> {
+fn initial_probabilities(states: &[State]) -> ndarray::Array1<f32> {
     let mut p = Array::zeros(states.len());
     for (i, state) in states.iter().enumerate() {
         if matches!(state, State::Seq{..} | State::Motif{..}) { p[[i]] = FREQ; }
@@ -149,7 +150,7 @@ fn initial_probabilities(states: &Vec<State>) -> ndarray::Array1<f32> {
     return p;
 }
 
-fn transition_probabilities(states: &Vec<State>, desc: &Vec<MDesc>) -> ndarray::Array2<f32> {
+fn transition_probabilities(states: &[State], desc: &[MDesc]) -> ndarray::Array2<f32> {
     let mut p = Array::zeros((states.len(), states.len()));
 
     let bg_start = 0;
@@ -228,23 +229,51 @@ fn transition_probabilities(states: &Vec<State>, desc: &Vec<MDesc>) -> ndarray::
     return p;
 }
 
-fn emission_probabilities(states: &Vec<State>) -> ndarray::Array3<f32> {
+fn emission_probabilities(states: &[State]) -> ndarray::Array3<f32> {
     let mut p = Array::zeros((N_NUCL, N_QUAL, states.len()));
     let n_pos = NUCLEOTIDE_INDEX[b'N' as usize];
 
-    for i in 0..N_NUCL { for j in 0..N_QUAL { for k in 0..states.len() {
-        match states[k] {
-            State::Start | State::End | State::Ins => {
-                if i == n_pos { p[[i, j, k]] = P_BASE_N; }
-                else { p[[i, j, k]] = (1.0 - P_BASE_N) / 4.0; }
-            }
-            State::Seq{c, ..} | State::Motif{c, ..} => {
-                let c_pos = NUCLEOTIDE_INDEX[c as usize];
-                let x = p_c_eq_c_given_q(j);
+    let iupac_to_nucls: HashMap<u8, HashSet<u8>> = HashMap::from([
+        (b'A', HashSet::from([b'A'])),
+        (b'C', HashSet::from([b'C'])),
+        (b'G', HashSet::from([b'G'])),
+        (b'T', HashSet::from([b'T'])),
+        (b'M', HashSet::from([b'A', b'C'])),
+        (b'R', HashSet::from([b'A', b'G'])),
+        (b'W', HashSet::from([b'A', b'T'])),
+        (b'S', HashSet::from([b'C', b'G'])),
+        (b'Y', HashSet::from([b'C', b'T'])),
+        (b'K', HashSet::from([b'G', b'T'])),
+        (b'V', HashSet::from([b'A', b'C', b'G'])),
+        (b'H', HashSet::from([b'A', b'C', b'T'])),
+        (b'D', HashSet::from([b'A', b'G', b'T'])),
+        (b'B', HashSet::from([b'C', b'G', b'T'])),
+    ]); 
 
-                if i == n_pos { p[[i, j, k]] = P_BASE_N; }
-                else if i == c_pos { p[[i, j, k]] = x; }
-                else { p[[i, j, k]] = (1.0 - P_BASE_N - x) / 3.0; }
+    for k in 0..states.len() { for i in 0..N_NUCL { for j in 0..N_QUAL {
+        let cell = &mut p[[i, j, k]];
+
+        use State as S;
+        match states[k] {
+            S::Start | S::End | S::Ins
+            | S::Seq{c: b'N', ..} | S::Motif{c: b'N', ..}
+            | S::Seq{c: b'X', ..} | S::Motif{c: b'X', ..} => {
+                if i == n_pos { 
+                    *cell = P_BASE_N;
+                } else { 
+                    *cell = (1.0 - P_BASE_N) / 4.0; 
+                }
+            }
+            S::Seq{c, ..} | S::Motif{c, ..} => {
+                let nucls = iupac_to_nucls.get(&c).expect("Unsupported.");
+                let match_prob = p_c_eq_c_given_q(j, nucls.len());
+
+                if i == n_pos { 
+                    *cell = P_BASE_N;
+                } else if nucls.contains(&NUCLEOTIDE_BACKDEX[i]) { 
+                    *cell = match_prob;
+                } else { 
+                    *cell = (1.0 - P_BASE_N - match_prob) / (4 - nucls.len()) as f32}
             }
         }
     }}}
@@ -252,7 +281,7 @@ fn emission_probabilities(states: &Vec<State>) -> ndarray::Array3<f32> {
     return p;
 }
 
-fn transition_probabilities2(states: &Vec<State>, desc: &Vec<MDesc>)
+fn _transition_probabilities2(states: &[State], desc: &[MDesc])
     -> ndarray::Array2<f32>
 {
     let bg_start = 0;
@@ -325,9 +354,13 @@ fn transition_probabilities2(states: &Vec<State>, desc: &Vec<MDesc>)
 }
 
 /// TODO: write some explanation
-fn p_c_eq_c_given_q(phred_score: usize) -> f32 {
+/// Probability that letter c will be emitted. ???
+fn p_c_eq_c_given_q(phred_score: usize, iupac_chars_number: usize) -> f32 {
     let p_base_calling_error = 10.0f32.powf(-(phred_score as f32)/10.0);
-    let p_result = 1.0 - P_BASE_N - P_SNP - p_base_calling_error;
+    let p_result =
+        (1.0 - P_BASE_N - P_SNP - p_base_calling_error) / iupac_chars_number as f32;
+    // let p_result = (1.0 - P_BASE_N - P_SNP - p_base_calling_error) / iupac_n;
+
     let p_random = (1.0 - P_BASE_N) / 4.0;
     return f32::max(p_result, p_random);
 }
@@ -459,7 +492,7 @@ mod tests {
         let model = Hmm::from(&modules).log();
         let (likelihood, annotation) = model.log_predict(&seq, &qual);
 
-        // assert!(approx_eq!(f32, likelihood, 7.106122e-13_f32.ln(), (1e-4, 2)));
+        assert!(approx_eq!(f32, likelihood, 7.106122e-13_f32.ln(), (1e-4, 2)));
         assert!(annotation == vec![
             0, 0, 1, 2, 3, 4, 5, 6, 4, 5, 6, 4, 5, 6, 4,
             5, 6, 16, 4, 5, 6, 4, 5, 6, 7, 8, 9, 10, 10
@@ -538,7 +571,7 @@ mod tests {
             b"AAGCCTGATTTAAAAAAAAAAAAAATTACTTTCAGATGT".to_vec();
         let quality = 
             b"FFFFFFFFFFFFFFF::FFF:FFFFFFF:FFFFFF:FFF".to_vec();
-        let (likelihood, annotation) = model.log_predict(&sequence, &quality);
+        let (_likelihood, annotation) = model.log_predict(&sequence, &quality);
 
         // assert!(
         //     approx_eq!(f32, likelihood, 4.019_535e-6_f32.ln(), (1e-3, 2)),
@@ -622,18 +655,46 @@ mod tests {
 
     #[test]
     fn emissions_are_correct() {
+        use State as S;
         let states = vec![
-            State::Start,
-            State::Seq{c: b'T', id: 0}, State::Seq{c: b'C', id: 0}, State::Seq{c: b'T', id: 0},
-            State::Motif{c: b'G', id: 1}, State::Motif{c: b'T', id: 0}, State::Motif{c: b'C', id: 1},
-            State::Seq{c: b'A', id: 2}, State::Seq{c: b'A', id: 2}, State::Seq{c: b'A', id: 2},
-            State::End,
-            State::Ins, State::Ins, State::Ins, State::Ins,
-            State::Ins, State::Ins, State::Ins, State::Ins
+            S::Start,
+            S::Seq{c: b'T', id: 0}, S::Seq{c: b'C', id: 0}, S::Seq{c: b'T', id: 0},
+            S::Motif{c: b'G', id: 1}, S::Motif{c: b'T', id: 0}, S::Motif{c: b'C', id: 1},
+            S::Seq{c: b'A', id: 2}, S::Seq{c: b'A', id: 2}, S::Seq{c: b'A', id: 2},
+            S::End,
+            S::Ins, S::Ins, S::Ins, S::Ins,
+            S::Ins, S::Ins, S::Ins, S::Ins
         ];
         let obtained = emission_probabilities(&states).map(|&x| x.ln());
         let expected: Array3<f32> = read_npy("data/test/log_emit_f32.npy").unwrap();
         assert_eq_ndarray3(expected.view(), obtained.view(), (1e-3, 2));
+    }
+
+    #[test]
+    fn emissions_support_iupac_codes() {
+        let modules: Vec<Module> = vec![
+            (&b"TCTTGCTACG"[..]).into(),
+            // (&b"GCA"[..], 5).into(),
+            // (&b"GCR"[..], 5).into(),
+            (&b"GCN"[..], 5).into(),
+            (&b"TTCCCGGCTA"[..]).into()
+        ];
+
+        let model = Hmm::from(&modules);
+
+        let seq =  b"TAGCTCTTGCTACGGCGGCAGCGGCAGCGGCAGCATTCCCGGCTATGT".to_vec();
+        let qual = b"IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII".to_vec();
+
+        let (_, annotation) = model.log_predict(&seq, &qual);
+
+        let (new_annot, read) = model.realign(&annotation, &seq); 
+        let rref = model.reconstruct_sequence(&new_annot);
+        let mods = model.reconstruct_mod_ids(&new_annot);
+
+        use std::str;
+        println!("{}", str::from_utf8(&read).unwrap());
+        println!("{}", str::from_utf8(&rref).unwrap());
+        println!("{}", str::from_utf8(&mods).unwrap());
     }
 
     // how to make this generic over dimensions?
