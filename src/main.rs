@@ -78,6 +78,7 @@ fn main() {
         let reads = reader
             .query(&header, &region).unwrap()
             .map(|x| x.expect("Incorrect read."))
+            .filter(|x| !x.sequence().is_empty())
             .filter(|x| !(args.dedup && x.flags().is_duplicate()))
             .filter(|x| !mapq_less_than(x, args.q));
 
@@ -356,133 +357,126 @@ fn mate_order(read: &bam::Record) -> String {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+#[test]
+fn can_load_bam() {
+    use noodles::bam::io::reader;
+    let mut reader = reader::Builder
+        .build_from_path("data/test/mini.bam").unwrap();
+
+    reader.read_header().unwrap(); // this is necessary here
+    for result in reader.records() {
+        let record = result.unwrap();
+        println!("{:?}", record);
+    }
+}
+
+#[test]
+fn can_load_fasta() {
+    // let sequences = read_reference("data/chromosomeX.fna");
+    // let hgvs = File::open("data/mini_HGVS.txt").unwrap();
+    // let reader = BufReader::new(hgvs);
+
+    // let expected = vec![
+    //     false, false, true, false, false, false, false, true, true, false
+    // ];
+    // for (i, line) in reader.lines().enumerate() {
+        // let line = line.unwrap();
+        // let line = line.trim();
+        // let tr: TandemRepeat = line.parse().unwrap();
+        // let is_correct = is_present(&tr, &sequences);
+        // assert_eq!(is_correct, expected[i]);
+    // }
+}
+
+#[test]
+fn can_read_tsv_nomenclature() {
+    let filename = "data/test/nomenclature_hgs_1Q_with_names.tsv";
+    let motifs1 = read_motifs(filename);
+
+    let filename = "data/test/nomenclature_hgs_1Q_wo_names.tsv";
+    let motifs2 = read_motifs(filename);
+
     use std::iter::zip;
-    use hgvs::parser::HgvsVariant;
-    use std::fs::File;
-    use std::io::BufReader;
-
-    #[test]
-    fn can_load_bam() {
-        use noodles::bam::io::reader;
-        let mut reader = reader::Builder
-            .build_from_path("data/test/mini.bam").unwrap();
-
-        reader.read_header().unwrap(); // this is necessary here
-        for result in reader.records() {
-            let record = result.unwrap();
-            println!("{:?}", record);
-        }
+    for (m1, m2) in zip(motifs1, motifs2) {
+        assert_eq!(m1.reference, m2.reference);
+        assert_eq!(m1.start, m2.start);
+        assert_eq!(m1.end, m2.end);
+        assert_eq!(m1.copy_unit, m2.copy_unit);
+        assert_eq!(m1.copy_number, m2.copy_number);
     }
+}
 
-    #[test]
-    fn can_load_fasta() {
-        // let sequences = read_reference("data/chromosomeX.fna");
-        // let hgvs = File::open("data/mini_HGVS.txt").unwrap();
-        // let reader = BufReader::new(hgvs);
+#[test]
+fn count_present() {
+    // let references = read_reference("data/chromosomeX.fna");
+    let hgvs = File::open("data/test/HGVS.txt").unwrap();
+    let reader = BufReader::new(hgvs);
 
-        // let expected = vec![
-        //     false, false, true, false, false, false, false, true, true, false
-        // ];
-        // for (i, line) in reader.lines().enumerate() {
-            // let line = line.unwrap();
-            // let line = line.trim();
-            // let tr: TandemRepeat = line.parse().unwrap();
-            // let is_correct = is_present(&tr, &sequences);
-            // assert_eq!(is_correct, expected[i]);
+    // let mut present_count = 0;
+    let present_count = 0;
+    let mut max_count = 0;
+    for line in reader.lines() {
+        let line = line.unwrap().trim().to_owned();
+        let _tr: TandemRepeat = line.parse().unwrap();
+        // if is_present(&tr, &references) {
+        //     present_count += 1;
+        // } else {
+            // println!("{}", tr);
+            // print_diff(&tr, &references);
+            // println!();
         // }
+        max_count += 1;
     }
+    println!("Present repeats: {}/{}", present_count, max_count);
+}
 
-    #[test]
-    fn can_read_tsv_nomenclature() {
-        let filename = "data/test/nomenclature_hgs_1Q_with_names.tsv";
-        let motifs1 = read_motifs(filename);
+// fn print_diff(tr: &TandemRepeat, refs: &HashMap<String, Vec<u8>>) {
+//     let n = 10;
+//     let rflank = ref_region(refs, &tr.reference, tr.start-n, tr.start).unwrap();
+//     let ref_repeat = ref_region(refs, &tr.reference, tr.start, tr.end).unwrap();
+//     let lflank = ref_region(refs, &tr.reference, tr.end, tr.end+n).unwrap();
+//     println!("{} {} {}", 
+//         str::from_utf8(rflank).unwrap(),
+//         str::from_utf8(ref_repeat).unwrap(),
+//         str::from_utf8(lflank).unwrap()
+//     );
+//     println!("{} {} {}",
+//         " ".repeat(n),
+//         str::from_utf8(&tr.sequence()).unwrap(),
+//         " ".repeat(n)
+//     );
+// }
 
-        let filename = "data/test/nomenclature_hgs_1Q_wo_names.tsv";
-        let motifs2 = read_motifs(filename);
+#[test]
+fn can_parse_hgvs() {
+    use hgvs::parser::HgvsVariant;
+    let _record = "NM_01234.5:c.456-6_*22A>T";
+    let _record = "NC_000017.11:g.43091687del";
+    let tmp: HgvsVariant = _record.parse().unwrap();
+    println!("{:?}", tmp);
 
-        for (m1, m2) in zip(motifs1, motifs2) {
-            assert_eq!(m1.reference, m2.reference);
-            assert_eq!(m1.start, m2.start);
-            assert_eq!(m1.end, m2.end);
-            assert_eq!(m1.copy_unit, m2.copy_unit);
-            assert_eq!(m1.copy_number, m2.copy_number);
-        }
+    println!("{}", tmp.accession().value);
+}
+
+#[test]
+fn can_read_and_parse_hgvs_file() {
+    let file = "data/test/mini_HGVS.txt";
+    let file = File::open(file).unwrap();
+    let reader = BufReader::new(file);
+
+    for line in reader.lines() {
+        let line = line.unwrap();
+        let line = line.trim();
+        println!("{}", line);
+        let tr: TandemRepeat = line.parse().unwrap();
+        println!("{:?}", tr);
     }
+}
 
-    #[test]
-    fn count_present() {
-        // let references = read_reference("data/chromosomeX.fna");
-        let hgvs = File::open("data/test/HGVS.txt").unwrap();
-        let reader = BufReader::new(hgvs);
-
-        // let mut present_count = 0;
-        let present_count = 0;
-        let mut max_count = 0;
-        for line in reader.lines() {
-            let line = line.unwrap().trim().to_owned();
-            let _tr: TandemRepeat = line.parse().unwrap();
-            // if is_present(&tr, &references) {
-            //     present_count += 1;
-            // } else {
-                // println!("{}", tr);
-                // print_diff(&tr, &references);
-                // println!();
-            // }
-            max_count += 1;
-        }
-        println!("Present repeats: {}/{}", present_count, max_count);
-    }
-
-//     fn print_diff(tr: &TandemRepeat, refs: &HashMap<String, Vec<u8>>) {
-//         let n = 10;
-//         let rflank = ref_region(refs, &tr.reference, tr.start-n, tr.start).unwrap();
-//         let ref_repeat = ref_region(refs, &tr.reference, tr.start, tr.end).unwrap();
-//         let lflank = ref_region(refs, &tr.reference, tr.end, tr.end+n).unwrap();
-//         println!("{} {} {}", 
-//             str::from_utf8(rflank).unwrap(),
-//             str::from_utf8(ref_repeat).unwrap(),
-//             str::from_utf8(lflank).unwrap()
-//         );
-//         println!("{} {} {}",
-//             " ".repeat(n),
-//             str::from_utf8(&tr.sequence()).unwrap(),
-//             " ".repeat(n)
-//         );
-//     }
-
-    #[test]
-    fn can_parse_hgvs() {
-        let _record = "NM_01234.5:c.456-6_*22A>T";
-        let _record = "NC_000017.11:g.43091687del";
-        let tmp: HgvsVariant = _record.parse().unwrap();
-        println!("{:?}", tmp);
-
-        println!("{}", tmp.accession().value);
-    }
-
-    #[test]
-    fn can_read_and_parse_hgvs_file() {
-        let file = "data/test/mini_HGVS.txt";
-        let file = File::open(file).unwrap();
-        let reader = BufReader::new(file);
-
-        for line in reader.lines() {
-            let line = line.unwrap();
-            let line = line.trim();
-            println!("{}", line);
-            let tr: TandemRepeat = line.parse().unwrap();
-            println!("{:?}", tr);
-        }
-    }
-
-    #[test]
-    fn does_not_overflow() {
-        let references = read_reference("data/test/chromosomeX.fna");
-        let motif: TandemRepeat = "NC_000023.11:g.284585_284614AC[15]".parse().unwrap();
-        let repeats = vec![motif];
-        correct_repeats(&references, &repeats);
-    }
+#[test]
+fn does_not_overflow() {
+    let references = read_reference("data/test/chromosomeX.fna");
+    let motif: TandemRepeat = "NC_000023.11:g.284585_284614AC[15]".parse().unwrap();
+    let repeats = vec![motif];
+    correct_repeats(&references, &repeats);
 }
