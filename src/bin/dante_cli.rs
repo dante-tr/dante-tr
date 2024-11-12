@@ -1,5 +1,16 @@
 use clap::Parser;
-// use clap::ArgAction;
+use std::path::PathBuf;
+
+use remastr::run;
+
+fn main() {
+    let args = Args::parse();
+    run(
+        args.ref_file, args.bam_file, args.motif_file, args.output,
+        args.out_bam, args.correction, args.dedup, args.flank, args.q,
+        args.score, args.print_quality
+    );
+}
 
 // Predict short tandem repeat annotation
 #[derive(Parser, Debug, PartialEq, Eq)]
