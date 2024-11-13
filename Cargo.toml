@@ -21,6 +21,7 @@ clap = { version = "4.3.21", features = ["derive"] }
 # used only by GUI
 iced = { version = "0.13.1", features = ["image"] }
 native-dialog = "0.7.0"
+opener = "0.7.2"
 
 # rustup target add x86_64-pc-windows-gnu
 # sudo pacman -S mingw-w64-gcc

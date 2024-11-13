@@ -1,3 +1,4 @@
+fn main() {}
 // use noodles::fastq;
 // use std::str;
 // use clap::Parser;

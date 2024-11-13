@@ -14,55 +14,55 @@ fn main() {
 
 // Predict short tandem repeat annotation
 #[derive(Parser, Debug, PartialEq, Eq)]
-pub struct Args {
+struct Args {
     /// Reference in FASTA format
     #[arg(short='f')]
-    pub ref_file: String,
+    ref_file: String,
 
     /// Reads mapped to reference in BAM format
     #[arg(short='b')]
-    pub bam_file: String,
+    bam_file: String,
 
     /// Repeats in HGVS nomenclature, one per line or TSV with name and HGVS
     #[arg(short='m')]
-    pub motif_file: String,
+    motif_file: String,
 
     /// Output annotations in tsv format.
     #[arg(short='o', verbatim_doc_comment)]
-    pub output: String,
+    output: String,
 
     /// Output annotated reads in BAM. The filename depends on the filename of the output.
     /// For <OUTPUT>.tsv the annotated reads will be writen to <OUTPUT>.bam
     /// BAM contains only reads which overlap with motif positions and pass the filters.
     #[arg(short='a', verbatim_doc_comment)]
-    pub out_bam: bool,
+    out_bam: bool,
 
     /// Correct repeats using a set of heuristics.
     /// First, the end position of a motif is adjusted in correspondence to the length of the
     /// motif. Then, the motif is checked against reference, and if it does not align, it is
     /// removed.
     #[arg(short='c', verbatim_doc_comment)]
-    pub correction: bool,
+    correction: bool,
 
     /// Filter out reads marked as PCR or optical duplicate (SAM flag 0x400)
     #[arg(short='d')]
-    pub dedup: bool,
+    dedup: bool,
 
     /// Flank size
     #[arg(long="flank", default_value_t=30)]
-    pub flank: usize,
+    flank: usize,
 
     /// Minimum mapping quality to annotate
     #[arg(long="quality", default_value_t=30)]
-    pub q: u8,
+    q: u8,
 
     /// Quality score used for reads
     #[arg(short='s')]
-    pub score: Option<char>,
+    score: Option<char>,
 
     /// Print quality scores. Only used for debugging
     #[arg(long="print-quality", action)]
-    pub print_quality: bool,
+    print_quality: bool,
 }
 
 #[test]
