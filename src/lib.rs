@@ -30,17 +30,17 @@ use crate::repeats::TandemRepeat;
 use crate::io::{get_modules, read_reference};
 
 pub fn run(
-    ref_file: String, bam_file: String, motif_file: String, output: String,
+    ref_file: &Path, bam_file: &Path, motif_file: &Path, output: String,
     out_bam: bool, correction: bool, dedup: bool, flank: usize, q: u8,
     score: Option<char>, print_quality: bool,
 ) {
     // checks
-    check_bai(&bam_file);
-    let header = header(&bam_file);
+    check_bai(bam_file);
+    let header = header(bam_file);
 
     let bam_refs = read_bam_refs(&header);
-    let references = read_reference(&ref_file);
-    let repeats = read_motifs(&motif_file);
+    let references = read_reference(ref_file);
+    let repeats = read_motifs(motif_file);
 
     let (references, repeats) = ensure_consistency(bam_refs, references, repeats);
 
@@ -63,7 +63,7 @@ pub fn run(
     repeats.par_iter().for_each(|repeat| {
         // load bam
         let mut reader = bam::io::indexed_reader::Builder::default()
-            .build_from_path(&bam_file)
+            .build_from_path(bam_file)
             .expect("Unable to read the associated index (.bai).");
         let header = reader.read_header().unwrap();
 
@@ -280,7 +280,7 @@ fn read_bam_refs(header: &Header) -> HashMap<String, usize> {
     return result;
 }
 
-fn read_motifs(filename: &str) -> Vec<TandemRepeat> {
+fn read_motifs(filename: &Path) -> Vec<TandemRepeat> {
     let repeats = if is_named_format(filename) {
         read_nomenclature_with_names(filename)
     } else {
@@ -290,7 +290,7 @@ fn read_motifs(filename: &str) -> Vec<TandemRepeat> {
     return repeats;
 }
 
-fn is_named_format(filename: &str) -> bool {
+fn is_named_format(filename: &Path) -> bool {
     let file = File::open(filename).expect("Cannot find nomenclature file.");
     let reader = BufReader::new(file);
     let count = reader
@@ -305,7 +305,7 @@ fn is_named_format(filename: &str) -> bool {
     }
 }
 
-fn read_nomenclature_with_names(filename: &str) -> Vec<TandemRepeat> {
+fn read_nomenclature_with_names(filename: &Path) -> Vec<TandemRepeat> {
     let file = File::open(filename).expect("Cannot find nomenclature file.");
     let reader = BufReader::new(file);
 
@@ -327,7 +327,7 @@ fn read_nomenclature_with_names(filename: &str) -> Vec<TandemRepeat> {
     return repeats;
 }
 
-fn read_nomenclature(filename: &str) -> Vec<TandemRepeat> {
+fn read_nomenclature(filename: &Path) -> Vec<TandemRepeat> {
     let mut repeats = Vec::new();
 
     let file = File::open(filename).expect("Cannot find nomenclature file.");
@@ -388,11 +388,11 @@ fn can_load_fasta() {
 
 #[test]
 fn can_read_tsv_nomenclature() {
-    let filename = "data/test/nomenclature_hgs_1Q_with_names.tsv";
-    let motifs1 = read_motifs(filename);
+    let filename = PathBuf::from("data/test/nomenclature_hgs_1Q_with_names.tsv");
+    let motifs1 = read_motifs(&filename);
 
-    let filename = "data/test/nomenclature_hgs_1Q_wo_names.tsv";
-    let motifs2 = read_motifs(filename);
+    let filename = PathBuf::from("data/test/nomenclature_hgs_1Q_wo_names.tsv");
+    let motifs2 = read_motifs(&filename);
 
     use std::iter::zip;
     for (m1, m2) in zip(motifs1, motifs2) {
@@ -473,7 +473,7 @@ fn can_read_and_parse_hgvs_file() {
 
 #[test]
 fn does_not_overflow() {
-    let references = read_reference("data/test/chromosomeX.fna");
+    let references = read_reference(&PathBuf::from("data/test/chromosomeX.fna"));
     let motif: TandemRepeat = "NC_000023.11:g.284585_284614AC[15]".parse().unwrap();
     let repeats = vec![motif];
     correct_repeats(&references, &repeats);

@@ -1,11 +1,12 @@
 use noodles::fasta;
 use std::collections::HashMap;
 use std::str;
+use std::path::Path;
 
 use crate::TandemRepeat;
 use crate::Module;
 
-pub fn read_reference(filename: &str) -> HashMap<String, Vec<u8>> {
+pub fn read_reference(filename: &Path) -> HashMap<String, Vec<u8>> {
     let mut reader = fasta::reader::Builder.build_from_path(filename).unwrap();
 
     let mut result = HashMap::new();
