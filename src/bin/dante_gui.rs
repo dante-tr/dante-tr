@@ -2,6 +2,7 @@ use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{button, checkbox, column, container, horizontal_rule, image, row, text, text_input, Row};
 use iced::{Element, Padding, Theme};
 use native_dialog::FileDialog;
+use std::fs;
 use std::path::PathBuf;
 use remastr::run;
 use std::process::Command;
@@ -118,8 +119,7 @@ impl State {
         run(ref_file, bam_file, motif_file, output.clone(), out_bam, correction, dedup, flank, q, score, print_quality);
         println!("remaSTR finished.");
         // self.message_line = "remaSTR finished.".to_string();
-        let output_log = Command::new("python")
-            .arg("/home/balaz/projects/STRs/remaSTR_validation/refactoring/src/dante-remaSTR/dante_remastr_standalone.py")
+        let output_log = Command::new("./.dante_cache/dante_remastr_standalone")
             .arg("--input-tsv").arg(output.clone())
             .arg("--output-dir").arg(out_dir)
             .arg("--verbose")
@@ -151,9 +151,13 @@ impl State {
     const BOLD_MONO: Font = Font { weight: Weight::Bold, ..Font::MONOSPACE };
 
     fn view(&self) -> Element<Message> {
+        if !Path::new("./.dante_cache").exists() {
+            Self::init_cache();
+        }
+
         column![
             column![
-                image("assets/logo_v3.png").height(100),
+                image("./.dante_cache/logo.png").height(100),
             ].width(720.0).align_x(Horizontal::Right),
             horizontal_rule(0),
             column![
@@ -172,6 +176,49 @@ impl State {
                 self.draw_open_button(),
             ].width(720.0).align_x(Horizontal::Left)
         ].into()
+    }
+
+    fn init_cache() {
+        fs::create_dir("./.dante_cache").expect("Cannot create directory.");
+        fs::create_dir("./.dante_cache/templates").expect("Cannot create directory.");
+        fs::create_dir("./.dante_cache/includes").expect("Cannot create directory.");
+
+        let filenames = [
+            "logo.png",
+            "dante_remastr_standalone",
+            "templates/alignments_template.html",
+            "templates/report_template.html",
+            "includes/datatables.min.js",
+            "includes/jquery-3.6.1.min.js",
+            "includes/jquery.dataTables.css",
+            "includes/msa.min.gz.js",
+            "includes/plotly-2.14.0.min.js",
+            "includes/styles.css",
+            "includes/w3.css"
+        ];
+
+        let contents = [
+            include_bytes!("../../assets/logo.png").to_vec(),
+            include_bytes!("../../assets/dante_remastr_standalone").to_vec(),
+            include_bytes!("../../assets/templates/alignments_template.html").to_vec(),
+            include_bytes!("../../assets/templates/report_template.html").to_vec(),
+            include_bytes!("../../assets/includes/datatables.min.js").to_vec(),
+            include_bytes!("../../assets/includes/jquery-3.6.1.min.js").to_vec(),
+            include_bytes!("../../assets/includes/jquery.dataTables.css").to_vec(),
+            include_bytes!("../../assets/includes/msa.min.gz.js").to_vec(),
+            include_bytes!("../../assets/includes/plotly-2.14.0.min.js").to_vec(),
+            include_bytes!("../../assets/includes/styles.css").to_vec(),
+            include_bytes!("../../assets/includes/w3.css").to_vec()
+        ];
+
+        for (filename, content) in std::iter::zip(filenames, contents) {
+            fs::write(format!("./.dante_cache/{}", filename), content).expect("Unable to write.");
+        }
+
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata("./.dante_cache/dante_remastr_standalone").unwrap().permissions();
+        perms.set_mode(0o700);
+        fs::set_permissions("./.dante_cache/dante_remastr_standalone", perms).unwrap();
     }
 
     fn loader_row<'a>(desc: &'a str, filename: &'a Option<PathBuf>, on_input: impl Fn(String) -> Message + 'a, on_press: Message) -> Row<'a, Message> {
