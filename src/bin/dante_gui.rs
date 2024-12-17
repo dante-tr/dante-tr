@@ -13,7 +13,8 @@ use iced::font::Weight;
 
 pub fn main() -> iced::Result {
     let settings = iced::window::Settings {
-        size: iced::Size{width: 720.0, height: 480.0},
+        // size: iced::Size{width: 720.0, height: 480.0},
+        size: iced::Size{width: 720.0, height: 560.0},
         ..Default::default()
     };
     iced::application("Dante", State::update, State::view)
@@ -75,7 +76,9 @@ impl State {
     }
 
     fn load_file(result: &mut Option<PathBuf>) {
-        let path = FileDialog::new().set_location(".").show_open_single_file().unwrap();
+        // TODO: "." does not work under Windows
+        // let path = FileDialog::new().set_location(".").show_open_single_file().unwrap();
+        let path = FileDialog::new().show_open_single_file().unwrap();
         let path = match path {
             Some(path) => path,
             None => return,
@@ -84,7 +87,9 @@ impl State {
     }
 
     fn load_dir(result: &mut Option<PathBuf>) {
-        let path = FileDialog::new().set_location(".").show_open_single_dir().unwrap();
+        // TODO: "." does not work under Windows
+        // let path = FileDialog::new().set_location(".").show_open_single_dir().unwrap();
+        let path = FileDialog::new().show_open_single_dir().unwrap();
         let path = match path {
             Some(path) => path,
             None => return,
@@ -185,7 +190,6 @@ impl State {
 
         let filenames = [
             "logo.png",
-            "dante_remastr_standalone",
             "templates/alignments_template.html",
             "templates/report_template.html",
             "includes/datatables.min.js",
@@ -199,7 +203,6 @@ impl State {
 
         let contents = [
             include_bytes!("../../assets/logo.png").to_vec(),
-            include_bytes!("../../assets/dante_remastr_standalone").to_vec(),
             include_bytes!("../../assets/templates/alignments_template.html").to_vec(),
             include_bytes!("../../assets/templates/report_template.html").to_vec(),
             include_bytes!("../../assets/includes/datatables.min.js").to_vec(),
@@ -215,10 +218,19 @@ impl State {
             fs::write(format!("./.dante_cache/{}", filename), content).expect("Unable to write.");
         }
 
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata("./.dante_cache/dante_remastr_standalone").unwrap().permissions();
-        perms.set_mode(0o700);
-        fs::set_permissions("./.dante_cache/dante_remastr_standalone", perms).unwrap();
+        #[cfg(target_os = "linux")] {
+            let ctx = include_bytes!("../../assets/dante_remastr_standalone").to_vec();
+            fs::write("./.dante_cache/dante_remastr_standalone", ctx).expect("Unable to write.");
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata("./.dante_cache/dante_remastr_standalone").unwrap().permissions();
+            perms.set_mode(0o700);
+            fs::set_permissions("./.dante_cache/dante_remastr_standalone", perms).unwrap();
+        }
+
+        #[cfg(target_os = "windows")] {
+            let ctx = include_bytes!("../../assets/dante_remastr_standalone").to_vec();
+            fs::write("./.dante_cache/dante_remastr_standalone", ctx).expect("Unable to write.");
+        }
     }
 
     fn loader_row<'a>(desc: &'a str, filename: &'a Option<PathBuf>, on_input: impl Fn(String) -> Message + 'a, on_press: Message) -> Row<'a, Message> {
