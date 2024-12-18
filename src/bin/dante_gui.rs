@@ -228,8 +228,8 @@ impl State {
         }
 
         #[cfg(target_os = "windows")] {
-            let ctx = include_bytes!("../../assets/dante_remastr_standalone").to_vec();
-            fs::write("./.dante_cache/dante_remastr_standalone", ctx).expect("Unable to write.");
+            let ctx = include_bytes!("../../assets/dante_remastr_standalone.exe").to_vec();
+            fs::write("./.dante_cache/dante_remastr_standalone.exe", ctx).expect("Unable to write.");
         }
     }
 
