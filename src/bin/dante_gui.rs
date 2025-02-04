@@ -15,8 +15,8 @@ use iced::font::Weight;
 
 pub fn main() -> iced::Result {
     let settings = iced::window::Settings {
-        // size: iced::Size{width: 720.0, height: 480.0},
-        size: iced::Size{width: 720.0, height: 560.0},
+        size: iced::Size{width: 720.0, height: 480.0},
+        // size: iced::Size{width: 720.0, height: 560.0},
         ..Default::default()
     };
     iced::application("Dante", State::update, State::view)
@@ -28,7 +28,6 @@ pub fn main() -> iced::Result {
 #[derive(Debug, Default)]
 struct State {
     // required params
-    ref_file: Option<PathBuf>,
     bam_file: Option<PathBuf>,
     motif_file: Option<PathBuf>,
     output: Option<PathBuf>,
@@ -43,8 +42,6 @@ struct State {
 
 #[derive(Debug, Clone)]
 enum Message {
-    RefChanged(String),
-    SelectRef,
     BamChanged(String),
     SelectBam,
     MotifChanged(String),
@@ -60,8 +57,6 @@ enum Message {
 impl State {
     fn update(&mut self, message: Message) {
         match message {
-            Message::RefChanged(content) => { self.ref_file = Some(PathBuf::from(content)); },
-            Message::SelectRef => { Self::load_file(&mut self.ref_file); },
             Message::BamChanged(content) => { self.bam_file = Some(PathBuf::from(content)); },
             Message::SelectBam => { Self::load_file(&mut self.bam_file); },
             Message::MotifChanged(content) => { self.motif_file = Some(PathBuf::from(content)); },
@@ -165,7 +160,6 @@ impl State {
             ].width(720.0).align_x(Horizontal::Right),
             horizontal_rule(0),
             column![
-                Self::loader_row("Reference file:", &self.ref_file, Message::RefChanged, Message::SelectRef),
                 Self::loader_row("BAM file:",       &self.bam_file, Message::BamChanged, Message::SelectBam),
                 Self::loader_row("Motif file:", &self.motif_file, Message::MotifChanged, Message::SelectMotif),
                 horizontal_rule(2),
