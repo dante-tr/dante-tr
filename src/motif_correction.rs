@@ -1,6 +1,5 @@
-use std::collections::HashMap;
+#[cfg(test)]
 use std::str;
-
 #[cfg(test)]
 use ndarray::{Array, Array2};
 #[cfg(test)]
@@ -11,8 +10,9 @@ use counter::Counter;
 use ndarray::ArrayView1;
 #[cfg(test)]
 use ndarray::ArrayView2;
-
+#[cfg(test)]
 use crate::repeats::TandemRepeat;
+
 // use crate::modules_add_motif;
 // use crate::HMM;
 
@@ -137,56 +137,6 @@ fn look_at_motif() {
     let (s1, s2) = sgalign(&target[..], &new_motif.sequence());
     println!("{}", str::from_utf8(&s1).unwrap());
     println!("{}", str::from_utf8(&s2).unwrap());
-}
-
-pub fn correct_repeats(refs: &HashMap<String, Vec<u8>>, repeats: &[TandemRepeat]) -> Vec<TandemRepeat> {
-    println!("Correcting motifs.");
-    let mut valid_repeats = Vec::new();
-    for motif in repeats.iter() {
-        let motif = motif.correct_boundary();
-        if is_present(&motif, refs) {
-            valid_repeats.push(motif);
-        } else {
-            // let from = motif.start - FLANK;
-            // let to = motif.end + FLANK;
-            // let seq = ref_region(refs, &motif.reference, from, to)
-            //     .expect("Unable to get reference region.");
-
-            // let corrected_motif = correct_motif(&seq, &motif, FLANK);
-            // println!(
-            //     "{} -> {}\n{}\n{}\n{}\n",
-            //     motif, corrected_motif,
-            //     str::from_utf8(&seq).unwrap(),
-            //     str::from_utf8(&motif.view(from, to)).unwrap(),
-            //     str::from_utf8(&corrected_motif.view(from, to)).unwrap(),
-            // );
-
-            // valid_repeats.push(corrected_motif);
-        }
-    }
-    return valid_repeats;
-}
-
-fn ref_region<'a>(
-    refseq: &'a HashMap<String, Vec<u8>>, id: &str, start: usize, end: usize
-) -> Option<&'a[u8]> {
-    let seq = match refseq.get(id) {
-        None => { return None; },
-        Some(x) => { x },
-    };
-    return Some(&seq[start..end]);
-}
-
-fn is_present(tr: &TandemRepeat, seq: &HashMap<String, Vec<u8>>) -> bool {
-    let ref_repeat = match ref_region(seq, &tr.reference, tr.start, tr.end) {
-        None => { return false; },
-        Some(x) => { x },
-    };
-    let hgvs_repeat = &tr.sequence();
-    if ref_repeat != hgvs_repeat {
-        return false;
-    }
-    return true;
 }
 
 #[cfg(test)]

@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{button, checkbox, column, container, horizontal_rule, image, row, text, text_input, Row};
 use iced::{Element, Padding, Theme};
@@ -101,7 +103,6 @@ impl State {
         println!("{:?}", self);
 
         // required params
-        let Some(ref ref_file) = self.ref_file else { return; };
         let Some(ref bam_file) = self.bam_file else { return; };
         let Some(ref motif_file) = self.motif_file else { return; };
 
@@ -114,14 +115,12 @@ impl State {
 
         // optional params
         let out_bam = self.out_bam;
-        let correction = false;
         let dedup = false;
         let print_quality = false;
-        let flank = 30;
         let q = 30;
         let score: Option<char> = None;
 
-        run(ref_file, bam_file, motif_file, output.clone(), out_bam, correction, dedup, flank, q, score, print_quality);
+        run(bam_file, motif_file, output.clone(), out_bam, dedup, q, score, print_quality);
         println!("remaSTR finished.");
         // self.message_line = "remaSTR finished.".to_string();
         let output_log = Command::new("./.dante_cache/dante_remastr_standalone")

@@ -110,6 +110,7 @@ fn tandem_repeat(input: &str) -> IResult<&str, TandemRepeat> {
 }
 
 impl TandemRepeat {
+    #[cfg(test)]
     pub fn sequence(&self) -> Vec<u8> {
         let mut res = Vec::new();
         for i in 0..self.copy_number.len() {
@@ -118,17 +119,6 @@ impl TandemRepeat {
             }
         }
         return res;
-    }
-
-    pub fn correct_boundary(&self) -> Self {
-        let mut new = self.clone();
-        let l = new.sequence().len();
-        if new.start + l != new.end {
-            eprintln!("{} has incorrect end.", new);
-            new.end = new.start + l;
-            eprintln!("Corrected to {}", new);
-        }
-        return new;
     }
 
     #[cfg(test)]

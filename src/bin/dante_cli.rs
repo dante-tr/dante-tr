@@ -6,27 +6,19 @@ use remastr::run;
 fn main() {
     let args = Args::parse();
     run(
-        &PathBuf::from(args.ref_file),
-        &PathBuf::from(args.bam_file),
-        &PathBuf::from(args.motif_file),
-        args.output,
-        args.out_bam, args.correction, args.dedup, args.flank, args.q,
-        args.score, args.print_quality
+        &PathBuf::from(args.bam_file), &PathBuf::from(args.motif_file),
+        args.output, args.out_bam, args.dedup, args.q, args.score, args.print_quality
     );
 }
 
 // Predict short tandem repeat annotation
 #[derive(Parser, Debug, PartialEq, Eq)]
 struct Args {
-    /// Reference in FASTA format
-    #[arg(short='f')]
-    ref_file: String,
-
     /// Reads mapped to reference in BAM format
     #[arg(short='b')]
     bam_file: String,
 
-    /// Repeats in HGVS nomenclature, one per line or TSV with name and HGVS
+    /// Repeats in HGVS nomenclature
     #[arg(short='m')]
     motif_file: String,
 
@@ -40,20 +32,9 @@ struct Args {
     #[arg(short='a', verbatim_doc_comment)]
     out_bam: bool,
 
-    /// Correct repeats using a set of heuristics.
-    /// First, the end position of a motif is adjusted in correspondence to the length of the
-    /// motif. Then, the motif is checked against reference, and if it does not align, it is
-    /// removed.
-    #[arg(short='c', verbatim_doc_comment)]
-    correction: bool,
-
     /// Filter out reads marked as PCR or optical duplicate (SAM flag 0x400)
     #[arg(short='d')]
     dedup: bool,
-
-    /// Flank size
-    #[arg(long="flank", default_value_t=30)]
-    flank: usize,
 
     /// Minimum mapping quality to annotate
     #[arg(long="quality", default_value_t=30)]
@@ -84,18 +65,15 @@ fn print_help() {
 
 #[test]
 fn test_cli_minimal() {
-    let cmd = "remastr -f reference.fna -b reads.bam -m motifs.tsv -o output.tsv";
+    let cmd = "remastr -b reads.bam -m motifs.tsv -o output.tsv";
 
     let args = Args::try_parse_from(cmd.split_whitespace()).unwrap();
     let result = Args {
-        ref_file  : "reference.fna".to_string(),
         bam_file  : "reads.bam".to_string(),
         motif_file: "motifs.tsv".to_string(),
         output    : "output.tsv".to_string(),
         out_bam   : false,
-        correction: false,
         dedup     : false,
-        flank     : 30,
         q         : 30,
         score     : None,
         print_quality : false
@@ -107,25 +85,20 @@ fn test_cli_minimal() {
 fn test_cli_maximal() {
     let cmd = "
         remastr
-            -f reference.fna
             -b reads.bam
             -m motifs.tsv
             -o output.tsv
-            --flank 40
             --quality 20
-            -a -c -d
+            -a -d
     ";
 
     let args = Args::try_parse_from(cmd.split_whitespace()).unwrap();
     let result = Args {
-        ref_file  : "reference.fna".to_string(),
         bam_file  : "reads.bam".to_string(),
         motif_file: "motifs.tsv".to_string(),
         output    : "output.tsv".to_string(),
         out_bam   : true,
-        correction: true,
         dedup     : true,
-        flank     : 40,
         q         : 20,
         score     : None,
         print_quality : false
