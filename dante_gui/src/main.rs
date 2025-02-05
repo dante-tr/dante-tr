@@ -195,16 +195,16 @@ impl State {
         ];
 
         let contents = [
-            include_bytes!("../../assets/logo.png").to_vec(),
-            include_bytes!("../../assets/templates/alignments_template.html").to_vec(),
-            include_bytes!("../../assets/templates/report_template.html").to_vec(),
-            include_bytes!("../../assets/includes/datatables.min.js").to_vec(),
-            include_bytes!("../../assets/includes/jquery-3.6.1.min.js").to_vec(),
-            include_bytes!("../../assets/includes/jquery.dataTables.css").to_vec(),
-            include_bytes!("../../assets/includes/msa.min.gz.js").to_vec(),
-            include_bytes!("../../assets/includes/plotly-2.14.0.min.js").to_vec(),
-            include_bytes!("../../assets/includes/styles.css").to_vec(),
-            include_bytes!("../../assets/includes/w3.css").to_vec()
+            include_bytes!("../assets/logo.png").to_vec(),
+            include_bytes!("../assets/templates/alignments_template.html").to_vec(),
+            include_bytes!("../assets/templates/report_template.html").to_vec(),
+            include_bytes!("../assets/includes/datatables.min.js").to_vec(),
+            include_bytes!("../assets/includes/jquery-3.6.1.min.js").to_vec(),
+            include_bytes!("../assets/includes/jquery.dataTables.css").to_vec(),
+            include_bytes!("../assets/includes/msa.min.gz.js").to_vec(),
+            include_bytes!("../assets/includes/plotly-2.14.0.min.js").to_vec(),
+            include_bytes!("../assets/includes/styles.css").to_vec(),
+            include_bytes!("../assets/includes/w3.css").to_vec()
         ];
 
         for (filename, content) in std::iter::zip(filenames, contents) {
@@ -212,7 +212,7 @@ impl State {
         }
 
         #[cfg(target_os = "linux")] {
-            let ctx = include_bytes!("../../assets/dante_remastr_standalone").to_vec();
+            let ctx = include_bytes!("../assets/dante_remastr_standalone").to_vec();
             fs::write("./.dante_cache/dante_remastr_standalone", ctx).expect("Unable to write.");
             use std::os::unix::fs::PermissionsExt;
             let mut perms = fs::metadata("./.dante_cache/dante_remastr_standalone").unwrap().permissions();
@@ -221,7 +221,7 @@ impl State {
         }
 
         #[cfg(target_os = "windows")] {
-            let ctx = include_bytes!("../../assets/dante_remastr_standalone.exe").to_vec();
+            let ctx = include_bytes!("../assets/dante_remastr_standalone.exe").to_vec();
             fs::write("./.dante_cache/dante_remastr_standalone.exe", ctx).expect("Unable to write.");
         }
     }
