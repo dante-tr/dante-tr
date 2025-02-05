@@ -1,5 +1,5 @@
 target/
 Cargo.lock
 data/
-assets/dante_remastr_standalone
-assets/dante_remastr_standalone.exe
+dante_remastr_standalone
+dante_remastr_standalone.exe

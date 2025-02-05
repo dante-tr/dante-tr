@@ -1,0 +1,26 @@
+[package]
+name = "dante_gui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+remastr = { path = "../"}
+iced = { version = "0.13.1", features = ["image"] }
+native-dialog = "0.7.0"
+opener = "0.7.2"
+
+# rustup target add x86_64-pc-windows-gnu
+# sudo pacman -S mingw-w64-gcc
+# cargo build --target x86_64-pc-windows-gnu
+
+# [profile.test.build-override]
+# rustflags = ["-Awarnings"]
+
+# [[bin]]
+# name = "annotate"
+# path = "src/annotate.rs"
+# test = true
+
+# [[bin]]
+# name = "remastr"
+# path = "src/main.rs"
