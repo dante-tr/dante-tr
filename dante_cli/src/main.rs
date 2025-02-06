@@ -6,8 +6,8 @@ use remastr::run;
 fn main() {
     let args = Args::parse();
     run(
-        &PathBuf::from(args.bam_file), &PathBuf::from(args.motif_file),
-        args.output, args.out_bam, args.dedup, args.q, args.score, args.print_quality
+        &PathBuf::from(args.bam_file), &PathBuf::from(args.motif_file), args.output, args.out_bam,
+        (args.dedup, args.q, args.score, args.print_quality)
     );
 }
 

@@ -1,3 +1,4 @@
+use nom::AsBytes;
 use noodles::bam;
 use noodles::bam::io::Writer;
 use noodles::sam::Header;
@@ -27,61 +28,18 @@ use crate::io::get_modules;
 
 pub fn run(
     bam_file: &Path, motif_file: &Path, output: String, out_bam: bool,
-    dedup: bool, q: u8, score: Option<char>, print_quality: bool
+    params: (bool, u8, Option<char>, bool)
 ) {
-    // checks
     check_bai(bam_file);
+
     let header = header(bam_file);
+    let out_bam = if out_bam { Some(Arc::new(Mutex::new(init_bam(&output, &header)))) } else { None };
+    let out_tsv = Arc::new(Mutex::new(init_tsv(&output)));
+
     let motif_records = read_motifs(motif_file);
-
-    { // scope for out_tsv and out_bam
-    let out_tsv = init_tsv(&output);
-    let out_tsv = Arc::new(Mutex::new(out_tsv));
-
-    let out_bam = if out_bam {
-        let out_bam = init_bam(&output, &header);
-        let out_bam = Arc::new(Mutex::new(out_bam));
-        Some(out_bam)
-    } else {
-        None
-    };
-
-    motif_records.par_iter().for_each(|(left_flank, repeat, right_flank)| {
-        // load bam
-        let mut reader = bam::io::indexed_reader::Builder::default()
-            .build_from_path(bam_file)
-            .expect("Unable to read the associated index (.bai).");
-        let header = reader.read_header().unwrap();
-
-        //  build HMM
-        let modules = get_modules(left_flank, repeat, right_flank);
-        let model = Hmm::from(&modules).log();
-
-        //  select relevant reads
-        let tmp = format!("{}:{}-{}", repeat.reference, repeat.start + 1, repeat.end);
-        let region = tmp.parse().unwrap();
-        let reads = reader
-            .query(&header, &region).unwrap()
-            .map(|x| x.expect("Incorrect read."))
-            .filter(|x| !x.sequence().is_empty())
-            .filter(|x| !(dedup && x.flags().is_duplicate()))
-            .filter(|x| !mapq_less_than(x, q));
-
-        let (annotation, annotated_reads) = annotate_reads(reads, model, repeat, score, print_quality);
-
-        // write to files
-        out_tsv.lock().unwrap().write_all(annotation.as_bytes()).expect("Cannot write to output file.");
-        match &out_bam {
-            None => {},
-            Some(mutex) => {
-                let mut writer = mutex.lock().unwrap();
-                for record in annotated_reads {
-                    writer.write_record(&header, &record).expect("Cannot write to out bam.");
-                }
-            }
-        }
+    motif_records.par_iter().for_each(|motif_record| {
+        process_motif(motif_record, bam_file, params, out_tsv.clone(), out_bam.clone());
     });
-    } // end scope for out_tsv and out_bam
 
     println!("Annotation finished successfully.");
     // TODO:
@@ -91,92 +49,49 @@ pub fn run(
     //     check_bai(filename);
 }
 
-// #[ignore = "too long"]
-// #[test]
-// fn test_single_threaded() {
-//     let args = Args {
-//         ref_file  : "data/real/grch38_decoy.fa".to_string(),
-//         bam_file  : "data/real/wgs_05K.bam".to_string(),
-//         motif_file: "data/2024-03-01/predominant.tsv".to_string(),
-//         output    : "tmp.txt".to_string(),
-//         out_bam   : false,
-//         correction: false,
-//         dedup     : false,
-//         flank     : 30,
-//         q         : 30,
-//         score     : None,
-//         print_quality : false
-//     };
-// 
-//     // checks
-//     check_bai(&args.bam_file);
-//     let header = header(&args.bam_file);
-// 
-//     let bam_refs = read_bam_refs(&header);
-//     let references = read_reference(&args.ref_file);
-//     let repeats = read_motifs(&args.motif_file);
-// 
-//     let (references, repeats) = ensure_consistency(bam_refs, references, repeats);
-// 
-//     let mut repeats = repeats;
-//     if args.correction { repeats = correct_repeats(&references, &repeats); }
-//     let repeats = repeats;
-// 
-//     { // scope for out_tsv and out_bam
-//     let out_tsv = init_tsv(&args.output);
-//     let out_tsv = Arc::new(Mutex::new(out_tsv));
-// 
-//     let out_bam = if args.out_bam {
-//         let out_bam = init_bam(&args.output, &header);
-//         let out_bam = Arc::new(Mutex::new(out_bam));
-//         Some(out_bam)
-//     } else {
-//         None
-//     };
-// 
-//     repeats.iter().for_each(|repeat| {
-//         // load bam
-//         let mut reader = bam::io::indexed_reader::Builder::default()
-//             .build_from_path(&args.bam_file)
-//             .expect("Unable to read the associated index (.bai).");
-//         let header = reader.read_header().unwrap();
-// 
-//         //  build HMM
-//         let modules = get_modules(repeat, &references, args.flank);
-//         let model = Hmm::from(&modules).log();
-// 
-//         //  select relevant reads
-//         let tmp = format!("{}:{}-{}", repeat.reference, repeat.start + 1, repeat.end);
-//         let region = tmp.parse().unwrap();
-//         let reads = reader
-//             .query(&header, &region).unwrap()
-//             .map(|x| x.expect("Incorrect read."))
-//             .filter(|x| !(args.dedup && x.flags().is_duplicate()))
-//             .filter(|x| !mapq_less_than(x, args.q));
-// 
-//         let (annotation, annotated_reads) = annotate_reads(reads, model, repeat, &args);
-// 
-//         // write to files
-//         out_tsv.lock().unwrap().write_all(annotation.as_bytes()).expect("Cannot write to output file.");
-//         match &out_bam {
-//             None => {},
-//             Some(mutex) => {
-//                 let mut writer = mutex.lock().unwrap();
-//                 for record in annotated_reads {
-//                     writer.write_record(&header, &record).expect("Cannot write to out bam.");
-//                 }
-//             }
-//         }
-//     });
-//     } // end scope for out_tsv and out_bam
-// 
-//     println!("Annotation finished successfully.");
-//     // TODO:
-//     // sort bam
-//     // create bai index
-//     //     let filename = args.output.to_string() + ".bam";
-//     //     check_bai(filename);
-// }
+fn process_motif(
+    motif_record: &(Vec<u8>, TandemRepeat, Vec<u8>), 
+    bam_file: &Path,
+    params: (bool, u8, Option<char>, bool),
+    out_tsv: Arc<Mutex<File>>,
+    out_bam: Option<Arc<Mutex<Writer<bgzf::Writer<File>>>>>,
+) {
+    // load bam
+    let mut reader = bam::io::indexed_reader::Builder::default()
+        .build_from_path(bam_file)
+        .expect("Unable to read the associated index (.bai).");
+    let header = reader.read_header().unwrap();
+
+    //  select relevant reads
+    let (left_flank, repeat, right_flank) = motif_record;
+    let (dedup, q, score, print_quality) = params;
+    let tmp = format!("{}:{}-{}", repeat.reference, repeat.start + 1, repeat.end);
+    let region = tmp.parse().unwrap();
+    let reads = reader
+        .query(&header, &region).unwrap()
+        .map(|x| x.expect("Incorrect read."))
+        .filter(|x| !x.sequence().is_empty())
+        .filter(|x| !(dedup && x.flags().is_duplicate()))
+        .filter(|x| !mapq_less_than(x, q));
+
+    //  build HMM
+    let modules = get_modules(left_flank, repeat, right_flank);
+    let model = Hmm::from(&modules).log();
+
+    let (annotation, annotated_reads) = annotate_reads(reads, model, repeat, score, print_quality);
+
+    // write to files
+    out_tsv.lock().unwrap().write_all(annotation.as_bytes()).expect("Cannot write to output file.");
+    match out_bam {
+        None => {},
+        Some(mutex) => {
+            let mut writer = mutex.lock().unwrap();
+            for record in annotated_reads {
+                writer.write_record(&header, &record).expect("Cannot write to out bam.");
+            }
+        }
+    }
+}
 
 fn header<P: AsRef<Path>>(bam_filename: P) -> Header {
     let file = File::open(bam_filename).unwrap();
@@ -295,7 +210,7 @@ fn mate_order(read: &bam::Record) -> String {
 fn can_load_bam() {
     use noodles::bam::io::reader;
     let mut reader = reader::Builder
-        .build_from_path("data/test/mini.bam").unwrap();
+        .build_from_path("./data/test/mini.bam").unwrap();
 
     reader.read_header().unwrap(); // this is necessary here
     for result in reader.records() {
@@ -305,44 +220,7 @@ fn can_load_bam() {
 }
 
 #[test]
-fn can_load_fasta() {
-    // let sequences = read_reference("data/chromosomeX.fna");
-    // let hgvs = File::open("data/mini_HGVS.txt").unwrap();
-    // let reader = BufReader::new(hgvs);
-
-    // let expected = vec![
-    //     false, false, true, false, false, false, false, true, true, false
-    // ];
-    // for (i, line) in reader.lines().enumerate() {
-        // let line = line.unwrap();
-        // let line = line.trim();
-        // let tr: TandemRepeat = line.parse().unwrap();
-        // let is_correct = is_present(&tr, &sequences);
-        // assert_eq!(is_correct, expected[i]);
-    // }
-}
-
-// #[test]
-// fn can_read_tsv_nomenclature() {
-//     let filename = PathBuf::from("data/test/nomenclature_hgs_1Q_with_names.tsv");
-//     let motifs1 = read_motifs(&filename);
-// 
-//     let filename = PathBuf::from("data/test/nomenclature_hgs_1Q_wo_names.tsv");
-//     let motifs2 = read_motifs(&filename);
-// 
-//     use std::iter::zip;
-//     for (m1, m2) in zip(motifs1, motifs2) {
-//         assert_eq!(m1.reference, m2.reference);
-//         assert_eq!(m1.start, m2.start);
-//         assert_eq!(m1.end, m2.end);
-//         assert_eq!(m1.copy_unit, m2.copy_unit);
-//         assert_eq!(m1.copy_number, m2.copy_number);
-//     }
-// }
-
-#[test]
 fn count_present() {
-    // let references = read_reference("data/chromosomeX.fna");
     let hgvs = File::open("data/test/HGVS.txt").unwrap();
     let reader = BufReader::new(hgvs);
 
@@ -364,37 +242,9 @@ fn count_present() {
     println!("Present repeats: {}/{}", present_count, max_count);
 }
 
-// fn print_diff(tr: &TandemRepeat, refs: &HashMap<String, Vec<u8>>) {
-//     let n = 10;
-//     let rflank = ref_region(refs, &tr.reference, tr.start-n, tr.start).unwrap();
-//     let ref_repeat = ref_region(refs, &tr.reference, tr.start, tr.end).unwrap();
-//     let lflank = ref_region(refs, &tr.reference, tr.end, tr.end+n).unwrap();
-//     println!("{} {} {}", 
-//         str::from_utf8(rflank).unwrap(),
-//         str::from_utf8(ref_repeat).unwrap(),
-//         str::from_utf8(lflank).unwrap()
-//     );
-//     println!("{} {} {}",
-//         " ".repeat(n),
-//         str::from_utf8(&tr.sequence()).unwrap(),
-//         " ".repeat(n)
-//     );
-// }
-
-#[test]
-fn can_parse_hgvs() {
-    use hgvs::parser::HgvsVariant;
-    let _record = "NM_01234.5:c.456-6_*22A>T";
-    let _record = "NC_000017.11:g.43091687del";
-    let tmp: HgvsVariant = _record.parse().unwrap();
-    println!("{:?}", tmp);
-
-    println!("{}", tmp.accession().value);
-}
-
 #[test]
 fn can_read_and_parse_hgvs_file() {
-    let file = "data/test/mini_HGVS.txt";
+    let file = "./data/test/mini_HGVS.txt";
     let file = File::open(file).unwrap();
     let reader = BufReader::new(file);
 
@@ -407,10 +257,3 @@ fn can_read_and_parse_hgvs_file() {
     }
 }
 
-// #[test]
-// fn does_not_overflow() {
-//     let references = read_reference(&PathBuf::from("data/test/chromosomeX.fna"));
-//     let motif: TandemRepeat = "NC_000023.11:g.284585_284614AC[15]".parse().unwrap();
-//     let repeats = vec![motif];
-//     correct_repeats(&references, &repeats);
-// }

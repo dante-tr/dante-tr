@@ -115,7 +115,7 @@ impl State {
         let q = 30;
         let score: Option<char> = None;
 
-        run(bam_file, motif_file, output.clone(), out_bam, dedup, q, score, print_quality);
+        run(bam_file, motif_file, output.clone(), out_bam, (dedup, q, score, print_quality));
         println!("remaSTR finished.");
         // self.message_line = "remaSTR finished.".to_string();
         let output_log = Command::new("./.dante_cache/dante_remastr_standalone")
