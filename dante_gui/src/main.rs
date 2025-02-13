@@ -14,8 +14,9 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::fmt::Display;
 
-mod analysis_single;
 mod welcome_screen;
+mod analysis_single;
+mod analysis_family;
 
 pub fn main() -> iced::Result {
     let settings = iced::window::Settings {
@@ -23,25 +24,41 @@ pub fn main() -> iced::Result {
         // size: iced::Size{width: 720.0, height: 560.0},
         ..Default::default()
     };
-    iced::application("Dante", State::update, State::view)
+    iced::application("Dante", App::update, App::view)
         .window(settings)
         .theme(|_| Theme::CatppuccinLatte)
         .run()
 }
 
 #[derive(Debug, Default)]
-struct State {
+struct App {
+    content_page: ContentPage,
+
     bam_file: Option<PathBuf>,
     motif_file: Option<PathBuf>,
     output: Option<PathBuf>,
     out_bam: bool,
     message_line: String,
-    analysis: Option<NewState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ContentPage {
+    WelcomeScreen(welcome_screen::Data),
+    AnalysisSingle,
+    AnalysisFamily,
+}
+
+impl Default for ContentPage {
+    fn default() -> Self {
+        Self::WelcomeScreen(welcome_screen::Data::default())
+    }
 }
 
 #[derive(Debug, Clone)]
 enum Message {
-    AnalysisSelected(NewState),
+    AnalysisSelected(welcome_screen::Analysis),
+    AnalysisCreate,
+
     BamChanged(String),
     SelectBam,
     MotifChanged(String),
@@ -53,30 +70,29 @@ enum Message {
     CheckboxOutBAM(bool),
 }
 
-impl State {
+impl App {
     const PAD1: Padding = Padding { left: 0.0, right: 5.0, top: 0.0, bottom: 0.0 };
     const PAD2: Padding = Padding { left: 5.0, right: 0.0, top: 0.0, bottom: 0.0 };
     const LEFT_WIDTH: u16 = 120;
     const BOLD_MONO: Font = Font { weight: Weight::Bold, ..Font::MONOSPACE };
+    const DATA_DIR: &str = "dante_data";
 
     fn view(&self) -> Element<Message> {
-        let data_dir = "dante_data";
-        if !Path::new(data_dir).exists() { init_cache(data_dir); }
+        if !Path::new(Self::DATA_DIR).exists() { init_cache(Self::DATA_DIR); }
 
-        let state = NewState::AnalysisSingle;
-
-        let content_area: Element<Message> = match state {
-            NewState::WelcomeScreen => welcome_screen::view(self),
-            NewState::AnalysisSingle => analysis_single::view(self),
-            NewState::AnalysisFamily => column![].into(),
+        let content_area: Element<Message> = match self.content_page {
+            ContentPage::WelcomeScreen(data) => welcome_screen::view(self, data),
+            ContentPage::AnalysisSingle => analysis_single::view(self),
+            ContentPage::AnalysisFamily => analysis_family::view(self),
         };
 
         column![
-            column![image(format!("{}/logo.png", data_dir)).height(100)].width(720.0).align_x(Horizontal::Right),
+            column![
+                image(format!("{}/logo.png", Self::DATA_DIR)).height(100)
+            ].width(720.0).align_x(Horizontal::Right),
             horizontal_rule(0),
             content_area
-        ]
-        .into()
+        ].into()
     }
 
     fn update(&mut self, message: Message) {
@@ -93,25 +109,10 @@ impl State {
             Message::OpenResults => { open_results(self); },
 
             Message::CheckboxOutBAM(is_checked) => self.out_bam = is_checked,
-            _ => {}, // TODO: remove me
+
+            Message::AnalysisSelected(analysis) => { welcome_screen::analysis_set(self, analysis); },
+            Message::AnalysisCreate => { welcome_screen::analysis_create(self); }
         }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum NewState {
-    WelcomeScreen,
-    AnalysisSingle,
-    AnalysisFamily,
-}
-
-impl std::fmt::Display for NewState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::WelcomeScreen => "Welcome screen",
-            Self::AnalysisSingle => "Single analysis",
-            Self::AnalysisFamily => "Family analysis",
-        })
     }
 }
 
@@ -137,7 +138,7 @@ fn load_dir(result: &mut Option<PathBuf>) {
     *result = Some(path);
 }
 
-fn run1(state: &State) {
+fn run1(state: &App) {
     println!("{:?}", state);
 
     // required params
@@ -155,6 +156,9 @@ fn run1(state: &State) {
         },
     };
     let out_dir = output.clone();
+    if !Path::new(&out_dir).exists() {
+        fs::create_dir(&out_dir).expect("Cannot create directory.");
+    }
     output.push_str("/remaSTR_result.tsv");
 
     // optional params
@@ -167,11 +171,10 @@ fn run1(state: &State) {
     run(bam_file, motif_file, output.clone(), out_bam, (dedup, q, score, print_quality));
     println!("remaSTR finished.");
     // self.message_line = "remaSTR finished.".to_string();
-    let output_log = Command::new("./.dante_cache/dante_remastr_standalone")
-        .arg("--input-tsv")
-        .arg(output.clone())
-        .arg("--output-dir")
-        .arg(out_dir)
+    let bin = format!("{}/dante_remastr_standalone", App::DATA_DIR);
+    let output_log = Command::new(bin)
+        .arg("--input-tsv").arg(output.clone())
+        .arg("--output-dir").arg(out_dir)
         .arg("--verbose")
         .output()
         .expect("failed to run python part of Dante");
@@ -180,7 +183,7 @@ fn run1(state: &State) {
     println!("{:?}", output_log);
 }
 
-fn open_results(state: &mut State) {
+fn open_results(state: &mut App) {
     match state.output.as_ref() {
         Some(x) => {
             let mut output: String = x.to_str().unwrap().to_string();

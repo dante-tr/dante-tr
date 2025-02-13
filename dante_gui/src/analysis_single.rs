@@ -5,10 +5,10 @@ use std::path::PathBuf;
 use std::env;
 use std::path::Path;
 
-use crate::State;
+use crate::App;
 use crate::Message;
 
-pub fn view(state: &State) -> Element<Message> {
+pub fn view(state: &App) -> Element<Message> {
     column![
         loader_row("BAM file:",       &state.bam_file, Message::BamChanged, Message::SelectBam),
         loader_row("Motif file:", &state.motif_file, Message::MotifChanged, Message::SelectMotif),
@@ -16,7 +16,7 @@ pub fn view(state: &State) -> Element<Message> {
         loader_row("Output directory:", &state.output, Message::OutdirChanged, Message::SelectOutdir),
 
         row![
-            container("").width(State::LEFT_WIDTH).padding(State::PAD1),
+            container("").width(App::LEFT_WIDTH).padding(App::PAD1),
             checkbox("Output BAM", state.out_bam).on_toggle(Message::CheckboxOutBAM),
         ].padding(10.0).align_y(Vertical::Center),
 
@@ -25,15 +25,15 @@ pub fn view(state: &State) -> Element<Message> {
     ].width(720.0).align_x(Horizontal::Left).into()
 }
 
-fn run_button<'a>(state: &State) -> Element<'a, Message> {
+fn run_button<'a>(state: &App) -> Element<'a, Message> {
     row![
-        container("").width(State::LEFT_WIDTH).padding(State::PAD1),
+        container("").width(App::LEFT_WIDTH).padding(App::PAD1),
         button("Run").on_press(Message::RunDante),
-        container(text(state.message_line.clone()).align_x(Horizontal::Left)).padding(State::PAD2),
+        container(text(state.message_line.clone()).align_x(Horizontal::Left)).padding(App::PAD2),
     ].padding(10.0).align_y(Vertical::Center).into()
 }
 
-fn draw_open_button<'a>(state: &State) -> Element<'a, Message> {
+fn draw_open_button<'a>(state: &App) -> Element<'a, Message> {
     let report_present;
     let report_line;
     match &state.output {
@@ -57,15 +57,15 @@ fn draw_open_button<'a>(state: &State) -> Element<'a, Message> {
 
     if report_present {
         row![
-            container("").width(State::LEFT_WIDTH).padding(State::PAD1),
+            container("").width(App::LEFT_WIDTH).padding(App::PAD1),
             button("Open results").on_press(Message::OpenResults),
-            container(text(report_line).align_x(Horizontal::Left)).padding(State::PAD2),
+            container(text(report_line).align_x(Horizontal::Left)).padding(App::PAD2),
         ].padding(10.0).align_y(Vertical::Center).into()
     } else {
         row![
-            container("").width(State::LEFT_WIDTH).padding(State::PAD1),
+            container("").width(App::LEFT_WIDTH).padding(App::PAD1),
             button("Open results"),
-            container(text(report_line).align_x(Horizontal::Left)).padding(State::PAD2),
+            container(text(report_line).align_x(Horizontal::Left)).padding(App::PAD2),
         ].padding(10.0).align_y(Vertical::Center).into()
     }
 }
@@ -79,9 +79,9 @@ fn loader_row<'a>(
     };
 
     row![
-        container(text(desc).width(State::LEFT_WIDTH).align_x(Horizontal::Right)).padding(State::PAD1),
-        text_input("Type path or click search...", &filename_str).on_input(on_input).font(State::BOLD_MONO),
-        container(button("Search").on_press(on_press)).padding(State::PAD2),
+        container(text(desc).width(App::LEFT_WIDTH).align_x(Horizontal::Right)).padding(App::PAD1),
+        text_input("Type path or click search...", &filename_str).on_input(on_input).font(App::BOLD_MONO),
+        container(button("Search").on_press(on_press)).padding(App::PAD2),
     ].padding(10.0).align_y(Vertical::Center).into()
 }
 
