@@ -1,146 +1,56 @@
 #![windows_subsystem = "windows"]
 
-use iced::alignment::{Horizontal, Vertical};
-use iced::widget::{button, checkbox, column, container, horizontal_rule, image, row, text, text_input, Row};
+use iced::alignment::Horizontal;
+use iced::font::Weight;
+use iced::widget::{column, horizontal_rule, image};
+use iced::Font;
 use iced::{Element, Padding, Theme};
 use native_dialog::FileDialog;
-use std::fs;
-use std::path::PathBuf;
 use remastr::run;
-use std::process::Command;
-use std::env;
+use std::ffi::OsStr;
+use std::fs;
 use std::path::Path;
-use iced::Font;
-use iced::font::Weight;
+use std::path::PathBuf;
+use std::process::Command;
+use std::fmt::Display;
+
+mod analysis_single;
+mod welcome_screen;
 
 pub fn main() -> iced::Result {
     let settings = iced::window::Settings {
-        size: iced::Size{width: 720.0, height: 480.0},
+        size: iced::Size { width: 720.0, height: 480.0 },
         // size: iced::Size{width: 720.0, height: 560.0},
         ..Default::default()
     };
     iced::application("Dante", State::update, State::view)
         .window(settings)
-        .theme(|_| { Theme::CatppuccinLatte })
+        .theme(|_| Theme::CatppuccinLatte)
         .run()
 }
 
 #[derive(Debug, Default)]
 struct State {
-    // required params
     bam_file: Option<PathBuf>,
     motif_file: Option<PathBuf>,
     output: Option<PathBuf>,
-
-    // optional params
     out_bam: bool,
-    // correction: bool, dedup: bool, _flank: usize, _q: u8, _score: Option<char>, print_quality: bool,
-
-    // GUI specifics
     message_line: String,
+    analysis: Option<NewState>,
 }
 
 #[derive(Debug, Clone)]
 enum Message {
+    AnalysisSelected(NewState),
     BamChanged(String),
     SelectBam,
     MotifChanged(String),
     SelectMotif,
     OutdirChanged(String),
     SelectOutdir,
-
     RunDante,
     OpenResults,
     CheckboxOutBAM(bool),
-}
-
-impl State {
-    fn update(&mut self, message: Message) {
-        match message {
-            Message::BamChanged(content) => { self.bam_file = Some(PathBuf::from(content)); },
-            Message::SelectBam => { Self::load_file(&mut self.bam_file); },
-            Message::MotifChanged(content) => { self.motif_file = Some(PathBuf::from(content)); },
-            Message::SelectMotif => { Self::load_file(&mut self.motif_file); },
-
-            Message::OutdirChanged(content) => { self.output = Some(PathBuf::from(content)); },
-            Message::SelectOutdir => { Self::load_dir(&mut self.output); },
-
-            Message::RunDante => { self.run(); },
-            Message::OpenResults => { self.open_results(); }
-
-            Message::CheckboxOutBAM(is_checked) => { self.out_bam = is_checked },
-        }
-    }
-
-    fn load_file(result: &mut Option<PathBuf>) {
-        // TODO: "." does not work under Windows
-        // let path = FileDialog::new().set_location(".").show_open_single_file().unwrap();
-        let path = FileDialog::new().show_open_single_file().unwrap();
-        let path = match path {
-            Some(path) => path,
-            None => return,
-        };
-        *result = Some(path);
-    }
-
-    fn load_dir(result: &mut Option<PathBuf>) {
-        // TODO: "." does not work under Windows
-        // let path = FileDialog::new().set_location(".").show_open_single_dir().unwrap();
-        let path = FileDialog::new().show_open_single_dir().unwrap();
-        let path = match path {
-            Some(path) => path,
-            None => return,
-        };
-        *result = Some(path);
-    }
-
-    fn run(&self) {
-        println!("{:?}", self);
-
-        // required params
-        let Some(ref bam_file) = self.bam_file else { return; };
-        let Some(ref motif_file) = self.motif_file else { return; };
-
-        let mut output: String = match self.output {
-            Some(ref x) => { x.display().to_string() },
-            None => { return; }
-        };
-        let out_dir = output.clone();
-        output.push_str("/remaSTR_result.tsv");
-
-        // optional params
-        let out_bam = self.out_bam;
-        let dedup = false;
-        let print_quality = false;
-        let q = 30;
-        let score: Option<char> = None;
-
-        run(bam_file, motif_file, output.clone(), out_bam, (dedup, q, score, print_quality));
-        println!("remaSTR finished.");
-        // self.message_line = "remaSTR finished.".to_string();
-        let output_log = Command::new("./.dante_cache/dante_remastr_standalone")
-            .arg("--input-tsv").arg(output.clone())
-            .arg("--output-dir").arg(out_dir)
-            .arg("--verbose")
-            .output().expect("failed to run python part of Dante");
-        println!("Dante finished.");
-        // self.message_line = "Dante finished.".to_string();
-        println!("{:?}", output_log);
-    }
-
-    fn open_results(&mut self) {
-        match self.output.as_ref() {
-            Some(x) => { 
-                let mut output: String = x.to_str().unwrap().to_string();
-                output.push_str("/report.html");
-                opener::open(output).unwrap();
-            }
-            None => {
-                self.message_line = "No report found.".to_string();
-            }
-        }
-    }
-
 }
 
 impl State {
@@ -150,145 +60,194 @@ impl State {
     const BOLD_MONO: Font = Font { weight: Weight::Bold, ..Font::MONOSPACE };
 
     fn view(&self) -> Element<Message> {
-        if !Path::new("./.dante_cache").exists() {
-            Self::init_cache();
-        }
+        let data_dir = "dante_data";
+        if !Path::new(data_dir).exists() { init_cache(data_dir); }
+
+        let state = NewState::AnalysisSingle;
+
+        let content_area: Element<Message> = match state {
+            NewState::WelcomeScreen => welcome_screen::view(self),
+            NewState::AnalysisSingle => analysis_single::view(self),
+            NewState::AnalysisFamily => column![].into(),
+        };
 
         column![
-            column![
-                image("./.dante_cache/logo.png").height(100),
-            ].width(720.0).align_x(Horizontal::Right),
+            column![image(format!("{}/logo.png", data_dir)).height(100)].width(720.0).align_x(Horizontal::Right),
             horizontal_rule(0),
-            column![
-                Self::loader_row("BAM file:",       &self.bam_file, Message::BamChanged, Message::SelectBam),
-                Self::loader_row("Motif file:", &self.motif_file, Message::MotifChanged, Message::SelectMotif),
-                horizontal_rule(2),
-                Self::loader_row("Output directory:", &self.output, Message::OutdirChanged, Message::SelectOutdir),
-
-                row![
-                    container("").width(State::LEFT_WIDTH).padding(State::PAD1),
-                    checkbox("Output BAM", self.out_bam).on_toggle(Message::CheckboxOutBAM),
-                ].padding(10.0).align_y(Vertical::Center),
-
-                self.run_button(),
-                self.draw_open_button(),
-            ].width(720.0).align_x(Horizontal::Left)
-        ].into()
+            content_area
+        ]
+        .into()
     }
 
-    fn init_cache() {
-        fs::create_dir("./.dante_cache").expect("Cannot create directory.");
-        fs::create_dir("./.dante_cache/templates").expect("Cannot create directory.");
-        fs::create_dir("./.dante_cache/includes").expect("Cannot create directory.");
+    fn update(&mut self, message: Message) {
+        match message {
+            Message::BamChanged(content) => { self.bam_file = Some(PathBuf::from(content)); },
+            Message::SelectBam => { load_file(&mut self.bam_file); },
+            Message::MotifChanged(content) => { self.motif_file = Some(PathBuf::from(content)); },
+            Message::SelectMotif => { load_file(&mut self.motif_file); },
 
-        let filenames = [
-            "logo.png",
-            "templates/alignments_template.html",
-            "templates/report_template.html",
-            "includes/datatables.min.js",
-            "includes/jquery-3.6.1.min.js",
-            "includes/jquery.dataTables.css",
-            "includes/msa.min.gz.js",
-            "includes/plotly-2.14.0.min.js",
-            "includes/styles.css",
-            "includes/w3.css"
-        ];
+            Message::OutdirChanged(content) => { self.output = Some(PathBuf::from(content)); },
+            Message::SelectOutdir => { load_dir(&mut self.output); },
 
-        let contents = [
-            include_bytes!("../assets/logo.png").to_vec(),
-            include_bytes!("../assets/templates/alignments_template.html").to_vec(),
-            include_bytes!("../assets/templates/report_template.html").to_vec(),
-            include_bytes!("../assets/includes/datatables.min.js").to_vec(),
-            include_bytes!("../assets/includes/jquery-3.6.1.min.js").to_vec(),
-            include_bytes!("../assets/includes/jquery.dataTables.css").to_vec(),
-            include_bytes!("../assets/includes/msa.min.gz.js").to_vec(),
-            include_bytes!("../assets/includes/plotly-2.14.0.min.js").to_vec(),
-            include_bytes!("../assets/includes/styles.css").to_vec(),
-            include_bytes!("../assets/includes/w3.css").to_vec()
-        ];
+            Message::RunDante => { run1(self); },
+            Message::OpenResults => { open_results(self); },
 
-        for (filename, content) in std::iter::zip(filenames, contents) {
-            fs::write(format!("./.dante_cache/{}", filename), content).expect("Unable to write.");
-        }
-
-        #[cfg(target_os = "linux")] {
-            let ctx = include_bytes!("../assets/dante_remastr_standalone").to_vec();
-            fs::write("./.dante_cache/dante_remastr_standalone", ctx).expect("Unable to write.");
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = fs::metadata("./.dante_cache/dante_remastr_standalone").unwrap().permissions();
-            perms.set_mode(0o700);
-            fs::set_permissions("./.dante_cache/dante_remastr_standalone", perms).unwrap();
-        }
-
-        #[cfg(target_os = "windows")] {
-            let ctx = include_bytes!("../assets/dante_remastr_standalone.exe").to_vec();
-            fs::write("./.dante_cache/dante_remastr_standalone.exe", ctx).expect("Unable to write.");
+            Message::CheckboxOutBAM(is_checked) => self.out_bam = is_checked,
+            _ => {}, // TODO: remove me
         }
     }
+}
 
-    fn loader_row<'a>(desc: &'a str, filename: &'a Option<PathBuf>, on_input: impl Fn(String) -> Message + 'a, on_press: Message) -> Row<'a, Message> {
-        let filename_str: String = match filename.as_ref() {
-            Some(x) => Self::path_to_string(x),
-            None => "".to_string()
-        };
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NewState {
+    WelcomeScreen,
+    AnalysisSingle,
+    AnalysisFamily,
+}
 
-        row![
-            container(text(desc).width(State::LEFT_WIDTH).align_x(Horizontal::Right)).padding(State::PAD1),
-            text_input("Type path or click search...", &filename_str).on_input(on_input).font(State::BOLD_MONO),
-            container(button("Search").on_press(on_press)).padding(State::PAD2),
-        ].padding(10.0).align_y(Vertical::Center)
+impl std::fmt::Display for NewState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::WelcomeScreen => "Welcome screen",
+            Self::AnalysisSingle => "Single analysis",
+            Self::AnalysisFamily => "Family analysis",
+        })
+    }
+}
+
+fn load_file(result: &mut Option<PathBuf>) {
+    // TODO: "." does not work under Windows
+    // let path = FileDialog::new().set_location(".").show_open_single_file().unwrap();
+    let path = FileDialog::new().show_open_single_file().unwrap();
+    let path = match path {
+        Some(path) => path,
+        None => return,
+    };
+    *result = Some(path);
+}
+
+fn load_dir(result: &mut Option<PathBuf>) {
+    // TODO: "." does not work under Windows
+    // let path = FileDialog::new().set_location(".").show_open_single_dir().unwrap();
+    let path = FileDialog::new().show_open_single_dir().unwrap();
+    let path = match path {
+        Some(path) => path,
+        None => return,
+    };
+    *result = Some(path);
+}
+
+fn run1(state: &State) {
+    println!("{:?}", state);
+
+    // required params
+    let Some(ref bam_file) = state.bam_file else {
+        return;
+    };
+    let Some(ref motif_file) = state.motif_file else {
+        return;
+    };
+
+    let mut output: String = match state.output {
+        Some(ref x) => x.display().to_string(),
+        None => {
+            return;
+        },
+    };
+    let out_dir = output.clone();
+    output.push_str("/remaSTR_result.tsv");
+
+    // optional params
+    let out_bam = state.out_bam;
+    let dedup = false;
+    let print_quality = false;
+    let q = 30;
+    let score: Option<char> = None;
+
+    run(bam_file, motif_file, output.clone(), out_bam, (dedup, q, score, print_quality));
+    println!("remaSTR finished.");
+    // self.message_line = "remaSTR finished.".to_string();
+    let output_log = Command::new("./.dante_cache/dante_remastr_standalone")
+        .arg("--input-tsv")
+        .arg(output.clone())
+        .arg("--output-dir")
+        .arg(out_dir)
+        .arg("--verbose")
+        .output()
+        .expect("failed to run python part of Dante");
+    println!("Dante finished.");
+    // self.message_line = "Dante finished.".to_string();
+    println!("{:?}", output_log);
+}
+
+fn open_results(state: &mut State) {
+    match state.output.as_ref() {
+        Some(x) => {
+            let mut output: String = x.to_str().unwrap().to_string();
+            output.push_str("/report.html");
+            opener::open(output).unwrap();
+        },
+        None => {
+            state.message_line = "No report found.".to_string();
+        },
+    }
+}
+
+fn init_cache<S>(path: &S)
+where
+    S: AsRef<OsStr> + AsRef<Path> + Display + ?Sized,
+{
+    let filenames = [
+        "logo.png",
+        "templates/alignments_template.html",
+        "templates/report_template.html",
+        "includes/datatables.min.js",
+        "includes/jquery-3.6.1.min.js",
+        "includes/jquery.dataTables.css",
+        "includes/msa.min.gz.js",
+        "includes/plotly-2.14.0.min.js",
+        "includes/styles.css",
+        "includes/w3.css",
+    ];
+
+    let contents = [
+        include_bytes!("../assets/logo.png").to_vec(),
+        include_bytes!("../assets/templates/alignments_template.html").to_vec(),
+        include_bytes!("../assets/templates/report_template.html").to_vec(),
+        include_bytes!("../assets/includes/datatables.min.js").to_vec(),
+        include_bytes!("../assets/includes/jquery-3.6.1.min.js").to_vec(),
+        include_bytes!("../assets/includes/jquery.dataTables.css").to_vec(),
+        include_bytes!("../assets/includes/msa.min.gz.js").to_vec(),
+        include_bytes!("../assets/includes/plotly-2.14.0.min.js").to_vec(),
+        include_bytes!("../assets/includes/styles.css").to_vec(),
+        include_bytes!("../assets/includes/w3.css").to_vec(),
+    ];
+
+    fs::create_dir(path).expect("Cannot create directory.");
+    fs::create_dir(format!("{}/templates", path)).expect("Cannot create directory.");
+    fs::create_dir(format!("{}/includes", path)).expect("Cannot create directory.");
+
+    for (filename, content) in std::iter::zip(filenames, contents) {
+        fs::write(format!("{}/{}", path, filename), content).expect("Unable to write.");
     }
 
-    fn run_button<'a>(&self) -> Row<'a, Message> {
-        row![
-            container("").width(State::LEFT_WIDTH).padding(State::PAD1),
-            button("Run").on_press(Message::RunDante),
-            container(text(self.message_line.clone()).align_x(Horizontal::Left)).padding(State::PAD2),
-        ].padding(10.0).align_y(Vertical::Center)
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let ctx = include_bytes!("../assets/dante_remastr_standalone").to_vec();
+        let bin = format!("{}/dante_remastr_standalone", path);
+        fs::write(&bin, ctx).expect("Unable to write.");
+
+        let mut perms = fs::metadata(&bin).unwrap().permissions();
+        perms.set_mode(0o700);
+        fs::set_permissions(&bin, perms).unwrap();
     }
 
-    fn draw_open_button<'a>(&self) -> Row<'a, Message> {
-        let report_present;
-        let report_line;
-        match &self.output {
-            Some(x) => {
-                let mut x = Self::path_to_string(x);
-                x.push_str("/report.html");
-                if Path::new(&x).exists() {
-                    report_present = true;
-                    report_line = format!("Report file stored in {}.", x);
-                } else {
-                    report_present = false;
-                    report_line = "No report file present.".to_string();
-                }
-                // Path::new("/etc/hosts").exists()
-            },
-            None => {
-                report_present = false;
-                report_line = "No report file present.".to_string();
-            }
-        };
-
-        if report_present {
-            row![
-                container("").width(State::LEFT_WIDTH).padding(State::PAD1),
-                button("Open results").on_press(Message::OpenResults),
-                container(text(report_line).align_x(Horizontal::Left)).padding(State::PAD2),
-            ].padding(10.0).align_y(Vertical::Center)
-        } else {
-            row![
-                container("").width(State::LEFT_WIDTH).padding(State::PAD1),
-                button("Open results"),
-                container(text(report_line).align_x(Horizontal::Left)).padding(State::PAD2),
-            ].padding(10.0).align_y(Vertical::Center)
-        }
-    }
-
-    fn path_to_string(path: &Path) -> String {
-        let cwd = env::current_dir().unwrap().display().to_string();
-        match path.strip_prefix(cwd) {
-            Ok(x) => { x.display().to_string() },
-            Err(_) => { path.display().to_string() }
-        }
+    #[cfg(target_os = "windows")]
+    {
+        let ctx = include_bytes!("../assets/dante_remastr_standalone.exe").to_vec();
+        let bin = format!("{}/dante_remastr_standalone.exe", path);
+        fs::write(bin, ctx).expect("Unable to write.");
     }
 }
