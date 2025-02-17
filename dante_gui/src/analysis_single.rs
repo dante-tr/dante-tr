@@ -10,6 +10,7 @@ use crate::Message;
 
 pub fn view(state: &App) -> Element<Message> {
     column![
+        button("Back").on_press(Message::Back),
         loader_row("BAM file:",       &state.bam_file, Message::BamChanged, Message::SelectBam),
         loader_row("Motif file:", &state.motif_file, Message::MotifChanged, Message::SelectMotif),
         horizontal_rule(2),

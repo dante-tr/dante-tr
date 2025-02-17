@@ -1,4 +1,4 @@
-#![windows_subsystem = "windows"]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use iced::alignment::Horizontal;
 use iced::font::Weight;
@@ -20,7 +20,9 @@ mod analysis_family;
 
 pub fn main() -> iced::Result {
     let settings = iced::window::Settings {
-        size: iced::Size { width: 720.0, height: 480.0 },
+        // size: iced::Size { width: 720.0, height: 480.0 },
+        // size: iced::Size { width: 1920.0, height: 1080.0 },
+        size: iced::Size { width: 1280.0, height: 720.0 },
         // size: iced::Size{width: 720.0, height: 560.0},
         ..Default::default()
     };
@@ -41,7 +43,7 @@ struct App {
     message_line: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum ContentPage {
     WelcomeScreen(welcome_screen::Data),
     AnalysisSingle,
@@ -56,9 +58,12 @@ impl Default for ContentPage {
 
 #[derive(Debug, Clone)]
 enum Message {
+    AnalysisNamed(String),
     AnalysisSelected(welcome_screen::Analysis),
     AnalysisCreate,
+    AnalysisReopen(PathBuf),
 
+    Back,
     BamChanged(String),
     SelectBam,
     MotifChanged(String),
@@ -80,7 +85,7 @@ impl App {
     fn view(&self) -> Element<Message> {
         if !Path::new(Self::DATA_DIR).exists() { init_cache(Self::DATA_DIR); }
 
-        let content_area: Element<Message> = match self.content_page {
+        let content_area: Element<Message> = match &self.content_page {
             ContentPage::WelcomeScreen(data) => welcome_screen::view(self, data),
             ContentPage::AnalysisSingle => analysis_single::view(self),
             ContentPage::AnalysisFamily => analysis_family::view(self),
@@ -111,9 +116,16 @@ impl App {
             Message::CheckboxOutBAM(is_checked) => self.out_bam = is_checked,
 
             Message::AnalysisSelected(analysis) => { welcome_screen::analysis_set(self, analysis); },
-            Message::AnalysisCreate => { welcome_screen::analysis_create(self); }
+            Message::AnalysisCreate => { welcome_screen::analysis_create(self); },
+            Message::AnalysisNamed(name) => { welcome_screen::analysis_name(self, name); },
+            Message::AnalysisReopen(path) => { welcome_screen::analysis_reopen(self, path); },
+            Message::Back => { back(self); },
         }
     }
+}
+
+fn back(state: &mut App){
+    state.content_page = ContentPage::WelcomeScreen(welcome_screen::Data::default());
 }
 
 fn load_file(result: &mut Option<PathBuf>) {
@@ -136,6 +148,20 @@ fn load_dir(result: &mut Option<PathBuf>) {
         None => return,
     };
     *result = Some(path);
+}
+
+fn mkdir_p<P>(dir: P)
+where 
+     P: AsRef<OsStr> + AsRef<Path>
+{
+    let path = Path::new(&dir);
+    let ancestors: Vec<_> = path.ancestors().collect();
+    for anc in ancestors.iter().rev().skip(1) {
+        println!("{:?}", anc);
+        if !anc.exists() {
+            fs::create_dir(anc).expect("Cannot create directory.");
+        }
+    }
 }
 
 fn run1(state: &App) {
