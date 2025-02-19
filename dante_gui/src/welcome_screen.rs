@@ -3,11 +3,27 @@ use iced::widget::{button, column, container, horizontal_rule, row, text, text_i
 use iced::widget::pick_list;
 use iced::Element;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::ffi::OsStr;
 
-use crate::{mkdir_p, App};
-use crate::Message;
+use crate::{analysis_single, App};
+// use crate::Message;
 use crate::ContentPage;
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct Data {
+    name: String,
+    selected: Option<Analysis>,
+}
+
+
+#[derive(Debug, Clone)]
+pub(crate) enum Message {
+    AnalysisNamed(String),
+    AnalysisSelected(Analysis),
+    CreateAnalysis,
+    AnalysisReopen(PathBuf),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Analysis {
@@ -24,11 +40,8 @@ impl std::fmt::Display for Analysis {
     }
 }
 
-pub fn analysis_set(state: &mut App, analysis: Analysis) {
-    use ContentPage as CP;
-    if let CP::WelcomeScreen(data) = &mut state.content_page {
-        data.selected = Some(analysis);
-    }
+pub fn analysis_set(data: &mut Data, analysis: Analysis) {
+    data.selected = Some(analysis);
 }
 
 pub fn analysis_create(state: &mut App) {
@@ -40,26 +53,17 @@ pub fn analysis_create(state: &mut App) {
     mkdir_p(path);
 
     match x {
-        Analysis::Single => { state.content_page = CP::AnalysisSingle; },
+        Analysis::Single => { state.content_page = CP::AnalysisSingle(analysis_single::Data::default()); },
         Analysis::Family => { state.content_page = CP::AnalysisFamily; }
     }
 }
 
-pub fn analysis_name(state: &mut App, name: String) {
-    use ContentPage as CP;
-    let CP::WelcomeScreen(ref mut data) = state.content_page else { unreachable!() };
+pub fn analysis_name(data: &mut Data, name: String) {
     data.name = name
 }
 
 pub(crate) fn analysis_reopen(_state: &mut App, path: PathBuf) {
-
     println!("{:?}", path);
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub(crate) struct Data {
-    name: String,
-    selected: Option<Analysis>,
 }
 
 pub fn view<'a>(state: &'a App, data: &'a Data) -> Element<'a, Message> {
@@ -88,7 +92,7 @@ pub fn view<'a>(state: &'a App, data: &'a Data) -> Element<'a, Message> {
 fn make_button1(data: &Data) -> Element<Message> {
     if data.selected.is_none() { return button("Create").into() }
     if data.name.is_empty() { return button("Create").into() }
-    return button("Create").on_press(Message::AnalysisCreate).into()
+    return button("Create").on_press(Message::CreateAnalysis).into()
 }
 
 fn previous(_state: &App) -> Element<Message> {
@@ -124,4 +128,28 @@ fn previous(_state: &App) -> Element<Message> {
     }
     return result.into();
 }
+
+fn mkdir_p<P>(dir: P)
+where 
+     P: AsRef<OsStr> + AsRef<Path>
+{
+    let path = Path::new(&dir);
+    let ancestors: Vec<_> = path.ancestors().collect();
+    for anc in ancestors.iter().rev().skip(1) {
+        println!("{:?}", anc);
+        if !anc.exists() {
+            fs::create_dir(anc).expect("Cannot create directory.");
+        }
+    }
+}
+
+pub(crate) fn update(data: &mut Data, m: Message) {
+    match m {
+        Message::AnalysisSelected(analysis) => { analysis_set(data, analysis); },
+        Message::AnalysisNamed(name) => { analysis_name(data, name); },
+        Message::CreateAnalysis => { unreachable!() /* implemented in App::update */ },
+        Message::AnalysisReopen(_) => { unreachable!() /* implemented in App::update */ },
+    }
+}
+
 

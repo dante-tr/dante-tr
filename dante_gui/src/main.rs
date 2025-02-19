@@ -3,15 +3,9 @@
 use iced::alignment::Horizontal;
 use iced::font::Weight;
 use iced::widget::{column, horizontal_rule, image};
-use iced::Font;
-use iced::{Element, Padding, Theme};
-use native_dialog::FileDialog;
-use remastr::run;
-use std::ffi::OsStr;
+use iced::{Element, Padding, Theme, Font};
 use std::fs;
 use std::path::Path;
-use std::path::PathBuf;
-use std::process::Command;
 use std::fmt::Display;
 
 mod welcome_screen;
@@ -19,34 +13,21 @@ mod analysis_single;
 mod analysis_family;
 
 pub fn main() -> iced::Result {
-    let settings = iced::window::Settings {
-        // size: iced::Size { width: 720.0, height: 480.0 },
-        // size: iced::Size { width: 1920.0, height: 1080.0 },
-        size: iced::Size { width: 1280.0, height: 720.0 },
-        // size: iced::Size{width: 720.0, height: 560.0},
-        ..Default::default()
-    };
-    iced::application("Dante", App::update, App::view)
-        .window(settings)
-        .theme(|_| Theme::CatppuccinLatte)
-        .run()
+    if !Path::new(App::DATA_DIR).exists() { init_cache(App::DATA_DIR); }
+    iced::application("Dante", App::update, App::view).theme(|_| Theme::CatppuccinLatte).run()
 }
 
-#[derive(Debug, Default)]
-struct App {
-    content_page: ContentPage,
-
-    bam_file: Option<PathBuf>,
-    motif_file: Option<PathBuf>,
-    output: Option<PathBuf>,
-    out_bam: bool,
-    message_line: String,
+#[derive(Debug, Clone)]
+enum Message {
+    WelcomeScreen(welcome_screen::Message),
+    AnalysisSingle(analysis_single::Message),
+    // AnalysisFamily(analysis_family::Message),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ContentPage {
     WelcomeScreen(welcome_screen::Data),
-    AnalysisSingle,
+    AnalysisSingle(analysis_single::Data),
     AnalysisFamily,
 }
 
@@ -56,23 +37,9 @@ impl Default for ContentPage {
     }
 }
 
-#[derive(Debug, Clone)]
-enum Message {
-    AnalysisNamed(String),
-    AnalysisSelected(welcome_screen::Analysis),
-    AnalysisCreate,
-    AnalysisReopen(PathBuf),
-
-    Back,
-    BamChanged(String),
-    SelectBam,
-    MotifChanged(String),
-    SelectMotif,
-    OutdirChanged(String),
-    SelectOutdir,
-    RunDante,
-    OpenResults,
-    CheckboxOutBAM(bool),
+#[derive(Debug, Default)]
+struct App {
+    content_page: ContentPage,
 }
 
 impl App {
@@ -83,43 +50,42 @@ impl App {
     const DATA_DIR: &str = "dante_data";
 
     fn view(&self) -> Element<Message> {
-        if !Path::new(Self::DATA_DIR).exists() { init_cache(Self::DATA_DIR); }
-
         let content_area: Element<Message> = match &self.content_page {
-            ContentPage::WelcomeScreen(data) => welcome_screen::view(self, data),
-            ContentPage::AnalysisSingle => analysis_single::view(self),
+            ContentPage::WelcomeScreen(data) => welcome_screen::view(self, data).map(Message::WelcomeScreen),
+            ContentPage::AnalysisSingle(data) => analysis_single::view(self, data).map(Message::AnalysisSingle),
             ContentPage::AnalysisFamily => analysis_family::view(self),
         };
 
+        // let content_area = std::convert::Into::<Element<Message>>::into(content_area).explain(Color::BLACK);
         column![
-            column![
-                image(format!("{}/logo.png", Self::DATA_DIR)).height(100)
-            ].width(720.0).align_x(Horizontal::Right),
+            image(format!("{}/logo.png", Self::DATA_DIR)).width(900).height(125),
             horizontal_rule(0),
             content_area
-        ].into()
+        ].align_x(Horizontal::Center).into()
     }
 
     fn update(&mut self, message: Message) {
+        use ContentPage as CP;
         match message {
-            Message::BamChanged(content) => { self.bam_file = Some(PathBuf::from(content)); },
-            Message::SelectBam => { load_file(&mut self.bam_file); },
-            Message::MotifChanged(content) => { self.motif_file = Some(PathBuf::from(content)); },
-            Message::SelectMotif => { load_file(&mut self.motif_file); },
+            // global state changes
+            Message::WelcomeScreen(welcome_screen::Message::CreateAnalysis)
+                => { welcome_screen::analysis_create(self); }
+            Message::WelcomeScreen(welcome_screen::Message::AnalysisReopen(path))
+                => { welcome_screen::analysis_reopen(self, path); }
+            Message::AnalysisSingle(analysis_single::Message::Back)
+                => { back(self); }
 
-            Message::OutdirChanged(content) => { self.output = Some(PathBuf::from(content)); },
-            Message::SelectOutdir => { load_dir(&mut self.output); },
-
-            Message::RunDante => { run1(self); },
-            Message::OpenResults => { open_results(self); },
-
-            Message::CheckboxOutBAM(is_checked) => self.out_bam = is_checked,
-
-            Message::AnalysisSelected(analysis) => { welcome_screen::analysis_set(self, analysis); },
-            Message::AnalysisCreate => { welcome_screen::analysis_create(self); },
-            Message::AnalysisNamed(name) => { welcome_screen::analysis_name(self, name); },
-            Message::AnalysisReopen(path) => { welcome_screen::analysis_reopen(self, path); },
-            Message::Back => { back(self); },
+            // local state changes
+            Message::AnalysisSingle(m) => {
+                if let CP::AnalysisSingle(data) = &mut self.content_page {
+                    analysis_single::update(data, m);
+                }
+            }
+            Message::WelcomeScreen(m) => {
+                if let CP::WelcomeScreen(data) = &mut self.content_page {
+                    welcome_screen::update(data, m); 
+                }
+            }
         }
     }
 }
@@ -128,103 +94,9 @@ fn back(state: &mut App){
     state.content_page = ContentPage::WelcomeScreen(welcome_screen::Data::default());
 }
 
-fn load_file(result: &mut Option<PathBuf>) {
-    // TODO: "." does not work under Windows
-    // let path = FileDialog::new().set_location(".").show_open_single_file().unwrap();
-    let path = FileDialog::new().show_open_single_file().unwrap();
-    let path = match path {
-        Some(path) => path,
-        None => return,
-    };
-    *result = Some(path);
-}
-
-fn load_dir(result: &mut Option<PathBuf>) {
-    // TODO: "." does not work under Windows
-    // let path = FileDialog::new().set_location(".").show_open_single_dir().unwrap();
-    let path = FileDialog::new().show_open_single_dir().unwrap();
-    let path = match path {
-        Some(path) => path,
-        None => return,
-    };
-    *result = Some(path);
-}
-
-fn mkdir_p<P>(dir: P)
-where 
-     P: AsRef<OsStr> + AsRef<Path>
-{
-    let path = Path::new(&dir);
-    let ancestors: Vec<_> = path.ancestors().collect();
-    for anc in ancestors.iter().rev().skip(1) {
-        println!("{:?}", anc);
-        if !anc.exists() {
-            fs::create_dir(anc).expect("Cannot create directory.");
-        }
-    }
-}
-
-fn run1(state: &App) {
-    println!("{:?}", state);
-
-    // required params
-    let Some(ref bam_file) = state.bam_file else {
-        return;
-    };
-    let Some(ref motif_file) = state.motif_file else {
-        return;
-    };
-
-    let mut output: String = match state.output {
-        Some(ref x) => x.display().to_string(),
-        None => {
-            return;
-        },
-    };
-    let out_dir = output.clone();
-    if !Path::new(&out_dir).exists() {
-        fs::create_dir(&out_dir).expect("Cannot create directory.");
-    }
-    output.push_str("/remaSTR_result.tsv");
-
-    // optional params
-    let out_bam = state.out_bam;
-    let dedup = false;
-    let print_quality = false;
-    let q = 30;
-    let score: Option<char> = None;
-
-    run(bam_file, motif_file, output.clone(), out_bam, (dedup, q, score, print_quality));
-    println!("remaSTR finished.");
-    // self.message_line = "remaSTR finished.".to_string();
-    let bin = format!("{}/dante_remastr_standalone", App::DATA_DIR);
-    let output_log = Command::new(bin)
-        .arg("--input-tsv").arg(output.clone())
-        .arg("--output-dir").arg(out_dir)
-        .arg("--verbose")
-        .output()
-        .expect("failed to run python part of Dante");
-    println!("Dante finished.");
-    // self.message_line = "Dante finished.".to_string();
-    println!("{:?}", output_log);
-}
-
-fn open_results(state: &mut App) {
-    match state.output.as_ref() {
-        Some(x) => {
-            let mut output: String = x.to_str().unwrap().to_string();
-            output.push_str("/report.html");
-            opener::open(output).unwrap();
-        },
-        None => {
-            state.message_line = "No report found.".to_string();
-        },
-    }
-}
-
 fn init_cache<S>(path: &S)
 where
-    S: AsRef<OsStr> + AsRef<Path> + Display + ?Sized,
+    S: AsRef<Path> + Display + ?Sized,
 {
     let filenames = [
         "logo.png",
