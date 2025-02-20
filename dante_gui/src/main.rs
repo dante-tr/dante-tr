@@ -47,6 +47,7 @@ impl App {
     const LEFT_WIDTH: u16 = 120;
     const BOLD_MONO: Font = Font { weight: iced::font::Weight::Bold, ..Font::MONOSPACE };
     const DATA_DIR: &str = "dante_data";
+    const H1_SIZE: u16 = 26;
 
     fn view(&self) -> Element<Message> {
         let content_area: Element<Message> = match &self.content_page {
@@ -73,6 +74,7 @@ impl App {
                 => { welcome_screen::analysis_reopen(self, path); }
             Message::AnalysisSingle(analysis_single::Message::Back)
                 => { back(self); }
+            Message::AnalysisFamily(analysis_family::Message::Back) => { back(self); }
 
             // local state changes
             Message::WelcomeScreen(m) => {

@@ -151,7 +151,7 @@ fn make_previous_list(_: &Data) -> Element<Message> {
             row![
                 tooltip(
                     container(text(analysis_name).width(NAME_WIDTH).align_x(Horizontal::Center)).padding(App::PAD1),
-                    text(path_name),
+                    container(text(format!("Located in: {}", path_name))).padding(5).style(container::rounded_box),
                     tooltip::Position::FollowCursor
                 ),
                 container(text(analysis_type).width(TYPE_WIDTH).align_x(Horizontal::Center)).padding(App::PAD1),
