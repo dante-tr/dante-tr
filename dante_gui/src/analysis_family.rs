@@ -1,9 +1,16 @@
 use iced::widget::column;
 use iced::Element;
 
-use crate::App;
-use crate::Message;
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct Data { 
+    pub analysis_name: String
+}
 
-pub fn view(_state: &App) -> Element<Message> {
+#[derive(Debug, Clone)]
+pub(crate) enum Message { }
+
+
+pub fn view(data: &Data) -> Element<Message> {
+    println!("{:?}", data);
     column![].into()
 }

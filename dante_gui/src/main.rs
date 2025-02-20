@@ -1,9 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use iced::alignment::Horizontal;
-use iced::font::Weight;
+use iced::Element;
 use iced::widget::{column, horizontal_rule, image};
-use iced::{Element, Padding, Theme, Font};
 use std::fs;
 use std::path::Path;
 use std::fmt::Display;
@@ -14,21 +12,21 @@ mod analysis_family;
 
 pub fn main() -> iced::Result {
     if !Path::new(App::DATA_DIR).exists() { init_cache(App::DATA_DIR); }
-    iced::application("Dante", App::update, App::view).theme(|_| Theme::CatppuccinLatte).run()
+    iced::application("Dante", App::update, App::view).theme(|_| iced::Theme::CatppuccinLatte).run()
 }
 
 #[derive(Debug, Clone)]
 enum Message {
     WelcomeScreen(welcome_screen::Message),
     AnalysisSingle(analysis_single::Message),
-    // AnalysisFamily(analysis_family::Message),
+    AnalysisFamily(analysis_family::Message),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ContentPage {
     WelcomeScreen(welcome_screen::Data),
     AnalysisSingle(analysis_single::Data),
-    AnalysisFamily,
+    AnalysisFamily(analysis_family::Data),
 }
 
 impl Default for ContentPage {
@@ -42,26 +40,27 @@ struct App {
     content_page: ContentPage,
 }
 
+use iced::{Padding, Font};
 impl App {
     const PAD1: Padding = Padding { left: 0.0, right: 5.0, top: 0.0, bottom: 0.0 };
     const PAD2: Padding = Padding { left: 5.0, right: 0.0, top: 0.0, bottom: 0.0 };
     const LEFT_WIDTH: u16 = 120;
-    const BOLD_MONO: Font = Font { weight: Weight::Bold, ..Font::MONOSPACE };
+    const BOLD_MONO: Font = Font { weight: iced::font::Weight::Bold, ..Font::MONOSPACE };
     const DATA_DIR: &str = "dante_data";
 
     fn view(&self) -> Element<Message> {
         let content_area: Element<Message> = match &self.content_page {
-            ContentPage::WelcomeScreen(data) => welcome_screen::view(self, data).map(Message::WelcomeScreen),
-            ContentPage::AnalysisSingle(data) => analysis_single::view(self, data).map(Message::AnalysisSingle),
-            ContentPage::AnalysisFamily => analysis_family::view(self),
+            ContentPage::WelcomeScreen(data) => welcome_screen::view(data).map(Message::WelcomeScreen),
+            ContentPage::AnalysisSingle(data) => analysis_single::view(data).map(Message::AnalysisSingle),
+            ContentPage::AnalysisFamily(data) => analysis_family::view(data).map(Message::AnalysisFamily),
         };
 
-        // let content_area = std::convert::Into::<Element<Message>>::into(content_area).explain(Color::BLACK);
+        // let content_area = std::convert::Into::<Element<Message>>::into(content_area).explain(iced::Color::BLACK);
         column![
             image(format!("{}/logo.png", Self::DATA_DIR)).width(900).height(125),
             horizontal_rule(0),
             content_area
-        ].align_x(Horizontal::Center).into()
+        ].align_x(iced::alignment::Horizontal::Center).into()
     }
 
     fn update(&mut self, message: Message) {

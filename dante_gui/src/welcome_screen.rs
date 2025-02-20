@@ -5,10 +5,9 @@ use iced::Element;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::ffi::OsStr;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::{analysis_single, App};
-// use crate::Message;
-use crate::ContentPage;
+use crate::{analysis_family, analysis_single, App, ContentPage};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct Data {
@@ -23,6 +22,7 @@ pub(crate) enum Message {
     AnalysisSelected(Analysis),
     CreateAnalysis,
     AnalysisReopen(PathBuf),
+    AnalysisDelete(PathBuf),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,39 +34,62 @@ pub enum Analysis {
 impl std::fmt::Display for Analysis {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
-            Self::Single => "Single",
-            Self::Family => "Family",
+            Self::Single => "single",
+            Self::Family => "family",
         })
     }
 }
 
-pub fn analysis_set(data: &mut Data, analysis: Analysis) {
-    data.selected = Some(analysis);
-}
-
-pub fn analysis_create(state: &mut App) {
+pub(crate) fn analysis_create(state: &mut App) {
     use ContentPage as CP;
-    let CP::WelcomeScreen(ref data) = state.content_page else { unreachable!() };
-    let Some(x) = data.selected else { unreachable!() };
+    let (atype, name) = match &state.content_page {
+        CP::WelcomeScreen(Data{selected: Some(atype), name}) => { (atype, name) },
+        _ => { unreachable!() }
+    };
 
-    let path = App::DATA_DIR.to_string() + "/analyses/" + &data.name;
+    // TODO: make it human readable? Or not?
+    let time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Clock may have gone backwards. What are you doing?")
+        .as_secs().to_string();
+    let path = format!("{}/analyses/{}_{}_{}", App::DATA_DIR, time, name, atype);
     mkdir_p(path);
 
-    match x {
-        Analysis::Single => { state.content_page = CP::AnalysisSingle(analysis_single::Data::default()); },
-        Analysis::Family => { state.content_page = CP::AnalysisFamily; }
+    match atype {
+        Analysis::Single => { 
+            state.content_page = CP::AnalysisSingle(analysis_single::Data {
+                analysis_name: name.to_string(),
+                ..Default::default()
+            });
+        },
+        Analysis::Family => {
+            state.content_page = CP::AnalysisFamily(analysis_family::Data {
+                analysis_name: name.to_string(),
+            });
+        }
     }
 }
 
-pub fn analysis_name(data: &mut Data, name: String) {
-    data.name = name
+pub(crate) fn analysis_reopen(state: &mut App, path: PathBuf) {
+    let (_, name, atype) = parse_analysis_dir(&path);
+    use ContentPage as CP;
+    match atype.as_str() {
+        "single" => {
+            state.content_page = CP::AnalysisSingle(analysis_single::Data {
+                analysis_name: name,
+                ..Default::default()
+            })
+        },
+        "family" => {
+            state.content_page = CP::AnalysisFamily(analysis_family::Data {
+                analysis_name: name,
+            })
+        },
+        _ => { unreachable!() }
+    }
 }
 
-pub(crate) fn analysis_reopen(_state: &mut App, path: PathBuf) {
-    println!("{:?}", path);
-}
-
-pub fn view<'a>(state: &'a App, data: &'a Data) -> Element<'a, Message> {
+pub fn view(data: & Data) -> Element<Message> {
     use App as S;
     let analyses = [
         Analysis::Single,
@@ -75,58 +98,77 @@ pub fn view<'a>(state: &'a App, data: &'a Data) -> Element<'a, Message> {
 
     let dropdown1 = pick_list(analyses, data.selected, Message::AnalysisSelected).placeholder("type");
     let button1 = make_button1(data);
-    let previous_analyses = previous(state);
+    let previous_analyses = make_previous_list(data);
 
     column![
         row![
             container(text("Create new analysis: ").width(160).align_x(Horizontal::Right)).padding(S::PAD1),
-            container(text_input("name", &data.name).on_input(Message::AnalysisNamed).font(App::BOLD_MONO)).padding(S::PAD1),
+            container(text_input("name", &data.name).on_input(Message::AnalysisNamed)).padding(S::PAD1),
             container(dropdown1).padding(S::PAD1),
             container(button1).padding(S::PAD2),
         ].padding(10.0).align_y(Vertical::Center),
         horizontal_rule(2),
         previous_analyses
-    ].width(720.0).align_x(Horizontal::Left).into()
+    ].align_x(Horizontal::Center).into()
+}
+
+fn make_previous_list(_: &Data) -> Element<Message> {
+    let analyses_dir = PathBuf::from(App::DATA_DIR.to_string() + "/analyses/");
+    let mut paths: Vec<PathBuf> = if analyses_dir.exists() {
+        fs::read_dir(analyses_dir).unwrap().map(|x| x.unwrap().path()).collect()
+    } else {
+        Vec::new()
+    };
+    paths.sort();
+
+    const NAME_WIDTH: u16 = 350;
+    const TYPE_WIDTH: u16 = 150;
+    const ACTION_WIDTH: u16 = 150;
+    let mut result = column![].align_x(Horizontal::Center).width(NAME_WIDTH + TYPE_WIDTH + ACTION_WIDTH + 10);
+    result = result.push(
+        row![
+            container(text("Previous analyses").size(22)).align_x(Horizontal::Center)
+        ].padding(15.0).align_y(Vertical::Center)
+    );
+
+    result = result.push(
+        row![
+            container(text("Analysis name").width(NAME_WIDTH).align_x(Horizontal::Center)).padding(App::PAD1),
+            container(text("type").width(TYPE_WIDTH).align_x(Horizontal::Center)).padding(App::PAD1),
+            container(text("actions").width(ACTION_WIDTH).align_x(Horizontal::Center)),
+        ].padding(5.0).align_y(Vertical::Center)
+    );
+    result = result.push(horizontal_rule(2));
+
+    for path in paths.into_iter().rev() {
+        let (_, analysis_name, analysis_type) = parse_analysis_dir(&path);
+        let path_name = path.clone().into_os_string().into_string().unwrap();
+
+        result = result.push(
+            row![
+                tooltip(
+                    container(text(analysis_name).width(NAME_WIDTH).align_x(Horizontal::Center)).padding(App::PAD1),
+                    text(path_name),
+                    tooltip::Position::FollowCursor
+                ),
+                container(text(analysis_type).width(TYPE_WIDTH).align_x(Horizontal::Center)).padding(App::PAD1),
+                column![row![
+                    container(button("Load").on_press(Message::AnalysisReopen(path.clone()))).padding(App::PAD2),
+                    container(button("Delete").on_press(Message::AnalysisDelete(path.clone()))).padding(App::PAD2),
+                ]].width(ACTION_WIDTH).align_x(Horizontal::Center)
+            ].padding(5.0).align_y(Vertical::Center)
+        );
+    }
+
+    // let result = std::convert::Into::<Element<Message>>::into(result).explain(iced::Color::BLACK);
+    let result = result.into();
+    return result;
 }
 
 fn make_button1(data: &Data) -> Element<Message> {
     if data.selected.is_none() { return button("Create").into() }
     if data.name.is_empty() { return button("Create").into() }
     return button("Create").on_press(Message::CreateAnalysis).into()
-}
-
-fn previous(_state: &App) -> Element<Message> {
-    let mut result = column![];
-
-    let analyses_dir = PathBuf::from(App::DATA_DIR.to_string() + "/analyses/");
-    let paths: Vec<PathBuf> = if analyses_dir.exists() {
-        fs::read_dir(analyses_dir).unwrap().map(|x| x.unwrap().path()).collect()
-    } else {
-        Vec::new()
-    };
-
-    result = result.push(
-        row![
-            container(text("Previous analyses: ").width(160).align_x(Horizontal::Right)).padding(App::PAD1)
-        ].padding(10.0).align_y(Vertical::Center)
-    );
-    for path in paths {
-        let a: String = path.file_name().unwrap().to_owned().into_string().unwrap();
-        let b: String = String::from("Single");
-        let c: String = path.clone().into_os_string().into_string().unwrap();
-        let y = row![
-            container(button("Load").on_press(Message::AnalysisReopen(path))).width(150).align_x(Horizontal::Center).padding(App::PAD1),
-            tooltip(
-                text(a).width(100).align_x(Horizontal::Left),
-                container(text(c)).padding(App::PAD1).style(container::rounded_box),
-                tooltip::Position::FollowCursor
-            ),
-            container(text(b).width(100).align_x(Horizontal::Left)).padding(App::PAD1),
-            // container(text(c).width(500).align_x(Horizontal::Left)).padding(App::PAD1),
-        ].padding(5.0).align_y(Vertical::Center);
-        result = result.push(y);
-    }
-    return result.into();
 }
 
 fn mkdir_p<P>(dir: P)
@@ -145,11 +187,26 @@ where
 
 pub(crate) fn update(data: &mut Data, m: Message) {
     match m {
-        Message::AnalysisSelected(analysis) => { analysis_set(data, analysis); },
-        Message::AnalysisNamed(name) => { analysis_name(data, name); },
+        Message::AnalysisSelected(analysis) => { data.selected = Some(analysis); },
+        Message::AnalysisNamed(name) => { data.name = name; },
+        Message::AnalysisDelete(path) => { fs::remove_dir_all(path).unwrap(); }
         Message::CreateAnalysis => { unreachable!() /* implemented in App::update */ },
         Message::AnalysisReopen(_) => { unreachable!() /* implemented in App::update */ },
     }
+}
+
+fn parse_analysis_dir(path: &Path) -> (String, String, String) {
+    let filename = path.file_name().unwrap().to_owned().into_string().unwrap();
+    let x: Vec<usize> = filename.match_indices("_").map(|x| x.0).collect();
+    let a = x[0];
+    let b = *x.last().unwrap();
+    let n = filename.len();
+
+    let analysis_time = filename[0..a].to_string();
+    let analysis_name = filename[a+1..b].to_string();
+    let analysis_type = filename[b+1..n].to_string();
+
+    return (analysis_time, analysis_name, analysis_type);
 }
 
 

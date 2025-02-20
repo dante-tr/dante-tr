@@ -13,11 +13,12 @@ use crate::App;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct Data {
-    bam_file: Option<PathBuf>,
-    motif_file: Option<PathBuf>,
-    output: Option<PathBuf>,
-    out_bam: bool,
-    message_line: String,
+    pub analysis_name: String,
+    pub bam_file: Option<PathBuf>,
+    pub motif_file: Option<PathBuf>,
+    pub output: Option<PathBuf>,
+    pub out_bam: bool,
+    pub message_line: String,
 }
 
 #[derive(Debug, Clone)]
@@ -49,7 +50,7 @@ pub(crate) fn update(data: &mut Data, m: Message) {
     }
 }
 
-pub fn view<'a>(state: &'a App, data: &'a Data) -> Element<'a, Message> {
+pub fn view(data: & Data) -> Element<Message> {
     column![
         button("Back").on_press(Message::Back),
         loader_row("BAM file:", &data.bam_file, Message::BamChanged, Message::SelectBam),
