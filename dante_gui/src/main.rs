@@ -52,7 +52,7 @@ impl App {
         let content_area: Element<Message> = match &self.content_page {
             ContentPage::WelcomeScreen(data) => welcome_screen::view(data).map(Message::WelcomeScreen),
             ContentPage::AnalysisSingle(data) => analysis_single::view(data).map(Message::AnalysisSingle),
-            ContentPage::AnalysisFamily(data) => analysis_family::view(data).map(Message::AnalysisFamily),
+            ContentPage::AnalysisFamily(data) => data.view().map(Message::AnalysisFamily),
         };
 
         // let content_area = std::convert::Into::<Element<Message>>::into(content_area).explain(iced::Color::BLACK);
@@ -75,14 +75,19 @@ impl App {
                 => { back(self); }
 
             // local state changes
+            Message::WelcomeScreen(m) => {
+                if let CP::WelcomeScreen(data) = &mut self.content_page {
+                    welcome_screen::update(data, m); 
+                }
+            }
             Message::AnalysisSingle(m) => {
                 if let CP::AnalysisSingle(data) = &mut self.content_page {
                     analysis_single::update(data, m);
                 }
             }
-            Message::WelcomeScreen(m) => {
-                if let CP::WelcomeScreen(data) = &mut self.content_page {
-                    welcome_screen::update(data, m); 
+            Message::AnalysisFamily(m) => {
+                if let CP::AnalysisFamily(data) = &mut self.content_page {
+                    data.update(m);
                 }
             }
         }

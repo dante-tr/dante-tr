@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use std::ffi::OsStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::{analysis_family, analysis_single, App, ContentPage};
+use crate::{analysis_single, App, ContentPage};
+use crate::analysis_family::Data as FamilyData;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct Data {
@@ -25,18 +26,35 @@ pub(crate) enum Message {
     AnalysisDelete(PathBuf),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Analysis {
-    Single,
-    Family,
+pub(crate) fn view(data: & Data) -> Element<Message> {
+    let analyses = [
+        Analysis::Single,
+        Analysis::Family,
+    ];
+
+    let dropdown1 = pick_list(analyses, data.selected, Message::AnalysisSelected).placeholder("type");
+    let button1 = make_button1(data);
+    let previous_analyses = make_previous_list(data);
+
+    column![
+        row![
+            container(text("Create new analysis: ").width(160).align_x(Horizontal::Right)).padding(App::PAD1),
+            container(text_input("name", &data.name).on_input(Message::AnalysisNamed)).padding(App::PAD1),
+            container(dropdown1).padding(App::PAD1),
+            container(button1).padding(App::PAD2),
+        ].padding(10.0).align_y(Vertical::Center),
+        horizontal_rule(2),
+        previous_analyses
+    ].align_x(Horizontal::Center).into()
 }
 
-impl std::fmt::Display for Analysis {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Single => "single",
-            Self::Family => "family",
-        })
+pub(crate) fn update(data: &mut Data, m: Message) {
+    match m {
+        Message::AnalysisSelected(analysis) => { data.selected = Some(analysis); },
+        Message::AnalysisNamed(name) => { data.name = name; },
+        Message::AnalysisDelete(path) => { fs::remove_dir_all(path).unwrap(); }
+        Message::CreateAnalysis => { unreachable!() /* implemented in App::update */ },
+        Message::AnalysisReopen(_) => { unreachable!() /* implemented in App::update */ },
     }
 }
 
@@ -46,27 +64,24 @@ pub(crate) fn analysis_create(state: &mut App) {
         CP::WelcomeScreen(Data{selected: Some(atype), name}) => { (atype, name) },
         _ => { unreachable!() }
     };
+    let name = name.to_string();
 
     // TODO: make it human readable? Or not?
     let time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("Clock may have gone backwards. What are you doing?")
         .as_secs().to_string();
-    let path = format!("{}/analyses/{}_{}_{}", App::DATA_DIR, time, name, atype);
-    mkdir_p(path);
+    let path: PathBuf = format!("{}/analyses/{}_{}_{}", App::DATA_DIR, time, name, atype).into();
+    mkdir_p(&path);
 
     match atype {
         Analysis::Single => { 
             state.content_page = CP::AnalysisSingle(analysis_single::Data {
-                analysis_name: name.to_string(),
+                analysis_name: name,
                 ..Default::default()
             });
         },
-        Analysis::Family => {
-            state.content_page = CP::AnalysisFamily(analysis_family::Data {
-                analysis_name: name.to_string(),
-            });
-        }
+        Analysis::Family => { state.content_page = FamilyData::init(path, name); }
     }
 }
 
@@ -80,36 +95,24 @@ pub(crate) fn analysis_reopen(state: &mut App, path: PathBuf) {
                 ..Default::default()
             })
         },
-        "family" => {
-            state.content_page = CP::AnalysisFamily(analysis_family::Data {
-                analysis_name: name,
-            })
-        },
+        "family" => { state.content_page = FamilyData::init(path, name); },
         _ => { unreachable!() }
     }
 }
 
-pub fn view(data: & Data) -> Element<Message> {
-    use App as S;
-    let analyses = [
-        Analysis::Single,
-        Analysis::Family,
-    ];
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Analysis {
+    Single,
+    Family,
+}
 
-    let dropdown1 = pick_list(analyses, data.selected, Message::AnalysisSelected).placeholder("type");
-    let button1 = make_button1(data);
-    let previous_analyses = make_previous_list(data);
-
-    column![
-        row![
-            container(text("Create new analysis: ").width(160).align_x(Horizontal::Right)).padding(S::PAD1),
-            container(text_input("name", &data.name).on_input(Message::AnalysisNamed)).padding(S::PAD1),
-            container(dropdown1).padding(S::PAD1),
-            container(button1).padding(S::PAD2),
-        ].padding(10.0).align_y(Vertical::Center),
-        horizontal_rule(2),
-        previous_analyses
-    ].align_x(Horizontal::Center).into()
+impl std::fmt::Display for Analysis {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Single => "single",
+            Self::Family => "family",
+        })
+    }
 }
 
 fn make_previous_list(_: &Data) -> Element<Message> {
@@ -185,16 +188,6 @@ where
     }
 }
 
-pub(crate) fn update(data: &mut Data, m: Message) {
-    match m {
-        Message::AnalysisSelected(analysis) => { data.selected = Some(analysis); },
-        Message::AnalysisNamed(name) => { data.name = name; },
-        Message::AnalysisDelete(path) => { fs::remove_dir_all(path).unwrap(); }
-        Message::CreateAnalysis => { unreachable!() /* implemented in App::update */ },
-        Message::AnalysisReopen(_) => { unreachable!() /* implemented in App::update */ },
-    }
-}
-
 fn parse_analysis_dir(path: &Path) -> (String, String, String) {
     let filename = path.file_name().unwrap().to_owned().into_string().unwrap();
     let x: Vec<usize> = filename.match_indices("_").map(|x| x.0).collect();
@@ -208,5 +201,3 @@ fn parse_analysis_dir(path: &Path) -> (String, String, String) {
 
     return (analysis_time, analysis_name, analysis_type);
 }
-
-
