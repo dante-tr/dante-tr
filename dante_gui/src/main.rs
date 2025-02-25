@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use iced::Element;
-use iced::widget::{column, horizontal_rule, image};
+use iced::{Element, Length};
+use iced::widget::{column, horizontal_rule, image, container};
 use std::fs;
 use std::path::Path;
 use std::fmt::Display;
@@ -57,11 +57,16 @@ impl App {
         };
 
         // let content_area = std::convert::Into::<Element<Message>>::into(content_area).explain(iced::Color::BLACK);
+        use iced::Color;
+        use iced::alignment::Horizontal;
+        use iced::widget::container::background;
         column![
-            image(format!("{}/logo.png", Self::DATA_DIR)).width(900).height(125),
-            horizontal_rule(0),
+            container(image(format!("{}/logo.png", Self::DATA_DIR)).width(900).height(125))
+                .width(Length::Fill).align_x(Horizontal::Center)
+                .style(|_| { background(Color { r: 0.77, g: 0.82, b: 0.84, a: 1.0 }) }),
+            horizontal_rule(1),
             content_area
-        ].align_x(iced::alignment::Horizontal::Center).into()
+        ].align_x(Horizontal::Center).into()
     }
 
     fn update(&mut self, message: Message) {

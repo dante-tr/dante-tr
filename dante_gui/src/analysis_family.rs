@@ -12,6 +12,8 @@ use iced::{Element, Length};
 
 use crate::{App, ContentPage};
 
+const PSIZE: u16 = 100;
+
 #[derive(Debug, Clone)]
 pub(super) enum Message {
     Back,
@@ -58,7 +60,7 @@ impl Data {
 
         content = make_header(content);
         content = make_form(content, self);
-        content = content.push(horizontal_rule(2));
+        content = content.push(container(horizontal_rule(2)).padding(25));
         content = make_report(content, self);
 
         // let content = std::convert::Into::<Element<Message>>::into(content).explain(iced::Color::BLACK);
@@ -114,7 +116,6 @@ fn make_form<'a>(mut content: Column<'a, Message>, data: &'a Data) -> Column<'a,
 
     content = make_relatives(content, data);
     content = content.push(make_analyze_button(data));
-    // content = content.push(vertical_space());
     return content;
 }
 
@@ -155,7 +156,7 @@ fn make_relatives<'a>(mut content: Column<'a, Message>, data: &'a Data) -> Colum
     let first_row = row![
         container(text("Relatives: ")).width(160).align_x(Horizontal::Right).padding(App::PAD1),
         container(text_input("Type path or click search...", &filename).on_input(text_message)).padding(App::PAD1),
-        container(pick_list(choices, *relation, pick_message).placeholder("relation")).padding(App::PAD1),
+        container(pick_list(choices, *relation, pick_message).placeholder("relation").width(PSIZE)).padding(App::PAD1),
         container(button("Search").on_press(Message::RelativeSelect(0))).padding(App::PAD1)
     ].padding(10).align_y(Vertical::Center);
 
@@ -168,7 +169,7 @@ fn make_relatives<'a>(mut content: Column<'a, Message>, data: &'a Data) -> Colum
         let next_row = row![
             container(button("Remove").on_press(Message::RelativeRemove(i))).width(160).align_x(Horizontal::Right).padding(App::PAD1),
             container(text_input("Type path or click search...", &filename).on_input(text_message)).padding(App::PAD1),
-            container(pick_list(choices, *relation, pick_message).placeholder("relation")).padding(App::PAD1),
+            container(pick_list(choices, *relation, pick_message).placeholder("relation").width(PSIZE)).padding(App::PAD1),
             container(button("Search").on_press(Message::RelativeSelect(i))).padding(App::PAD1)
         ].padding(10).align_y(Vertical::Center);
 
@@ -185,12 +186,12 @@ fn make_relatives<'a>(mut content: Column<'a, Message>, data: &'a Data) -> Colum
 
 fn make_proband_row(data: &Data) -> Row<Message> {
     let proband = data.proband_bam.clone().unwrap_or_default().to_string_lossy().to_string();
-    let sex = [ Sex::Male, Sex::Female, Sex::Intersex ];
+    let sex = [ Sex::Male, Sex::Female, Sex::Unknown ];
 
     row![
         container(text("Proband: ")).width(160).align_x(Horizontal::Right).padding(App::PAD1),
         container(text_input("Type path or click search...", &proband).on_input(Message::ProbandEdit)).padding(App::PAD1),
-        container(pick_list(sex, data.proband_sex, Message::ProbandSetSex).placeholder("sex")).padding(App::PAD1),
+        container(pick_list(sex, data.proband_sex, Message::ProbandSetSex).placeholder("sex").width(PSIZE)).padding(App::PAD1),
         container(button("Search").on_press(Message::ProbandSelect)).padding(App::PAD1)
     ].padding(10).align_y(Vertical::Center)
 }
@@ -246,37 +247,42 @@ fn update_motif_selection(data: &mut Data, motif_file: MotifFile) {
 }
 
 fn make_report<'a>(mut content: Column<'a, Message>, data: &'a Data) -> Column<'a, Message> {
-    // content = content.push(vertical_space());
     let tmp = false;
-    content = content.push(row![
+    let r1 = row![
         container(text("Filter: ")).width(160).align_x(Horizontal::Right).padding(App::PAD1),
-        checkbox("All", tmp),
+        container(checkbox("All", tmp)).padding(App::PAD1),
         checkbox("ALS", tmp), checkbox("DM2", tmp), checkbox("OPDM", tmp),
         checkbox("ALS", tmp), checkbox("ALS", tmp), checkbox("ALS", tmp),
         checkbox("ALS", tmp), checkbox("ALS", tmp), checkbox("ALS", tmp),
         checkbox("ALS", tmp), checkbox("ALS", tmp), checkbox("ALS", tmp),
         checkbox("ALS", tmp),
         horizontal_space(),
-    ].padding(10).align_y(Vertical::Center));
+    ].padding(5).align_y(Vertical::Center);
+    let r1 = std::convert::Into::<Element<Message>>::into(r1).explain(iced::Color::BLACK);
+    content = content.push(r1);
 
-    content = content.push(row![
+    let r2 = row![
         container(text("")).width(160).align_x(Horizontal::Right),
-        checkbox("All", tmp),
+        container(checkbox("All", tmp)).padding(App::PAD1),
         checkbox("ALS", tmp), checkbox("DM2", tmp), checkbox("OPDM", tmp),
         checkbox("ALS", tmp), checkbox("ALS", tmp), checkbox("ALS", tmp),
         checkbox("ALS", tmp), checkbox("ALS", tmp), checkbox("ALS", tmp),
         checkbox("ALS", tmp), checkbox("ALS", tmp), checkbox("ALS", tmp),
         checkbox("ALS", tmp),
         horizontal_space(),
-    ].padding(10).align_y(Vertical::Center));
+    ].padding(5).align_y(Vertical::Center);
 
-    content = content.push(row![
+    let r2 = std::convert::Into::<Element<Message>>::into(r2).explain(iced::Color::BLACK);
+    content = content.push(r2);
+
+    let r3 = row![
         container(text("")).width(160),
         container(button("View")),
         container(button("Print")).padding(10),
         horizontal_space(),
-    ].padding(10).align_y(Vertical::Center));
-    // content = content.push(vertical_space());
+    ].padding(10).align_y(Vertical::Center);
+    let r3 = std::convert::Into::<Element<Message>>::into(r3).explain(iced::Color::BLACK);
+    content = content.push(r3);
     return content;
 }
 
@@ -325,7 +331,7 @@ impl std::fmt::Display for Relation {
 pub(super) enum Sex {
     Male,
     Female,
-    Intersex,
+    Unknown,
 }
 
 impl std::fmt::Display for Sex {
@@ -333,7 +339,7 @@ impl std::fmt::Display for Sex {
         f.write_str(match self {
             Self::Male => "male",
             Self::Female => "female",
-            Self::Intersex => "intersex"
+            Self::Unknown => "unknown"
         })
     }
 }
