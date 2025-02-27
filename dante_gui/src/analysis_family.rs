@@ -1,16 +1,14 @@
-use std::collections::HashSet;
-use std::path::PathBuf;
-use std::path::Path;
 use native_dialog::FileDialog;
+use std::collections::HashSet;
 use std::fs::File;
-use std::io::BufReader;
 use std::io::BufRead;
+use std::io::BufReader;
+use std::path::Path;
+use std::path::PathBuf;
 
 use iced::alignment::{Horizontal, Vertical};
-use iced::widget::{
-    scrollable, column, row, container, horizontal_space, horizontal_rule,
-    button, checkbox, pick_list, text, text_input, tooltip
-};
+use iced::widget::{button, checkbox, pick_list, text, text_input, tooltip};
+use iced::widget::{column, container, horizontal_rule, horizontal_space, row, scrollable};
 use iced::widget::{Column, Row};
 use iced::{Element, Length, Padding, Size};
 
@@ -56,7 +54,9 @@ pub(super) struct Data {
 impl Data {
     pub(super) fn init(path: PathBuf, analysis_name: String) -> ContentPage {
         ContentPage::AnalysisFamily(Data {
-            path, analysis_name, relatives: vec![(None, None)],
+            path,
+            analysis_name,
+            relatives: vec![(None, None)],
             ..Default::default()
         })
     }
@@ -73,6 +73,7 @@ impl Data {
         return scrollable(content).into();
     }
 
+    #[rustfmt::skip]
     pub(super) fn update(&mut self, m: Message) {
         match m {
             Message::SetMotifs(motif_file)
@@ -158,16 +159,14 @@ fn make_analyze_button(data: &Data) -> Element<Message> {
 
 fn make_relatives<'a>(mut content: Column<'a, Message>, data: &'a Data) -> Column<'a, Message> {
     let choices = [
-        Relation::Mother, Relation::Father,
-        Relation::Sister, Relation::Brother,
-        Relation::Daughter, Relation::Son,
-        Relation::Mate
+        Relation::Mother, Relation::Father, Relation::Sister, Relation::Brother,
+        Relation::Daughter, Relation::Son, Relation::Mate
     ];
 
     let (path, relation) = &data.relatives[0];
     let filename = path.clone().unwrap_or_default().to_string_lossy().to_string();
-    let text_message = |x| { Message::RelativeEdit(0, x) };
-    let pick_message = |x| { Message::RelativeSetRelation(0, x) };
+    let text_message = |x| Message::RelativeEdit(0, x);
+    let pick_message = |x| Message::RelativeSetRelation(0, x);
     let first_row = row![
         container(text("Relatives: ")).width(160).align_x(Horizontal::Right).padding(App::PAD1),
         container(text_input("Type path or click search...", &filename).on_input(text_message)).padding(App::PAD1),
@@ -179,8 +178,8 @@ fn make_relatives<'a>(mut content: Column<'a, Message>, data: &'a Data) -> Colum
 
     for (i, (path, relation)) in data.relatives.iter().enumerate().skip(1) {
         let filename = path.clone().unwrap_or_default().to_string_lossy().to_string();
-        let text_message = move |x| { Message::RelativeEdit(i, x) };
-        let pick_message = move |x| { Message::RelativeSetRelation(i, x) };
+        let text_message = move |x| Message::RelativeEdit(i, x);
+        let pick_message = move |x| Message::RelativeSetRelation(i, x);
         let next_row = row![
             container(button("Remove").on_press(Message::RelativeRemove(i))).width(160).align_x(Horizontal::Right).padding(App::PAD1),
             container(text_input("Type path or click search...", &filename).on_input(text_message)).padding(App::PAD1),
@@ -201,7 +200,7 @@ fn make_relatives<'a>(mut content: Column<'a, Message>, data: &'a Data) -> Colum
 
 fn make_proband_row(data: &Data) -> Row<Message> {
     let proband = data.proband_bam.clone().unwrap_or_default().to_string_lossy().to_string();
-    let sex = [ Sex::Male, Sex::Female, Sex::Unknown ];
+    let sex = [Sex::Male, Sex::Female, Sex::Unknown];
 
     row![
         container(text("Proband: ")).width(160).align_x(Horizontal::Right).padding(App::PAD1),
@@ -212,19 +211,14 @@ fn make_proband_row(data: &Data) -> Row<Message> {
 }
 
 fn make_motif_selection(selected: Option<MotifFile>, selected_file: &Option<PathBuf>) -> Row<Message> {
-    let motif_files = [
-        MotifFile::STRSet_20220902,
-        MotifFile::Custom
-    ];
+    let motif_files = [MotifFile::STRSet_20220902, MotifFile::Custom];
 
     let content = match selected {
-        None => {
-            row![
-                container(text("Motifs: ")).width(160).align_x(Horizontal::Right).padding(App::PAD1),
-                container(pick_list(motif_files, selected, Message::SetMotifs).placeholder("type")),
-                container(text("")).width(Length::Fill).align_x(Horizontal::Left)
-            ].padding(10).align_y(Vertical::Center)
-        }
+        None => row![
+            container(text("Motifs: ")).width(160).align_x(Horizontal::Right).padding(App::PAD1),
+            container(pick_list(motif_files, selected, Message::SetMotifs).placeholder("type")),
+            container(text("")).width(Length::Fill).align_x(Horizontal::Left)
+        ].padding(10).align_y(Vertical::Center),
         Some(MotifFile::Custom) => {
             let x: String = selected_file.clone().unwrap().to_string_lossy().to_string();
             row![
@@ -254,13 +248,13 @@ fn update_motif_selection(data: &mut Data, motif_file: MotifFile) {
             data.selected = Some(motif_file);
             data.motifs = parse_motifs(&path);
             data.groups = get_groups(&data.motifs);
-        }
+        },
         MotifFile::Custom => {
             if let Ok(Some(x)) = FileDialog::new().show_open_single_file() {
                 data.selected_file = Some(x);
                 data.selected = Some(motif_file);
             }
-        }
+        },
     }
 }
 
@@ -306,14 +300,11 @@ fn analyze(data: &mut Data) {
 }
 
 fn make_report<'a>(mut content: Column<'a, Message>, data: &'a Data, size: Size) -> Column<'a, Message> {
-    const PAD: Padding = Padding { bottom: 0.0, top: 0.0, right: 15.0, left: 0.0};
     let available_width = size.width as usize - 5 - 160 - 5 - 5;
 
     let mut i = 0;
     let mut r = row![].padding(5).align_y(Vertical::Center);
     r = r.push(container(text("Group filter: ")).width(160).align_x(Horizontal::Right).padding(App::PAD1));
-    // r = r.push(container(checkbox("All", tmp)).padding(PAD));
-    // r = r.push(container(checkbox("All", tmp)).padding(PAD));
     r = r.extend(make_group_row(&data.groups, available_width, &mut i));
     r = r.push(horizontal_space());
     // let r = std::convert::Into::<Element<Message>>::into(r).explain(iced::Color::BLACK);
@@ -337,7 +328,7 @@ fn make_report<'a>(mut content: Column<'a, Message>, data: &'a Data, size: Size)
         content = content.push(r);
     }
 
-    const PAD2: Padding = Padding { bottom: 0.0, top: 10.0, right: 15.0, left: 0.0};
+    const PAD2: Padding = Padding { bottom: 0.0, top: 10.0, right: 15.0, left: 0.0 };
     let r = row![
         container(text("")).width(160),
         container(button("View")).padding(PAD2),
@@ -359,19 +350,17 @@ fn make_group_row<'a>(groups: &'a[(bool, String)], available_width: usize, i: &m
     while *i < (*groups).len() && cur_width + spacing + groups[*i].1.len() * letter_width < available_width {
         let (ref checked, ref id) = &groups[*i];
         let ii = *i;
-        let f = move |b| { Message::MotifGroupbox(ii, b) };
+        let f = move |b| Message::MotifGroupbox(ii, b);
         v.push(container(checkbox(id, *checked).on_toggle(f)).padding(PAD).into());
-        // v.push(horizontal_space().into());
         cur_width += spacing + id.len() * letter_width;
         *i += 1;
     }
-    // v.pop();
     return v;
 }
 
 fn make_checkbox_row<'a>(motifs: &'a[(bool, String, Vec<String>, String)], available_width: usize, i: &mut usize) -> Vec<Element<'a, Message>> {
     // TODO: are the lifetimes correct?
-    const PAD: Padding = Padding { bottom: 0.0, top: 0.0, right: 15.0, left: 0.0};
+    const PAD: Padding = Padding { bottom: 0.0, top: 0.0, right: 15.0, left: 0.0 };
     let spacing = 15 /*checkbox*/ + 10 /*between checkbox and label*/ + 15 /*right padding*/;
     let letter_width = 11;
 
@@ -380,19 +369,17 @@ fn make_checkbox_row<'a>(motifs: &'a[(bool, String, Vec<String>, String)], avail
     while *i < (*motifs).len() && cur_width + spacing + motifs[*i].1.len() * letter_width < available_width {
         let (ref checked, ref id, _, ref name) = &motifs[*i];
         let ii = *i;
-        let f = move |b| { Message::MotifCheckbox(ii, b) };
+        let f = move |b| Message::MotifCheckbox(ii, b);
         v.push(container(
             tooltip(
                 checkbox(id, *checked).on_toggle(f),
                 container(text(name)).padding(5).style(container::rounded_box),
-                tooltip::Position::FollowCursor
+                tooltip::Position::FollowCursor,
             )
         ).padding(PAD).into());
-        // v.push(horizontal_space().into());
         cur_width += spacing + id.len() * letter_width;
         *i += 1;
     }
-    // v.pop();
     return v;
 }
 
@@ -449,9 +436,7 @@ impl std::fmt::Display for Sex {
         f.write_str(match self {
             Self::Male => "male",
             Self::Female => "female",
-            Self::Unknown => "unknown"
+            Self::Unknown => "unknown",
         })
     }
 }
-
-
