@@ -1,24 +1,24 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use iced::window;
-use iced::window::Settings;
-use iced::Subscription;
-use iced::{Element, Length, Theme};
-use iced::Size;
-use iced::widget::{column, horizontal_rule, image, container};
+use std::fmt::Display;
 use std::fs;
 use std::path::Path;
-use std::fmt::Display;
+
+use iced::widget::{column, container, horizontal_rule, image};
+use iced::window;
+use iced::window::Settings;
+use iced::{Element, Length, Theme, Size, Subscription};
 
 mod welcome_screen;
-mod analysis_single;
+
 mod analysis_family;
+mod analysis_single;
 
 pub fn main() -> iced::Result {
     if !Path::new(App::DATA_DIR).exists() { init_cache(App::DATA_DIR); }
 
     iced::application("Dante", App::update, App::view)
-        .window(Settings { size: Size {width: 960.0, height: 960.0}, ..Default::default() })
+        .window(Settings { size: Size { width: 960.0, height: 960.0 }, ..Default::default() })
         .subscription(App::subscription)
         .theme(|_| Theme::CatppuccinLatte)
         .run()
@@ -51,7 +51,7 @@ struct App {
     content_page: ContentPage,
 }
 
-use iced::{Padding, Font};
+use iced::{Font, Padding};
 impl App {
     const PAD1: Padding = Padding { left: 0.0, right: 5.0, top: 0.0, bottom: 0.0 };
     const PAD2: Padding = Padding { left: 5.0, right: 0.0, top: 0.0, bottom: 0.0 };
@@ -68,9 +68,9 @@ impl App {
         };
 
         // let content_area = std::convert::Into::<Element<Message>>::into(content_area).explain(iced::Color::BLACK);
-        use iced::Color;
         use iced::alignment::Horizontal;
         use iced::widget::container::background;
+        use iced::Color;
         column![
             container(image(format!("{}/logo.png", Self::DATA_DIR)).width(900).height(125))
                 .width(Length::Fill).align_x(Horizontal::Center)
@@ -90,25 +90,27 @@ impl App {
                 => { welcome_screen::analysis_reopen(self, path); }
             Message::AnalysisSingle(analysis_single::Message::Back)
                 => { back(self); }
-            Message::AnalysisFamily(analysis_family::Message::Back) => { back(self); }
-            Message::Resize(size) => { self.window_size = size; }
+            Message::AnalysisFamily(analysis_family::Message::Back)
+                => { back(self); }
+            Message::Resize(size)
+                => { self.window_size = size; }
 
             // local state changes
             Message::WelcomeScreen(m) => {
                 if let CP::WelcomeScreen(data) = &mut self.content_page {
-                    welcome_screen::update(data, m); 
+                    welcome_screen::update(data, m);
                 }
-            }
+            },
             Message::AnalysisSingle(m) => {
                 if let CP::AnalysisSingle(data) = &mut self.content_page {
                     analysis_single::update(data, m);
                 }
-            }
+            },
             Message::AnalysisFamily(m) => {
                 if let CP::AnalysisFamily(data) = &mut self.content_page {
                     data.update(m);
                 }
-            }
+            },
         }
     }
 
@@ -119,7 +121,7 @@ impl App {
     }
 }
 
-fn back(state: &mut App){
+fn back(state: &mut App) {
     state.content_page = ContentPage::WelcomeScreen(welcome_screen::Data::default());
 }
 
@@ -129,6 +131,7 @@ where
 {
     let filenames = [
         "logo.png",
+        "STRSet_20220902.tsv",
         "templates/alignments_template.html",
         "templates/report_template.html",
         "includes/datatables.min.js",
@@ -142,6 +145,7 @@ where
 
     let contents = [
         include_bytes!("../assets/logo.png").to_vec(),
+        include_bytes!("../assets/STRSet_20220902.tsv").to_vec(),
         include_bytes!("../assets/templates/alignments_template.html").to_vec(),
         include_bytes!("../assets/templates/report_template.html").to_vec(),
         include_bytes!("../assets/includes/datatables.min.js").to_vec(),

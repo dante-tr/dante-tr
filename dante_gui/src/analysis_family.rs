@@ -54,9 +54,7 @@ pub(super) struct Data {
 impl Data {
     pub(super) fn init(path: PathBuf, analysis_name: String) -> ContentPage {
         ContentPage::AnalysisFamily(Data {
-            path,
-            analysis_name,
-            relatives: vec![(None, None)],
+            path, analysis_name, relatives: vec![(None, None)],
             ..Default::default()
         })
     }
@@ -241,18 +239,19 @@ fn make_motif_selection(selected: Option<MotifFile>, selected_file: &Option<Path
 fn update_motif_selection(data: &mut Data, motif_file: MotifFile) {
     match motif_file {
         MotifFile::STRSet_20220902 => {
-            /* TODO: store some path */
-            // App::DATA_DIR + "/somepath/motifs.tsv"
-            let path = PathBuf::from("./assets/STRSet_20220902.tsv");
-            data.selected_file = Some(path.clone());
+            let path = PathBuf::from(App::DATA_DIR.to_string() + "/STRSet_20220902.tsv");
             data.selected = Some(motif_file);
-            data.motifs = parse_motifs(&path);
-            data.groups = get_groups(&data.motifs);
+            data.selected_file = Some(path);
+            data.motifs = parse_motifs(data.selected_file.as_ref().unwrap());
+            data.groups = get_groups(data.motifs.as_ref());
         },
         MotifFile::Custom => {
-            if let Ok(Some(x)) = FileDialog::new().show_open_single_file() {
-                data.selected_file = Some(x);
+            if let Ok(Some(path)) = FileDialog::new().show_open_single_file() {
                 data.selected = Some(motif_file);
+                data.selected_file = Some(path);
+                // TODO: How to handle incorrect inputs?
+                // data.motifs = parse_motifs(data.selected_file.as_ref().unwrap());
+                // data.groups = get_groups(data.motifs.as_ref());
             }
         },
     }
