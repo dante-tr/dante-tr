@@ -1,6 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use iced::{Element, Length};
+use iced::window;
+use iced::window::Settings;
+use iced::Subscription;
+use iced::{Element, Length, Theme};
+use iced::Size;
 use iced::widget::{column, horizontal_rule, image, container};
 use std::fs;
 use std::path::Path;
@@ -12,7 +16,12 @@ mod analysis_family;
 
 pub fn main() -> iced::Result {
     if !Path::new(App::DATA_DIR).exists() { init_cache(App::DATA_DIR); }
-    iced::application("Dante", App::update, App::view).theme(|_| iced::Theme::CatppuccinLatte).run()
+
+    iced::application("Dante", App::update, App::view)
+        .window(Settings { size: Size {width: 960.0, height: 960.0}, ..Default::default() })
+        .subscription(App::subscription)
+        .theme(|_| Theme::CatppuccinLatte)
+        .run()
 }
 
 #[derive(Debug, Clone)]
@@ -20,6 +29,7 @@ enum Message {
     WelcomeScreen(welcome_screen::Message),
     AnalysisSingle(analysis_single::Message),
     AnalysisFamily(analysis_family::Message),
+    Resize(Size),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,6 +47,7 @@ impl Default for ContentPage {
 
 #[derive(Debug, Default)]
 struct App {
+    window_size: Size,
     content_page: ContentPage,
 }
 
@@ -53,7 +64,7 @@ impl App {
         let content_area: Element<Message> = match &self.content_page {
             ContentPage::WelcomeScreen(data) => welcome_screen::view(data).map(Message::WelcomeScreen),
             ContentPage::AnalysisSingle(data) => analysis_single::view(data).map(Message::AnalysisSingle),
-            ContentPage::AnalysisFamily(data) => data.view().map(Message::AnalysisFamily),
+            ContentPage::AnalysisFamily(data) => data.view(self.window_size).map(Message::AnalysisFamily),
         };
 
         // let content_area = std::convert::Into::<Element<Message>>::into(content_area).explain(iced::Color::BLACK);
@@ -80,6 +91,7 @@ impl App {
             Message::AnalysisSingle(analysis_single::Message::Back)
                 => { back(self); }
             Message::AnalysisFamily(analysis_family::Message::Back) => { back(self); }
+            Message::Resize(size) => { self.window_size = size; }
 
             // local state changes
             Message::WelcomeScreen(m) => {
@@ -98,6 +110,12 @@ impl App {
                 }
             }
         }
+    }
+
+    fn subscription(&self) -> Subscription<Message> {
+        window::resize_events().map(|(_, size)| {
+            return Message::Resize(size);
+        })
     }
 }
 
