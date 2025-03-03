@@ -1,8 +1,10 @@
 use native_dialog::FileDialog;
+use serde::{Serialize, Deserialize};
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
+use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -36,7 +38,7 @@ pub(super) enum Message {
     Analyze,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub(super) struct Data {
     path: PathBuf,
     analysis_name: String,
@@ -53,13 +55,6 @@ pub(super) struct Data {
 }
 
 impl Data {
-    pub(super) fn init(path: PathBuf, analysis_name: String) -> ContentPage {
-        ContentPage::AnalysisFamily(Data {
-            path, analysis_name, relatives: vec![(None, None)],
-            ..Default::default()
-        })
-    }
-
     pub(super) fn view(&self, size: Size) -> Element<Message> {
         let mut content = column![].align_x(Horizontal::Center).width(Length::Fill).padding(App::PAD1);
 
@@ -102,6 +97,33 @@ impl Data {
             Message::Back
                 => { unreachable!() /* implemented in App::update */ }
         }
+    }
+
+    pub(super) fn init(path: PathBuf, analysis_name: String) -> ContentPage {
+        let data = Data {
+            path, analysis_name, relatives: vec![(None, None)], ..Default::default()
+        };
+        data.save();
+        ContentPage::AnalysisFamily(data)
+    }
+
+    fn save(&self) -> PathBuf {
+        let json = serde_json::to_string(self).unwrap();
+        let mut output = self.path.clone();
+        output.push("params.json");
+        let mut out = File::create(&output)
+            .expect("Cannot open file for writing.");
+        out.write_all(json.as_bytes())
+            .expect("Cannot write to output file.");
+        return output;
+    }
+
+    pub(super) fn load(mut path: PathBuf) -> Self {
+        path.push("params.json");
+        let json: String = std::fs::read_to_string(path)
+            .expect("Cannot read file.");
+        serde_json::from_str(&json)
+            .expect("Cannot parse json.")
     }
 }
 
@@ -294,6 +316,7 @@ fn get_groups(motifs: &[(bool, String, Vec<String>, String)]) -> Vec<(bool, Stri
 }
 
 fn analyze(data: &mut Data) {
+    data.save();
     let Some(ref file) = data.selected_file else { return; }; 
     println!("{}", file.display());
     println!("Analyze");
@@ -383,7 +406,7 @@ fn make_checkbox_row<'a>(motifs: &'a[(bool, String, Vec<String>, String)], avail
     return v;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) enum Relation {
     Mother,
     Father,

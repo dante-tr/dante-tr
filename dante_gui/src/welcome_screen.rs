@@ -89,11 +89,11 @@ pub(super) fn analysis_create(state: &mut App) {
 }
 
 pub(super) fn analysis_reopen(state: &mut App, path: PathBuf) {
-    let (_, name, atype) = parse_analysis_dir(&path);
+    let (_, _, atype) = parse_analysis_dir(&path);
     use ContentPage as CP;
     match atype.as_str() {
         "single" => { state.content_page = CP::AnalysisSingle(SingleData::load(path)); },
-        "family" => { state.content_page = FamilyData::init(path, name); },
+        "family" => { state.content_page = CP::AnalysisFamily(FamilyData::load(path)); },
         _ => { unreachable!() }
     }
 }
