@@ -5,17 +5,12 @@ use iced::Element;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::ffi::OsStr;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
+use chrono::{DateTime, Local};
 
-use crate::{analysis_single, App, ContentPage};
+use crate::{App, ContentPage};
 use crate::analysis_family::Data as FamilyData;
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub(crate) struct Data {
-    name: String,
-    selected: Option<Analysis>,
-}
-
+use crate::analysis_single::Data as SingleData;
 
 #[derive(Debug, Clone)]
 pub(crate) enum Message {
@@ -26,35 +21,50 @@ pub(crate) enum Message {
     AnalysisDelete(PathBuf),
 }
 
-pub(crate) fn view(data: & Data) -> Element<Message> {
-    let analyses = [
-        Analysis::Single,
-        Analysis::Family,
-    ];
-
-    let dropdown1 = pick_list(analyses, data.selected, Message::AnalysisSelected).placeholder("type");
-    let button1 = make_button1(data);
-    let previous_analyses = make_previous_list(data);
-
-    column![
-        row![
-            container(text("Create new analysis: ").width(160).align_x(Horizontal::Right)).padding(App::PAD1),
-            container(text_input("name", &data.name).on_input(Message::AnalysisNamed)).padding(App::PAD1),
-            container(dropdown1).padding(App::PAD1),
-            container(button1).padding(App::PAD2),
-        ].padding(10.0).align_y(Vertical::Center),
-        horizontal_rule(2),
-        previous_analyses
-    ].align_x(Horizontal::Center).into()
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct Data {
+    name: String,
+    selected: Option<Analysis>,
 }
 
-pub(crate) fn update(data: &mut Data, m: Message) {
-    match m {
-        Message::AnalysisSelected(analysis) => { data.selected = Some(analysis); },
-        Message::AnalysisNamed(name) => { data.name = name; },
-        Message::AnalysisDelete(path) => { fs::remove_dir_all(path).unwrap(); }
-        Message::CreateAnalysis => { unreachable!() /* implemented in App::update */ },
-        Message::AnalysisReopen(_) => { unreachable!() /* implemented in App::update */ },
+impl Data {
+    pub(super) fn view(&self) -> Element<Message> {
+        let mut content = column![].align_x(Horizontal::Center);
+
+        let analyses = [
+            Analysis::Single,
+            Analysis::Family,
+        ];
+
+        let dropdown1 = pick_list(analyses, self.selected, Message::AnalysisSelected).placeholder("type");
+        let button1 = make_button1(self);
+        let previous_analyses = make_previous_list(self);
+
+        content = content.push(
+            row![
+                container("").width(100),
+                container(text("Create new analysis: ").width(160).align_x(Horizontal::Right)).padding(App::PAD1),
+                container(text_input("name", &self.name).on_input(Message::AnalysisNamed)).padding(App::PAD1),
+                container(dropdown1).padding(App::PAD1),
+                container(button1).padding(App::PAD2),
+                container("").width(100),
+            ].padding(25).align_y(Vertical::Center)
+        );
+        content = content.push(horizontal_rule(2));
+        content = content.push(previous_analyses);
+
+        // let content = std::convert::Into::<Element<Message>>::into(content).explain(iced::Color::BLACK);
+        return content.into();
+    }
+
+    pub(super) fn update(&mut self, m: Message) {
+        match m {
+            Message::AnalysisSelected(analysis) => { self.selected = Some(analysis); },
+            Message::AnalysisNamed(name) => { self.name = name; },
+            Message::AnalysisDelete(path) => { fs::remove_dir_all(path).unwrap(); }
+            Message::CreateAnalysis => { unreachable!() /* implemented in App::update */ },
+            Message::AnalysisReopen(_) => { unreachable!() /* implemented in App::update */ },
+        }
     }
 }
 
@@ -66,35 +76,22 @@ pub(crate) fn analysis_create(state: &mut App) {
     };
     let name = name.to_string();
 
-    // TODO: make it human readable? Or not?
-    let time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("Clock may have gone backwards. What are you doing?")
-        .as_secs().to_string();
+    let time: DateTime<Local> = SystemTime::now().into();
+    let time = time.format("%Y-%m-%d-%H-%M-%S");
+
     let path: PathBuf = format!("{}/analyses/{}_{}_{}", App::DATA_DIR, time, name, atype).into();
     mkdir_p(&path);
 
     match atype {
-        Analysis::Single => { 
-            state.content_page = CP::AnalysisSingle(analysis_single::Data {
-                analysis_name: name,
-                ..Default::default()
-            });
-        },
+        Analysis::Single => { state.content_page = SingleData::init(path, name); },
         Analysis::Family => { state.content_page = FamilyData::init(path, name); }
     }
 }
 
 pub(crate) fn analysis_reopen(state: &mut App, path: PathBuf) {
     let (_, name, atype) = parse_analysis_dir(&path);
-    use ContentPage as CP;
     match atype.as_str() {
-        "single" => {
-            state.content_page = CP::AnalysisSingle(analysis_single::Data {
-                analysis_name: name,
-                ..Default::default()
-            })
-        },
+        "single" => { state.content_page = SingleData::init(path, name); },
         "family" => { state.content_page = FamilyData::init(path, name); },
         _ => { unreachable!() }
     }
@@ -125,9 +122,10 @@ fn make_previous_list(_: &Data) -> Element<Message> {
     paths.sort();
 
     const NAME_WIDTH: u16 = 350;
+    const TIME_WIDTH: u16 = 200;
     const TYPE_WIDTH: u16 = 150;
     const ACTION_WIDTH: u16 = 150;
-    let mut result = column![].align_x(Horizontal::Center).width(NAME_WIDTH + TYPE_WIDTH + ACTION_WIDTH + 10);
+    let mut result = column![].align_x(Horizontal::Center).width(NAME_WIDTH + TIME_WIDTH + TYPE_WIDTH + ACTION_WIDTH + 10);
     result = result.push(
         row![
             container(text("Previous analyses").size(22)).align_x(Horizontal::Center)
@@ -137,6 +135,7 @@ fn make_previous_list(_: &Data) -> Element<Message> {
     result = result.push(
         row![
             container(text("Analysis name").width(NAME_WIDTH).align_x(Horizontal::Center)).padding(App::PAD1),
+            container(text("time").width(TIME_WIDTH).align_x(Horizontal::Center)).padding(App::PAD1),
             container(text("type").width(TYPE_WIDTH).align_x(Horizontal::Center)).padding(App::PAD1),
             container(text("actions").width(ACTION_WIDTH).align_x(Horizontal::Center)),
         ].padding(5.0).align_y(Vertical::Center)
@@ -144,9 +143,11 @@ fn make_previous_list(_: &Data) -> Element<Message> {
     result = result.push(horizontal_rule(2));
 
     for path in paths.into_iter().rev() {
-        let (_, analysis_name, analysis_type) = parse_analysis_dir(&path);
+        let (analysis_time, analysis_name, analysis_type) = parse_analysis_dir(&path);
         let path_name = path.clone().into_os_string().into_string().unwrap();
 
+        let parts: Vec<_> = analysis_time.split("-").collect();
+        let analysis_time = format!("{}-{}-{} {}:{}:{}", parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]);
         result = result.push(
             row![
                 tooltip(
@@ -154,6 +155,7 @@ fn make_previous_list(_: &Data) -> Element<Message> {
                     container(text(format!("Located in: {}", path_name))).padding(5).style(container::rounded_box),
                     tooltip::Position::FollowCursor
                 ),
+                container(text(analysis_time).width(TIME_WIDTH).align_x(Horizontal::Center)).padding(App::PAD1),
                 container(text(analysis_type).width(TYPE_WIDTH).align_x(Horizontal::Center)).padding(App::PAD1),
                 column![row![
                     container(button("Load").on_press(Message::AnalysisReopen(path.clone()))).padding(App::PAD2),

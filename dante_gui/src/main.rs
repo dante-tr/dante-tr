@@ -62,7 +62,7 @@ impl App {
 
     fn view(&self) -> Element<Message> {
         let content_area: Element<Message> = match &self.content_page {
-            ContentPage::WelcomeScreen(data) => welcome_screen::view(data).map(Message::WelcomeScreen),
+            ContentPage::WelcomeScreen(data) => data.view().map(Message::WelcomeScreen),
             ContentPage::AnalysisSingle(data) => analysis_single::view(data).map(Message::AnalysisSingle),
             ContentPage::AnalysisFamily(data) => data.view(self.window_size).map(Message::AnalysisFamily),
         };
@@ -98,7 +98,7 @@ impl App {
             // local state changes
             Message::WelcomeScreen(m) => {
                 if let CP::WelcomeScreen(data) = &mut self.content_page {
-                    welcome_screen::update(data, m);
+                    data.update(m);
                 }
             },
             Message::AnalysisSingle(m) => {

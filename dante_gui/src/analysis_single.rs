@@ -9,17 +9,7 @@ use remastr::run;
 use native_dialog::FileDialog;
 use std::fs;
 
-use crate::App;
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub(crate) struct Data {
-    pub analysis_name: String,
-    pub bam_file: Option<PathBuf>,
-    pub motif_file: Option<PathBuf>,
-    pub output: Option<PathBuf>,
-    pub out_bam: bool,
-    pub message_line: String,
-}
+use crate::{App, ContentPage};
 
 #[derive(Debug, Clone)]
 pub(crate) enum Message {
@@ -33,6 +23,27 @@ pub(crate) enum Message {
     RunDante,
     OpenResults,
     CheckboxOutBAM(bool),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct Data {
+    pub path: PathBuf,
+    pub analysis_name: String,
+    pub bam_file: Option<PathBuf>,
+    pub motif_file: Option<PathBuf>,
+    pub output: Option<PathBuf>,
+    pub out_bam: bool,
+    pub message_line: String,
+}
+
+impl Data {
+    pub(super) fn init(path: PathBuf, analysis_name: String) -> ContentPage {
+        ContentPage::AnalysisSingle(Data {
+            path, analysis_name, ..Default::default()
+        })
+    }
+
+
 }
 
 pub(crate) fn update(data: &mut Data, m: Message) {
