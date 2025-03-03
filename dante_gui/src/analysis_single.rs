@@ -1,6 +1,6 @@
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{button, checkbox, column, container, horizontal_rule, row, text, text_input};
-use iced::Element;
+use iced::{Element, Size};
 use std::path::PathBuf;
 use std::env;
 use std::path::Path;
@@ -26,14 +26,14 @@ pub(crate) enum Message {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub(crate) struct Data {
-    pub path: PathBuf,
-    pub analysis_name: String,
-    pub bam_file: Option<PathBuf>,
-    pub motif_file: Option<PathBuf>,
-    pub output: Option<PathBuf>,
-    pub out_bam: bool,
-    pub message_line: String,
+pub(super) struct Data {
+    path: PathBuf,
+    analysis_name: String,
+    bam_file: Option<PathBuf>,
+    motif_file: Option<PathBuf>,
+    output: Option<PathBuf>,
+    out_bam: bool,
+    message_line: String,
 }
 
 impl Data {
@@ -43,43 +43,51 @@ impl Data {
         })
     }
 
+    pub(super) fn view(&self, size: Size) -> Element<Message> {
+        // let mut content = column![].align_x(Horizontal::Center).width(Length::Fill).padding(App::PAD1);
 
-}
+        // content = make_header(content);
+        // content = make_form(content, self);
+        // content = content.push(container(horizontal_rule(2)).padding(25));
+        // content = make_report(content, self, size);
 
-pub(crate) fn update(data: &mut Data, m: Message) {
-    match m {
-        Message::BamChanged(content) => { data.bam_file = Some(PathBuf::from(content)); }
-        Message::MotifChanged(content) => { data.motif_file = Some(PathBuf::from(content)); },
-        Message::OutdirChanged(content) => { data.output = Some(PathBuf::from(content)); },
-        Message::SelectBam => { load_file(&mut data.bam_file); },
-        Message::SelectMotif => { load_file(&mut data.motif_file); },
-        Message::SelectOutdir => { load_dir(&mut data.output); },
-        Message::RunDante => { run1(data); },
-        Message::OpenResults => { open_results(data); },
-        Message::CheckboxOutBAM(is_checked) => data.out_bam = is_checked,
-        Message::Back => { unreachable!() },
+        // // let content = std::convert::Into::<Element<Message>>::into(content).explain(iced::Color::BLACK);
+        // return scrollable(content).into();
+
+        column![
+            button("Back").on_press(Message::Back),
+            loader_row("BAM file:", &self.bam_file, Message::BamChanged, Message::SelectBam),
+            loader_row("Motif file:", &self.motif_file, Message::MotifChanged, Message::SelectMotif),
+            horizontal_rule(2),
+            loader_row("Output directory:", &self.output, Message::OutdirChanged, Message::SelectOutdir),
+
+            row![
+                container("").width(App::LEFT_WIDTH).padding(App::PAD1),
+                checkbox("Output BAM", self.out_bam).on_toggle(Message::CheckboxOutBAM),
+            ].padding(10.0).align_y(Vertical::Center),
+            row![
+                container("").width(App::LEFT_WIDTH).padding(App::PAD1),
+                button("Run").on_press(Message::RunDante),
+                container(text(self.message_line.clone()).align_x(Horizontal::Left)).padding(App::PAD2),
+            ].padding(10.0).align_y(Vertical::Center),
+            draw_open_button(self),
+        ].align_x(Horizontal::Left).into()
     }
-}
 
-pub fn view(data: & Data) -> Element<Message> {
-    column![
-        button("Back").on_press(Message::Back),
-        loader_row("BAM file:", &data.bam_file, Message::BamChanged, Message::SelectBam),
-        loader_row("Motif file:", &data.motif_file, Message::MotifChanged, Message::SelectMotif),
-        horizontal_rule(2),
-        loader_row("Output directory:", &data.output, Message::OutdirChanged, Message::SelectOutdir),
-
-        row![
-            container("").width(App::LEFT_WIDTH).padding(App::PAD1),
-            checkbox("Output BAM", data.out_bam).on_toggle(Message::CheckboxOutBAM),
-        ].padding(10.0).align_y(Vertical::Center),
-        row![
-            container("").width(App::LEFT_WIDTH).padding(App::PAD1),
-            button("Run").on_press(Message::RunDante),
-            container(text(data.message_line.clone()).align_x(Horizontal::Left)).padding(App::PAD2),
-        ].padding(10.0).align_y(Vertical::Center),
-        draw_open_button(data),
-    ].align_x(Horizontal::Left).into()
+    pub(super) fn update(&mut self, m: Message) {
+        match m {
+            Message::BamChanged(content) => { self.bam_file = Some(PathBuf::from(content)); }
+            Message::MotifChanged(content) => { self.motif_file = Some(PathBuf::from(content)); },
+            Message::OutdirChanged(content) => { self.output = Some(PathBuf::from(content)); },
+            Message::SelectBam => { load_file(&mut self.bam_file); },
+            Message::SelectMotif => { load_file(&mut self.motif_file); },
+            Message::SelectOutdir => { load_dir(&mut self.output); },
+            Message::RunDante => { run1(self); },
+            Message::OpenResults => { open_results(self); },
+            Message::CheckboxOutBAM(is_checked) => self.out_bam = is_checked,
+            Message::Back => { unreachable!() },
+        }
+    }
 }
 
 fn draw_open_button<'a>(state: &Data) -> Element<'a, Message> {

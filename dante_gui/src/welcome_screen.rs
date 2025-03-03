@@ -13,7 +13,7 @@ use crate::analysis_family::Data as FamilyData;
 use crate::analysis_single::Data as SingleData;
 
 #[derive(Debug, Clone)]
-pub(crate) enum Message {
+pub(super) enum Message {
     AnalysisNamed(String),
     AnalysisSelected(Analysis),
     CreateAnalysis,
@@ -22,7 +22,7 @@ pub(crate) enum Message {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub(crate) struct Data {
+pub(super) struct Data {
     name: String,
     selected: Option<Analysis>,
 }
@@ -68,7 +68,7 @@ impl Data {
     }
 }
 
-pub(crate) fn analysis_create(state: &mut App) {
+pub(super) fn analysis_create(state: &mut App) {
     use ContentPage as CP;
     let (atype, name) = match &state.content_page {
         CP::WelcomeScreen(Data{selected: Some(atype), name}) => { (atype, name) },
@@ -88,7 +88,7 @@ pub(crate) fn analysis_create(state: &mut App) {
     }
 }
 
-pub(crate) fn analysis_reopen(state: &mut App, path: PathBuf) {
+pub(super) fn analysis_reopen(state: &mut App, path: PathBuf) {
     let (_, name, atype) = parse_analysis_dir(&path);
     match atype.as_str() {
         "single" => { state.content_page = SingleData::init(path, name); },
@@ -98,7 +98,7 @@ pub(crate) fn analysis_reopen(state: &mut App, path: PathBuf) {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Analysis {
+pub(super) enum Analysis {
     Single,
     Family,
 }

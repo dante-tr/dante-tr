@@ -63,7 +63,7 @@ impl App {
     fn view(&self) -> Element<Message> {
         let content_area: Element<Message> = match &self.content_page {
             ContentPage::WelcomeScreen(data) => data.view().map(Message::WelcomeScreen),
-            ContentPage::AnalysisSingle(data) => analysis_single::view(data).map(Message::AnalysisSingle),
+            ContentPage::AnalysisSingle(data) => data.view(self.window_size).map(Message::AnalysisSingle),
             ContentPage::AnalysisFamily(data) => data.view(self.window_size).map(Message::AnalysisFamily),
         };
 
@@ -103,7 +103,7 @@ impl App {
             },
             Message::AnalysisSingle(m) => {
                 if let CP::AnalysisSingle(data) = &mut self.content_page {
-                    analysis_single::update(data, m);
+                    data.update(m);
                 }
             },
             Message::AnalysisFamily(m) => {
