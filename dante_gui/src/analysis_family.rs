@@ -12,7 +12,7 @@ use iced::widget::{column, container, horizontal_rule, horizontal_space, row, sc
 use iced::widget::{Column, Row};
 use iced::{Element, Length, Padding, Size};
 
-use crate::{App, ContentPage};
+use crate::{App, ContentPage, MotifFile, Sex};
 
 const PSIZE: u16 = 100;
 
@@ -38,17 +38,18 @@ pub(super) enum Message {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(super) struct Data {
-    pub path: PathBuf,
-    pub analysis_name: String,
-    pub selected: Option<MotifFile>,
-    pub selected_file: Option<PathBuf>,
-    pub proband_bam: Option<PathBuf>,
-    pub proband_sex: Option<Sex>,
+    path: PathBuf,
+    analysis_name: String,
+    selected: Option<MotifFile>,
+    selected_file: Option<PathBuf>,
 
-    pub relatives: Vec<(Option<PathBuf>, Option<Relation>)>,
+    proband_bam: Option<PathBuf>,
+    proband_sex: Option<Sex>,
 
-    pub motifs: Vec<(bool, String, Vec<String>, String)>,
-    pub groups: Vec<(bool, String)>,
+    relatives: Vec<(Option<PathBuf>, Option<Relation>)>,
+
+    motifs: Vec<(bool, String, Vec<String>, String)>,
+    groups: Vec<(bool, String)>,
 }
 
 impl Data {
@@ -383,22 +384,6 @@ fn make_checkbox_row<'a>(motifs: &'a[(bool, String, Vec<String>, String)], avail
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum MotifFile {
-    #[allow(non_camel_case_types)]
-    STRSet_20220902,
-    Custom,
-}
-
-impl std::fmt::Display for MotifFile {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::STRSet_20220902 => "STRSet_20220902",
-            Self::Custom => "custom",
-        })
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Relation {
     Mother,
     Father,
@@ -419,23 +404,6 @@ impl std::fmt::Display for Relation {
             Self::Daughter => "daughter",
             Self::Son => "son",
             Self::Mate => "mate",
-        })
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Sex {
-    Male,
-    Female,
-    Unknown,
-}
-
-impl std::fmt::Display for Sex {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Male => "male",
-            Self::Female => "female",
-            Self::Unknown => "unknown",
         })
     }
 }

@@ -51,12 +51,10 @@ struct App {
     content_page: ContentPage,
 }
 
-use iced::{Font, Padding};
+use iced::Padding;
 impl App {
     const PAD1: Padding = Padding { left: 0.0, right: 5.0, top: 0.0, bottom: 0.0 };
     const PAD2: Padding = Padding { left: 5.0, right: 0.0, top: 0.0, bottom: 0.0 };
-    const LEFT_WIDTH: u16 = 120;
-    const BOLD_MONO: Font = Font { weight: iced::font::Weight::Bold, ..Font::MONOSPACE };
     const DATA_DIR: &str = "dante_data";
     const H1_SIZE: u16 = 26;
 
@@ -183,5 +181,38 @@ where
         let ctx = include_bytes!("../assets/dante_remastr_standalone.exe").to_vec();
         let bin = format!("{}/dante_remastr_standalone.exe", path);
         fs::write(bin, ctx).expect("Unable to write.");
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MotifFile {
+    #[allow(non_camel_case_types)]
+    STRSet_20220902,
+    Custom,
+}
+
+impl std::fmt::Display for MotifFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::STRSet_20220902 => "STRSet_20220902",
+            Self::Custom => "custom",
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Sex {
+    Male,
+    Female,
+    Unknown,
+}
+
+impl std::fmt::Display for Sex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Male => "male",
+            Self::Female => "female",
+            Self::Unknown => "unknown",
+        })
     }
 }
