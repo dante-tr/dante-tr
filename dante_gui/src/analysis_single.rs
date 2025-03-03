@@ -3,12 +3,12 @@ use iced::widget::{button, checkbox, column, container, horizontal_rule, horizon
 use iced::widget::{Row, Column};
 use iced::{Element, Size, Length};
 use std::path::PathBuf;
-use std::env;
 use std::path::Path;
 use std::process::Command;
-use remastr;
 use native_dialog::FileDialog;
-use std::fs;
+use serde::{Serialize, Deserialize};
+use std::fs::File;
+use std::io::{Read, Write};
 
 use crate::{App, ContentPage, MotifFile};
 
@@ -27,7 +27,7 @@ pub(crate) enum Message {
     CheckboxOutBAM(bool),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub(super) struct Data {
     path: PathBuf,
     analysis_name: String,
@@ -42,12 +42,6 @@ pub(super) struct Data {
 }
 
 impl Data {
-    pub(super) fn init(path: PathBuf, analysis_name: String) -> ContentPage {
-        ContentPage::AnalysisSingle(Data {
-            path, analysis_name, ..Default::default()
-        })
-    }
-
     pub(super) fn view(&self, size: Size) -> Element<Message> {
         println!("{:?}", size);
         let mut content = column![].align_x(Horizontal::Center);
@@ -77,6 +71,33 @@ impl Data {
 
             Message::Back => { unreachable!() },
         }
+    }
+
+    pub(super) fn init(path: PathBuf, analysis_name: String) -> ContentPage {
+        let data = Data {
+            path, analysis_name, ..Default::default()
+        };
+        data.save();
+        ContentPage::AnalysisSingle(data)
+    }
+
+    fn save(&self) -> PathBuf {
+        let json = serde_json::to_string(self).unwrap();
+        let mut output = self.path.clone();
+        output.push("params.json");
+        let mut out = File::create(&output)
+            .expect("Cannot open file for writing.");
+        out.write_all(json.as_bytes())
+            .expect("Cannot write to output file.");
+        return output;
+    }
+
+    pub(super) fn load(mut path: PathBuf) -> Self {
+        path.push("params.json");
+        let json: String = std::fs::read_to_string(path)
+            .expect("Cannot read file.");
+        serde_json::from_str(&json)
+            .expect("Cannot parse json.")
     }
 }
 
@@ -175,17 +196,17 @@ fn make_motif_selection(selected: Option<MotifFile>, selected_file: &Option<Path
     return content;
 }
 
-fn run1(state: &Data) {
-    println!("{:?}", state);
+fn run1(data: &Data) {
+    let out_dir = data.path.to_string_lossy().to_string();
+    data.save();
 
     // required params
-    let Some(ref bam_file) = state.bam_file else { return; };
-    let Some(ref motif_file) = state.selected_file else { return; };
-    let out_dir = state.path.to_string_lossy().to_string();
+    let Some(ref bam_file) = data.bam_file else { return; };
+    let Some(ref motif_file) = data.selected_file else { return; };
     let output: String = out_dir.clone() + "/remaSTR_result.tsv";
 
     // optional params
-    let out_bam = state.out_bam;
+    let out_bam = data.out_bam;
     let dedup = false;
     let print_quality = false;
     let q = 30;

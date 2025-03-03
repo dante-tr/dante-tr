@@ -52,6 +52,7 @@ struct App {
 }
 
 use iced::Padding;
+use serde::{Deserialize, Serialize};
 impl App {
     const PAD1: Padding = Padding { left: 0.0, right: 5.0, top: 0.0, bottom: 0.0 };
     const PAD2: Padding = Padding { left: 5.0, right: 0.0, top: 0.0, bottom: 0.0 };
@@ -184,7 +185,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum MotifFile {
     #[allow(non_camel_case_types)]
     STRSet_20220902,
