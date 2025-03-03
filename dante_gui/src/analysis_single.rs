@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::env;
 use std::path::Path;
 use std::process::Command;
-use remastr::run;
+use remastr;
 use native_dialog::FileDialog;
 use std::fs;
 
@@ -175,74 +175,14 @@ fn make_motif_selection(selected: Option<MotifFile>, selected_file: &Option<Path
     return content;
 }
 
-fn draw_open_button<'a>(state: &Data) -> Element<'a, Message> {
-    let report_present;
-    let report_line;
-    match &state.output {
-        Some(x) => {
-            let mut x = path_to_string(x);
-            x.push_str("/report.html");
-            if Path::new(&x).exists() {
-                report_present = true;
-                report_line = format!("Report file stored in {}.", x);
-            } else {
-                report_present = false;
-                report_line = "No report file present.".to_string();
-            }
-        },
-        None => {
-            report_present = false;
-            report_line = "No report file present.".to_string();
-        }
-    };
-
-    if report_present {
-        row![
-            container("").width(160),
-            button("Open results").on_press(Message::OpenResults),
-            container(text(report_line).align_x(Horizontal::Left)).padding(App::PAD2),
-            horizontal_space(),
-        ].padding(10.0).align_y(Vertical::Center).into()
-    } else {
-        row![
-            container("").width(160),
-            button("Open results"),
-            container(text(report_line).align_x(Horizontal::Left)).padding(App::PAD2),
-            horizontal_space(),
-        ].padding(10.0).align_y(Vertical::Center).into()
-    }
-}
-
-fn path_to_string(path: &Path) -> String {
-    let cwd = env::current_dir().unwrap().display().to_string();
-    match path.strip_prefix(cwd) {
-        Ok(x) => { x.display().to_string() },
-        Err(_) => { path.display().to_string() }
-    }
-}
-
 fn run1(state: &Data) {
     println!("{:?}", state);
 
     // required params
-    let Some(ref bam_file) = state.bam_file else {
-        return;
-    };
-    let Some(ref motif_file) = state.motif_file else {
-        return;
-    };
-
-    let mut output: String = match state.output {
-        Some(ref x) => x.display().to_string(),
-        None => {
-            return;
-        },
-    };
-    let out_dir = output.clone();
-    if !Path::new(&out_dir).exists() {
-        fs::create_dir(&out_dir).expect("Cannot create directory.");
-    }
-    output.push_str("/remaSTR_result.tsv");
+    let Some(ref bam_file) = state.bam_file else { return; };
+    let Some(ref motif_file) = state.selected_file else { return; };
+    let out_dir = state.path.to_string_lossy().to_string();
+    let output: String = out_dir.clone() + "/remaSTR_result.tsv";
 
     // optional params
     let out_bam = state.out_bam;
@@ -251,8 +191,9 @@ fn run1(state: &Data) {
     let q = 30;
     let score: Option<char> = None;
 
-    run(bam_file, motif_file, output.clone(), out_bam, (dedup, q, score, print_quality));
+    remastr::run(bam_file, motif_file, output.clone(), out_bam, (dedup, q, score, print_quality));
     println!("remaSTR finished.");
+
     // self.message_line = "remaSTR finished.".to_string();
     let bin = format!("{}/dante_remastr_standalone", App::DATA_DIR);
     let output_log = Command::new(bin)
@@ -267,21 +208,32 @@ fn run1(state: &Data) {
 }
 
 fn open_results(state: &mut Data) {
-    match state.output.as_ref() {
-        Some(x) => {
-            let mut output: String = x.to_str().unwrap().to_string();
-            output.push_str("/report.html");
-            opener::open(output).unwrap();
-        },
-        None => {
-            state.message_line = "No report found.".to_string();
-        },
+    let output = state.path.to_string_lossy().to_string() + "/report.html";
+    opener::open(output).unwrap();
+}
+
+fn draw_open_button<'a>(state: &Data) -> Element<'a, Message> {
+    let output = state.path.to_string_lossy().to_string() + "/report.html";
+    if Path::new(&output).exists() { 
+        let report_line = format!("Report file stored in {}.", output);
+        row![
+            container("").width(160),
+            button("Open results").on_press(Message::OpenResults),
+            container(text(report_line).align_x(Horizontal::Left)).padding(App::PAD2),
+            horizontal_space(),
+        ].padding(10.0).align_y(Vertical::Center).into()
+    } else {
+        let report_line = "No report file present.".to_string();
+        row![
+            container("").width(160),
+            button("Open results"),
+            container(text(report_line).align_x(Horizontal::Left)).padding(App::PAD2),
+            horizontal_space(),
+        ].padding(10.0).align_y(Vertical::Center).into()
     }
 }
 
 fn load_file(result: &mut Option<PathBuf>) {
-    // TODO: "." does not work under Windows
-    // let path = FileDialog::new().set_location(".").show_open_single_file().unwrap();
     let path = FileDialog::new().show_open_single_file().unwrap();
     let path = match path {
         Some(path) => path,
