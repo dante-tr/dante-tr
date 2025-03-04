@@ -36,6 +36,7 @@ pub(super) enum Message {
     RelativeEdit(usize, String),
 
     Analyze,
+    Print,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -94,6 +95,8 @@ impl Data {
                 => { toggle_group(self, idx, checked); }
             Message::Analyze
                 => { analyze(self); todo!() }
+            Message::Print
+                => { print_report(self); }
             Message::Back
                 => { unreachable!() /* implemented in App::update */ }
         }
@@ -355,7 +358,7 @@ fn make_report<'a>(mut content: Column<'a, Message>, data: &'a Data, size: Size)
     let r = row![
         container(text("")).width(160),
         container(button("View")).padding(PAD2),
-        container(button("Print")).padding(PAD2),
+        container(button("Print").on_press(Message::Print)).padding(PAD2),
         horizontal_space(),
     ].padding(10).align_y(Vertical::Center);
     // let r = std::convert::Into::<Element<Message>>::into(r).explain(iced::Color::BLACK);
@@ -429,4 +432,20 @@ impl std::fmt::Display for Relation {
             Self::Mate => "mate",
         })
     }
+}
+
+fn print_report(data: &mut Data) {
+    println!("{:?}", data);
+    // use tectonic;
+    // let latex = r#"
+    //     \documentclass{article}
+    //     \begin{document}
+    //     Hello, world!
+    //     \end{document}
+    // "#;
+
+    // let pdf_data: Vec<u8> = tectonic::latex_to_pdf(latex).expect("processing failed");
+    // println!("Output PDF size is {} bytes", pdf_data.len());
+    // let mut f = File::create("report.pdf").unwrap();
+    // f.write_all(&pdf_data).unwrap();
 }
