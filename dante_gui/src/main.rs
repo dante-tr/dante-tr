@@ -14,6 +14,8 @@ mod welcome_screen;
 mod analysis_family;
 mod analysis_single;
 
+mod pdf_reporting;
+
 pub fn main() -> iced::Result {
     if !Path::new(App::DATA_DIR).exists() { init_cache(App::DATA_DIR); }
 
