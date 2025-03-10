@@ -5,7 +5,7 @@ use std::fs;
 use std::path::Path;
 
 use iced::widget::{column, container, horizontal_rule, image};
-use iced::window;
+use iced::{window, Task};
 use iced::window::Settings;
 use iced::{Element, Length, Theme, Size, Subscription};
 
@@ -15,6 +15,7 @@ mod analysis_family;
 mod analysis_single;
 
 mod pdf_reporting;
+mod async_tasks;
 
 pub fn main() -> iced::Result {
     if !Path::new(App::DATA_DIR).exists() { init_cache(App::DATA_DIR); }
@@ -81,35 +82,41 @@ impl App {
         ].align_x(Horizontal::Center).into()
     }
 
-    fn update(&mut self, message: Message) {
+    fn update(&mut self, message: Message) -> Task<Message> {
         use ContentPage as CP;
         match message {
             // global state changes
             Message::WelcomeScreen(welcome_screen::Message::CreateAnalysis)
-                => { welcome_screen::analysis_create(self); }
+                => { welcome_screen::analysis_create(self); Task::none() }
             Message::WelcomeScreen(welcome_screen::Message::AnalysisReopen(path))
-                => { welcome_screen::analysis_reopen(self, path); }
+                => { welcome_screen::analysis_reopen(self, path); Task::none() }
             Message::AnalysisSingle(analysis_single::Message::Back)
-                => { back(self); }
+                => { back(self); Task::none() }
             Message::AnalysisFamily(analysis_family::Message::Back)
-                => { back(self); }
+                => { back(self); Task::none() }
             Message::Resize(size)
-                => { self.window_size = size; }
+                => { self.window_size = size; Task::none() }
 
             // local state changes
             Message::WelcomeScreen(m) => {
                 if let CP::WelcomeScreen(data) = &mut self.content_page {
                     data.update(m);
-                }
+                };
+                Task::none()
             },
             Message::AnalysisSingle(m) => {
                 if let CP::AnalysisSingle(data) = &mut self.content_page {
                     data.update(m);
-                }
+                };
+                Task::none()
             },
             Message::AnalysisFamily(m) => {
                 if let CP::AnalysisFamily(data) = &mut self.content_page {
-                    data.update(m);
+                    let task = data.update(m);
+                    task.map(Message::AnalysisFamily)
+                } else {
+                    // TODO: kill potential jobs?
+                    Task::none()
                 }
             },
         }

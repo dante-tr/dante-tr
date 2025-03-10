@@ -12,8 +12,9 @@ use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{button, checkbox, pick_list, text, text_input, tooltip};
 use iced::widget::{column, container, horizontal_rule, horizontal_space, row, scrollable};
 use iced::widget::{Column, Row};
-use iced::{Element, Length, Padding, Size};
+use iced::{Element, Length, Padding, Size, Task};
 
+use crate::async_tasks;
 use crate::pdf_reporting;
 use crate::{App, ContentPage, MotifFile, Sex};
 
@@ -37,6 +38,7 @@ pub(super) enum Message {
     RelativeEdit(usize, String),
 
     Analyze,
+    AnalysisProgress(String),
     Print,
 }
 
@@ -54,6 +56,10 @@ pub(super) struct Data {
 
     motifs: Vec<(bool, String, Vec<String>, String)>,
     groups: Vec<(bool, String)>,
+
+    progress: String,
+    tasks_done: usize,
+    tasks_todo: usize,
 }
 
 impl Data {
@@ -70,36 +76,51 @@ impl Data {
     }
 
     #[rustfmt::skip]
-    pub(super) fn update(&mut self, m: Message) {
+    pub(super) fn update(&mut self, m: Message) -> Task<Message> {
         match m {
             Message::SetMotifs(motif_file)
-                => { update_motif_selection(self, motif_file); },
+                => { update_motif_selection(self, motif_file); Task::none() },
             Message::ProbandSetSex(role)
-                => { self.proband_sex = Some(role) },
+                => { self.proband_sex = Some(role); Task::none() },
             Message::ProbandSelect
-                => { select_file(&mut self.proband_bam); }
+                => { select_file(&mut self.proband_bam); Task::none() }
             Message::ProbandEdit(text)
                 => { println!("{}", text); todo!() }
             Message::RelativeSetRelation(idx, role)
-                => { self.relatives[idx].1 = Some(role); },
+                => { self.relatives[idx].1 = Some(role); Task::none() },
             Message::RelativeAdd
-                => { self.relatives.push((None, None)); }
+                => { self.relatives.push((None, None)); Task::none() }
             Message::RelativeRemove(idx)
-                => { self.relatives.remove(idx); }
+                => { self.relatives.remove(idx); Task::none() }
             Message::RelativeSelect(idx)
-                => { select_file(&mut self.relatives[idx].0); }
+                => { select_file(&mut self.relatives[idx].0); Task::none() }
             Message::RelativeEdit(idx, text)
                 => { println!("{} {}", idx, text); todo!() }
             Message::MotifCheckbox(idx, checked)
-                => { self.motifs[idx].0 = checked; }
+                => { self.motifs[idx].0 = checked; Task::none() }
             Message::MotifGroupbox(idx, checked)
-                => { toggle_group(self, idx, checked); }
-            Message::Analyze
-                => { analyze(self); todo!() }
+                => { toggle_group(self, idx, checked); Task::none() }
             Message::Print
-                => { print_report(self); }
+                => { print_report(self); Task::none() }
             Message::Back
                 => { unreachable!() /* implemented in App::update */ }
+
+            Message::Analyze => { analyze(self) }
+            Message::AnalysisProgress(p) => {
+                self.tasks_done += 1;
+                if self.tasks_done == self.tasks_todo {
+                    self.progress = format!(
+                        "{}/{} tasks done. Analysis finished successfully.",
+                        self.tasks_done, self.tasks_todo
+                    )
+                } else {
+                    self.progress = format!(
+                        "{}/{} tasks done. {}",
+                        self.tasks_done, self.tasks_todo, p
+                    )
+                };
+                Task::none()
+            }
         }
     }
 
@@ -168,6 +189,7 @@ fn make_analyze_button(data: &Data) -> Element<Message> {
     let active = row![
         container(text("")).width(160),
         container(button("Analyze").on_press(Message::Analyze)),
+        container(text(data.progress.clone())).padding(App::PAD2),
         horizontal_space(),
     ].padding(10).align_y(Vertical::Center).into();
 
@@ -319,11 +341,52 @@ fn get_groups(motifs: &[(bool, String, Vec<String>, String)]) -> Vec<(bool, Stri
     return groups;
 }
 
-fn analyze(data: &mut Data) {
+fn analyze(data: &mut Data) -> Task<Message> {
     data.save();
-    let Some(ref file) = data.selected_file else { return; }; 
-    println!("{}", file.display());
-    println!("Analyze");
+
+    let mut tasks = Vec::new();
+    let Some(ref motif_file) = data.selected_file else { unreachable!() }; 
+    let Some(ref bam_file) = data.proband_bam else { unreachable!() };
+
+    let task_proband = get_chain(motif_file, bam_file, data.path.clone());
+    tasks.push(task_proband);
+
+    for relative in &data.relatives {
+        let Some(ref bam_file) = relative.0 else {unreachable!() };
+        let task_chain = get_chain(motif_file, bam_file, data.path.clone());
+        tasks.push(task_chain);
+
+    }
+    data.tasks_done = 0;
+    data.tasks_todo = tasks.len() * 2;
+    data.progress = format!(
+        "{}/{} tasks done. Analysis started. It might take some time.",
+        data.tasks_done, data.tasks_todo
+    );
+
+    return Task::batch(tasks);
+}
+
+fn get_chain(motif_file: &Path, bam_file: &Path, mut output_file: PathBuf) -> Task<Message> {
+    output_file.push(bam_file.file_name().unwrap());
+    output_file.set_extension("");
+    let dante_output_dir = output_file.clone();
+    output_file.push("annotations.tsv");
+
+    if !dante_output_dir.exists() {
+        std::fs::create_dir(&dante_output_dir).expect("Cannot create directory.");
+    }
+
+    let task_annotation = Task::perform(
+        async_tasks::run_annotation(motif_file.to_path_buf(), bam_file.to_path_buf(), output_file.clone()),
+        Message::AnalysisProgress
+    );
+    let task_genotyping = Task::perform(
+        async_tasks::run_genotyping(output_file, dante_output_dir),
+        Message::AnalysisProgress
+    );
+    let task_chain = task_annotation.chain(task_genotyping);
+    return task_chain;
 }
 
 fn make_report<'a>(mut content: Column<'a, Message>, data: &'a Data, size: Size) -> Column<'a, Message> {
