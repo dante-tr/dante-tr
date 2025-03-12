@@ -140,6 +140,7 @@ where
     let filenames = [
         "logo.png",
         "STRSet_20220902.tsv",
+        "STRSet_20250311.tsv",
         "templates/alignments_template.html",
         "templates/report_template.html",
         "includes/datatables.min.js",
@@ -154,6 +155,7 @@ where
     let contents = [
         include_bytes!("../assets/logo.png").to_vec(),
         include_bytes!("../assets/STRSet_20220902.tsv").to_vec(),
+        include_bytes!("../assets/STRSet_20250311.tsv").to_vec(),
         include_bytes!("../assets/templates/alignments_template.html").to_vec(),
         include_bytes!("../assets/templates/report_template.html").to_vec(),
         include_bytes!("../assets/includes/datatables.min.js").to_vec(),
@@ -198,6 +200,8 @@ where
 enum MotifFile {
     #[allow(non_camel_case_types)]
     STRSet_20220902,
+    #[allow(non_camel_case_types)]
+    STRSet_20250311,
     Custom,
 }
 
@@ -205,6 +209,7 @@ impl std::fmt::Display for MotifFile {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             Self::STRSet_20220902 => "STRSet_20220902",
+            Self::STRSet_20250311 => "STRSet_20250311",
             Self::Custom => "custom",
         })
     }

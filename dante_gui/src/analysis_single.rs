@@ -1,14 +1,17 @@
 use iced::alignment::{Horizontal, Vertical};
-use iced::widget::{button, checkbox, column, container, horizontal_rule, horizontal_space, pick_list, row, scrollable, text, text_input};
+use iced::widget::{button, checkbox, column, container, horizontal_rule, horizontal_space, pick_list, row, scrollable, text, text_input, tooltip};
 use iced::widget::{Row, Column};
 use iced::{Element, Size, Length};
-use std::path::PathBuf;
-use std::path::Path;
+use iced::Padding;
+
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use native_dialog::FileDialog;
 use serde::{Serialize, Deserialize};
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{Write, BufReader, BufRead};
+use std::collections::HashSet;
+use std::error::Error;
 
 use crate::{App, ContentPage, MotifFile};
 
@@ -16,14 +19,15 @@ use crate::{App, ContentPage, MotifFile};
 pub(crate) enum Message {
     Back,
     SetMotifs(MotifFile),
-    // MotifCheckbox(usize, bool),
-    // MotifGroupbox(usize, bool),
+    MotifCheckbox(usize, bool),
+    MotifGroupbox(usize, bool),
 
     BamChanged(String),
     SelectBam,
 
     RunDante,
     OpenResults,
+    Print,
     CheckboxOutBAM(bool),
 }
 
@@ -39,18 +43,20 @@ pub(super) struct Data {
     output: Option<PathBuf>,
     out_bam: bool,
     message_line: String,
+
+    motifs: Vec<(bool, String, Vec<String>, String)>,
+    groups: Vec<(bool, String)>,
 }
 
 impl Data {
     pub(super) fn view(&self, size: Size) -> Element<Message> {
-        println!("{:?}", size);
         let mut content = column![].align_x(Horizontal::Center);
 
         content = make_header(content);
         content = make_form(content, self);
 
         content = content.push(container(horizontal_rule(2)).padding(25));
-        // content = make_report(content, self, size);
+        content = make_report(content, self, size);
         content = content.push(draw_open_button(self));
 
         // let content = std::convert::Into::<Element<Message>>::into(content).explain(iced::Color::BLACK);
@@ -61,13 +67,14 @@ impl Data {
         match m {
             Message::BamChanged(content) => { self.bam_file = Some(PathBuf::from(content)); }
             Message::SelectBam => { load_file(&mut self.bam_file); },
-            Message::RunDante => { run1(self); },
+            Message::RunDante => { run_analysis(self); },
             Message::OpenResults => { open_results(self); },
             Message::CheckboxOutBAM(is_checked) => self.out_bam = is_checked,
 
             Message::SetMotifs(motif_file) => { update_motif_selection(self, motif_file); },
-            // Message::MotifGroupbox(idx, name) => { println!("{} {}", idx, name); },
-            // Message::MotifCheckbox(idx, name) => { println!("{} {}", idx, name); },
+            Message::MotifGroupbox(idx, checked) => { toggle_group(self, idx, checked); },
+            Message::MotifCheckbox(idx, checked) => { self.motifs[idx].0 = checked; /* Task::none() */ },
+            Message::Print => { println!(); }
 
             Message::Back => { unreachable!() },
         }
@@ -101,25 +108,93 @@ impl Data {
     }
 }
 
+fn toggle_group(data: &mut Data, idx: usize, checked: bool) {
+    data.groups[idx].0 = checked;
+    let group = data.groups[idx].1.clone();
+    for x in &mut data.motifs { if x.2.contains(&group) { x.0 = checked; } }
+}
+
 fn update_motif_selection(data: &mut Data, motif_file: MotifFile) {
     match motif_file {
-        MotifFile::STRSet_20220902 => {
-            let path = PathBuf::from(App::DATA_DIR.to_string() + "/STRSet_20220902.tsv");
-            data.selected = Some(motif_file);
-            data.selected_file = Some(path);
-            // data.motifs = parse_motifs(data.selected_file.as_ref().unwrap());
-            // data.groups = get_groups(data.motifs.as_ref());
-        },
         MotifFile::Custom => {
             if let Ok(Some(path)) = FileDialog::new().show_open_single_file() {
                 data.selected = Some(motif_file);
                 data.selected_file = Some(path);
-                // TODO: How to handle incorrect inputs?
-                // data.motifs = parse_motifs(data.selected_file.as_ref().unwrap());
-                // data.groups = get_groups(data.motifs.as_ref());
+
+                let format = validate_STR_format(data.selected_file.as_ref().unwrap());
+                if format.is_ok() {
+                    data.motifs = parse_motifs(data.selected_file.as_ref().unwrap());
+                    data.groups = get_groups(data.motifs.as_ref());
+                    data.message_line = "".to_string();
+                } else {
+                    data.motifs = Vec::new();
+                    data.groups = Vec::new();
+                    data.message_line = format.unwrap_err().to_string();
+                }
             }
         },
+        _ => {
+            let motif_str = motif_file.to_string();
+            let path = PathBuf::from(App::DATA_DIR.to_string() + "/" + &motif_str + ".tsv");
+            data.selected = Some(motif_file);
+            data.selected_file = Some(path);
+            data.motifs = parse_motifs(data.selected_file.as_ref().unwrap());
+            data.groups = get_groups(data.motifs.as_ref());
+            data.message_line = "".to_string();
+        }
     }
+}
+
+#[allow(non_snake_case)]
+fn validate_STR_format(path: &Path) -> Result<(), Box<dyn Error>> {
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+
+    let header = reader.lines().next().ok_or("File does not contain any lines.")??;
+    let header: Vec<_> = header.split('\t').collect();
+
+    if header[0] != "Disease ID"
+        { return Err("1st column has incorrect name".into()); }
+    if header[1] != "HGVS nomenclature (GRCh38 reference)"
+        { return Err("2nd column has incorrect name".into()); }
+    if header[2] != "Left flank"
+        { return Err("3rd column has incorrect name".into()); }
+    if header[3] != "Right flank"
+        { return Err("4th column has incorrect name".into()); }
+    if header[4] != "Groups"
+        { return Err("5th column has incorrect name".into()); }
+    if header[5] != "Disease name"
+        { return Err("6th column has incorrect name".into()); }
+
+    return Ok(());
+}
+
+fn parse_motifs(path: &Path) -> Vec<(bool, String, Vec<String>, String)> {
+    let file = File::open(path).expect("Cannot find motif file.");
+    let reader = BufReader::new(file);
+
+    let mut result = Vec::new();
+    for line in reader.lines().skip(1) {
+        let line = line.expect("Cannot read line from motif file.").trim().to_string();
+        let split: Vec<_> = line.split('\t').collect();
+
+        let id = split[0].to_string();
+        let groups = split[4].split(',').map(|x| x.to_string()).collect();
+        let description = split[5].to_string();
+        result.push((false, id, groups, description));
+    }
+
+    return result;
+}
+
+fn get_groups(motifs: &[(bool, String, Vec<String>, String)]) -> Vec<(bool, String)> {
+    let groups: HashSet<(bool, String)> = motifs.iter()
+        .flat_map(|x| &x.2)
+        .map(|x| (false, x.to_string()))
+        .collect();
+    let mut groups: Vec<_> = groups.into_iter().collect();
+    groups.sort();
+    return groups;
 }
 
 fn make_header(mut content: Column<Message>) -> Column<Message> {
@@ -169,7 +244,7 @@ fn make_proband_row(data: &Data) -> Row<Message> {
 }
 
 fn make_motif_selection(selected: Option<MotifFile>, selected_file: &Option<PathBuf>) -> Row<Message> {
-    let motif_files = [MotifFile::STRSet_20220902, MotifFile::Custom];
+    let motif_files = [MotifFile::STRSet_20250311, MotifFile::Custom];
 
     let content = match selected {
         None => row![
@@ -196,7 +271,7 @@ fn make_motif_selection(selected: Option<MotifFile>, selected_file: &Option<Path
     return content;
 }
 
-fn run1(data: &Data) {
+fn run_analysis(data: &Data) {
     let out_dir = data.path.to_string_lossy().to_string();
     data.save();
 
@@ -262,3 +337,89 @@ fn load_file(result: &mut Option<PathBuf>) {
     };
     *result = Some(path);
 }
+
+fn make_report<'a>(mut content: Column<'a, Message>, data: &'a Data, size: Size) -> Column<'a, Message> {
+    let available_width = size.width as usize - 5 - 160 - 5 - 5;
+
+    let mut i = 0;
+    let mut r = row![].padding(5).align_y(Vertical::Center);
+    r = r.push(container(text("Group filter: ")).width(160).align_x(Horizontal::Right).padding(App::PAD1));
+    r = r.extend(make_group_row(&data.groups, available_width, &mut i));
+    r = r.push(horizontal_space());
+    // let r = std::convert::Into::<Element<Message>>::into(r).explain(iced::Color::BLACK);
+    content = content.push(r);
+
+    let mut i = 0;
+    let mut r = row![].padding(5).align_y(Vertical::Center);
+    r = r.push(container(text("Motif filter: ")).width(160).align_x(Horizontal::Right).padding(App::PAD1));
+    r = r.extend(make_checkbox_row(&data.motifs, available_width, &mut i));
+    r = r.push(horizontal_space());
+    // let r = std::convert::Into::<Element<Message>>::into(r).explain(iced::Color::BLACK);
+    content = content.push(r);
+
+    // BUG: if available_width is too small, i is never increased
+    while i < data.motifs.len() {
+        let mut r = row![].padding(5).align_y(Vertical::Center);
+        r = r.push(container(text("")).width(160).align_x(Horizontal::Right));
+        r = r.extend(make_checkbox_row(&data.motifs, available_width, &mut i));
+        r = r.push(horizontal_space());
+        // let r = std::convert::Into::<Element<Message>>::into(r).explain(iced::Color::BLACK);
+        content = content.push(r);
+    }
+
+    const PAD2: Padding = Padding { bottom: 0.0, top: 10.0, right: 15.0, left: 0.0 };
+    let r = row![
+        container(text("")).width(160),
+        container(button("View")).padding(PAD2),
+        container(button("Print").on_press(Message::Print)).padding(PAD2),
+        horizontal_space(),
+    ].padding(10).align_y(Vertical::Center);
+    // let r = std::convert::Into::<Element<Message>>::into(r).explain(iced::Color::BLACK);
+    content = content.push(r);
+    return content;
+}
+
+fn make_group_row<'a>(groups: &'a[(bool, String)], available_width: usize, i: &mut usize) -> Vec<Element<'a, Message>> {
+    const PAD: Padding = Padding { bottom: 0.0, top: 0.0, right: 15.0, left: 0.0};
+    let spacing = 15 /*checkbox*/ + 10 /*between checkbox and label*/ + 15 /*right padding*/;
+    let letter_width = 11;
+
+    let mut v = Vec::new();
+    let mut cur_width = 0;
+    while *i < (*groups).len() && cur_width + spacing + groups[*i].1.len() * letter_width < available_width {
+        let (ref checked, ref id) = &groups[*i];
+        let ii = *i;
+        let f = move |b| Message::MotifGroupbox(ii, b);
+        v.push(container(checkbox(id, *checked).on_toggle(f)).padding(PAD).into());
+        cur_width += spacing + id.len() * letter_width;
+        *i += 1;
+    }
+    return v;
+}
+
+fn make_checkbox_row<'a>(motifs: &'a[(bool, String, Vec<String>, String)], available_width: usize, i: &mut usize) -> Vec<Element<'a, Message>> {
+    // TODO: are the lifetimes correct?
+    const PAD: Padding = Padding { bottom: 0.0, top: 0.0, right: 15.0, left: 0.0 };
+    let spacing = 15 /*checkbox*/ + 10 /*between checkbox and label*/ + 15 /*right padding*/;
+    let letter_width = 11;
+
+    let mut v = Vec::new();
+    let mut cur_width = 0;
+    while *i < (*motifs).len() && cur_width + spacing + motifs[*i].1.len() * letter_width < available_width {
+        let (ref checked, ref id, _, ref name) = &motifs[*i];
+        let ii = *i;
+        let f = move |b| Message::MotifCheckbox(ii, b);
+        v.push(container(
+            tooltip(
+                checkbox(id, *checked).on_toggle(f),
+                container(text(name)).padding(5).style(container::rounded_box),
+                tooltip::Position::FollowCursor,
+            )
+        ).padding(PAD).into());
+        cur_width += spacing + id.len() * letter_width;
+        *i += 1;
+    }
+    return v;
+}
+
+

@@ -5,7 +5,6 @@ use noodles::sam::Header;
 use noodles::sam::alignment::record::mapping_quality::MappingQuality;
 use noodles::bgzf as bgzf;
 use rayon::prelude::*;
-use core::panic;
 use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
@@ -175,22 +174,21 @@ fn read_motifs(filename: &Path) -> Vec<(Vec<u8>, TandemRepeat, Vec<u8>)> {
     let file = File::open(filename).expect("Cannot find nomenclature file.");
     let reader = BufReader::new(file);
 
-    let mut result = Vec::new();
+    // let crash = |_| panic!("line {}: Nomenclature {} malformatted. Accepted format is <chr>:g.<start>_<end><sequence>[repetitions].", i+1, split[1])
+    // assert!(split.len() == 4,
+    // "Malformatted line, expected format is <name>\\t<left_flank>\\t<hgvs_nomenclature>\\t<right_flank>\\n.");
+    // Accepted format is <chr>:g.<start>_<end><sequence>[repetitions].
 
-    for (i, line) in reader.lines().enumerate() {
+    let mut result = Vec::new();
+    for line in reader.lines().skip(1) {
         let line = line.expect("Cannot read line from nomenclature file.").trim().to_owned();
         let split: Vec<_> = line.split('\t').collect();
-        assert!(split.len() == 4,
-            "Malformatted line, expected format is <name>\\t<left_flank>\\t<hgvs_nomenclature>\\t<right_flank>\\n.");
+
         let name = split[0].to_owned();
-        let left_flank = split[1].as_bytes().to_owned();
-        let mut repeat: TandemRepeat = split[2].parse()
-            .unwrap_or_else(|_| panic!("\
-                line {}: Nomenclature {} malformatted. \
-                Accepted format is <chr>:g.<start>_<end><sequence>[repetitions].\
-            ", i+1, split[1]));
-        let right_flank = split[3].as_bytes().to_owned();
+        let left_flank = split[2].as_bytes().to_owned();
+        let mut repeat: TandemRepeat = split[1].parse().expect("Malformatted nomenclature found.");
         repeat.name = Some(name);
+        let right_flank = split[3].as_bytes().to_owned();
 
         result.push((left_flank, repeat, right_flank));
     }

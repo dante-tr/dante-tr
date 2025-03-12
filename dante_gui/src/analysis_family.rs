@@ -294,6 +294,13 @@ fn update_motif_selection(data: &mut Data, motif_file: MotifFile) {
             data.motifs = parse_motifs(data.selected_file.as_ref().unwrap());
             data.groups = get_groups(data.motifs.as_ref());
         },
+        MotifFile::STRSet_20250311 => {
+            let path = PathBuf::from(App::DATA_DIR.to_string() + "/STRSet_20250311.tsv");
+            data.selected = Some(motif_file);
+            data.selected_file = Some(path);
+            data.motifs = parse_motifs(data.selected_file.as_ref().unwrap());
+            data.groups = get_groups(data.motifs.as_ref());
+        },
         MotifFile::Custom => {
             if let Ok(Some(path)) = FileDialog::new().show_open_single_file() {
                 data.selected = Some(motif_file);
