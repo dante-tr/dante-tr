@@ -500,4 +500,5 @@ impl std::fmt::Display for Relation {
 
 fn print_report(data: &mut Data) {
     pdf_reporting::simple_report(data);
+    opener::open("typst_report.pdf").unwrap();
 }
