@@ -1,77 +1,104 @@
 use iced::alignment::Horizontal;
 use iced::widget::{button, column, scrollable};
 use iced::{Element, Size};
+use iced::widget::Column;
+use iced::widget::{row, container, text};
+use iced::Length;
+use iced::alignment::Vertical;
+use iced::widget::text_input;
 
 use std::path::PathBuf;
 use serde::{Serialize, Deserialize};
+use std::io::{BufReader, BufRead};
 use std::fs::File;
-use std::io::Write;
+use std::iter::zip;
 
 use crate::ContentPage;
+use crate::App;
 
 #[derive(Debug, Clone)]
 pub(crate) enum Message {
-    Edit,
     Exit(PathBuf),
-    SaveExit(PathBuf),
+    Save,
+    Edit(usize, String)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub(super) struct Data {
-    path: PathBuf,
+    source: PathBuf,
     bam_file: PathBuf,
+    meta_file: PathBuf,
+    header: Vec<String>,
+    content: Vec<String>
 }
 
 impl Data {
     pub(super) fn view(&self, _size: Size) -> Element<Message> {
         let mut content = column![].align_x(Horizontal::Center);
 
-        content = content.push(
-            button("Exit").on_press(Message::Exit(self.path.clone()))
-        );
-        content = content.push(
-            button("Save&Exit").on_press(Message::SaveExit(self.path.clone()))
-        );
+        content = view_header(content, self.source.clone());
+        content = view_metadata(content, &self.header, &self.content);
         // let content = std::convert::Into::<Element<Message>>::into(content).explain(iced::Color::BLACK);
-        return scrollable(content).into();
+        return content.into();
     }
 
     pub(super) fn update(&mut self, m: Message) {
+        use std::io::Write;
         match m {
-            Message::Edit => {}
-            Message::Exit(_) => { unreachable!() }
-            Message::SaveExit(_) => { unreachable!() }
+            Message::Exit(_) => { unreachable!("Implemented in App::update."); }
+            Message::Save => {
+                let mut f = File::create(&self.meta_file).unwrap();
+                writeln!(f, "{}", self.header.join("\t")).expect("Error writing.");
+                writeln!(f, "{}", self.content.join("\t")).expect("Error writing.");
+
+            }
+            Message::Edit(idx, entry) => { self.content[idx] = entry; }
         }
     }
 
-    // pub(super) fn init(path: PathBuf, analysis_name: String) -> ContentPage {
-    //     let data = Data { path, analysis_name, ..Default::default() };
-    //     data.save();
-    //     // ContentPage::AnalysisSingle(data)
-    //     ContentPage::default()
-    // }
+    pub(super) fn open(source: PathBuf, bam_file: PathBuf) -> ContentPage {
+        let mut meta_file = bam_file.clone();
+        meta_file.set_extension("meta.tsv");
+        // if !meta_file.exists() { return "No metadata found.".to_string(); }
+        // if meta_file.is_dir() { return "No metadata found.".to_string(); }
 
-    fn save(&self) -> PathBuf {
-        let json = serde_json::to_string(self).unwrap();
-        let mut output = self.path.clone();
-        output.push("params.json");
-        let mut out = File::create(&output)
-            .expect("Cannot open file for writing.");
-        out.write_all(json.as_bytes())
-            .expect("Cannot write to output file.");
-        return output;
-    }
+        let mut lines = BufReader::new(File::open(&meta_file).expect("Cannot open metadata file.")).lines();
+        let header = lines.next().unwrap().unwrap();
+        let header: Vec<String> = header.split("\t").map(|x| x.to_string()).collect();
+        let content = lines.next().unwrap().unwrap();
+        let content: Vec<String> = content.split("\t").map(|x| x.to_string()).collect();
 
-    pub(super) fn load(mut path: PathBuf) -> Self {
-        path.push("params.json");
-        let json: String = std::fs::read_to_string(path)
-            .expect("Cannot read file.");
-        serde_json::from_str(&json)
-            .expect("Cannot parse json.")
+        let data = Data {
+            source,
+            bam_file,
+            meta_file,
+            header,
+            content
+        };
+        return ContentPage::MetadataEditor(data);
     }
 }
 
-pub(super) fn open(source: PathBuf, bam_file: PathBuf) -> ContentPage {
-    println!("Edit metadata {:?} {:?}", source, bam_file);
-    ContentPage::MetadataEditor(Data { path: source, bam_file })
+fn view_metadata<'a>(content: Column<'a, Message>, keys: &'a[String], values: &'a[String]) -> Column<'a, Message> {
+    let mut col = column![];
+
+    for (idx, (key, value)) in zip(keys, values).enumerate() {
+        let msg = move |x| Message::Edit(idx, x);
+        col = col.push(row![
+            container(text(key.clone())).width(350).align_x(Horizontal::Right).padding(App::PAD1),
+            container(text_input("add value", value).on_input(msg)).padding(App::PAD1),
+            container("").width(10)
+        ].padding(10).align_y(Vertical::Center));
+    }
+
+    return content.push(scrollable(col));
+}
+
+fn view_header(mut content: Column<Message>, source: PathBuf) -> Column<Message> {
+    content = content.push(row![
+        container(button("Exit").on_press(Message::Exit(source))).width(100),
+        container(text("Metadata editor").size(App::H1_SIZE)).align_x(Horizontal::Center).width(Length::Fill),
+        container(button("Save").on_press(Message::Save)).width(100).align_x(Horizontal::Right),
+    ].padding(25).align_y(Vertical::Center));
+    return content;
 }

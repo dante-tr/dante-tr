@@ -88,7 +88,7 @@ impl App {
 
     fn update(&mut self, message: Message) -> Task<Message> {
         use ContentPage as CP;
-        use metadata_editor::open as open;
+        use metadata_editor::Data as MetaEditor;
         use welcome_screen::analysis_create as analysis_create;
         use welcome_screen::analysis_reopen as analysis_reopen;
 
@@ -108,12 +108,9 @@ impl App {
             }
 
             Message::AnalysisSingle(analysis_single::Message::EditMetadata(source, bam_file)) => {
-                self.content_page = open(source, bam_file); Task::none()
+                self.content_page = MetaEditor::open(source, bam_file); Task::none()
             }
             Message::MetadataEditor(metadata_editor::Message::Exit(source)) => {
-                self.content_page = analysis_reopen(source); Task::none()
-            }
-            Message::MetadataEditor(metadata_editor::Message::SaveExit(source)) => {
                 self.content_page = analysis_reopen(source); Task::none()
             }
 
@@ -143,7 +140,9 @@ impl App {
                 }
             },
             Message::MetadataEditor(m) => {
-                println!("{:?}", m);
+                if let CP::MetadataEditor(data) = &mut self.content_page {
+                    data.update(m);
+                }
                 Task::none()
             },
         }
