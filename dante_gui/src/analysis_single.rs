@@ -1,9 +1,9 @@
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{button, checkbox, column, container, horizontal_rule, horizontal_space, pick_list, row, scrollable, text, text_input, tooltip};
 use iced::widget::{Row, Column};
-use iced::{Element, Size, Length};
-use iced::Padding;
+use iced::{Element, Length, Size, Padding};
 
+use std::iter::zip;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use native_dialog::FileDialog;
@@ -24,6 +24,7 @@ pub(crate) enum Message {
 
     BamChanged(String),
     SelectBam,
+    EditMetadata(PathBuf, PathBuf),
 
     RunDante,
     OpenResults,
@@ -77,13 +78,12 @@ impl Data {
             Message::Print => { println!(); }
 
             Message::Back => { unreachable!() },
+            Message::EditMetadata(_, _) => { unreachable!() /* implemented in main */ }
         }
     }
 
     pub(super) fn init(path: PathBuf, analysis_name: String) -> ContentPage {
-        let data = Data {
-            path, analysis_name, ..Default::default()
-        };
+        let data = Data { path, analysis_name, ..Default::default() };
         data.save();
         ContentPage::AnalysisSingle(data)
     }
@@ -233,14 +233,60 @@ fn make_form<'a>(mut content: Column<'a, Message>, data: &'a Data) -> Column<'a,
 
 fn make_proband_row(data: &Data) -> Row<Message> {
     let proband = data.bam_file.clone().unwrap_or_default().to_string_lossy().to_string();
-    // let sex = [Sex::Male, Sex::Female, Sex::Unknown];
+
+    let metadata = get_metadata(data.bam_file.clone());
+    let edit_button = if data.bam_file.is_some() {
+        let edit_msg = Message::EditMetadata(data.path.clone(), data.bam_file.clone().unwrap());
+        button("Edit metadata").on_press(edit_msg)
+    } else {
+        button("Edit metadata")
+    };
 
     row![
         container(text("BAM file: ")).width(160).align_x(Horizontal::Right).padding(App::PAD1),
-        container(text_input("Type path or click search...", &proband).on_input(Message::BamChanged)).padding(App::PAD1),
+        container(
+            tooltip(
+                text_input("Type path or click search...", &proband).on_input(Message::BamChanged),
+                container(text(metadata)).padding(5).style(container::rounded_box),
+                tooltip::Position::FollowCursor,
+            )
+        ).padding(App::PAD1),
         // container(pick_list(sex, data.proband_sex, Message::ProbandSetSex).placeholder("sex").width(PSIZE)).padding(App::PAD1),
-        container(button("Search").on_press(Message::SelectBam)).padding(App::PAD1)
+        container(button("Search").on_press(Message::SelectBam)).padding(App::PAD1),
+        container(edit_button).padding(App::PAD1)
     ].padding(10).align_y(Vertical::Center)
+}
+
+fn get_metadata(bam_file: Option<PathBuf>) -> String {
+    if bam_file.is_none() { return "No metadata found.".to_string(); }
+
+    let mut meta_file = bam_file.unwrap();
+    meta_file.set_extension("meta.tsv");
+    if !meta_file.exists() { return "No metadata found.".to_string(); }
+    if meta_file.is_dir() { return "No metadata found.".to_string(); }
+
+    let mut lines = BufReader::new(File::open(meta_file).expect("Cannot open metadata file.")).lines();
+    let header = lines.next().unwrap().unwrap();
+    let header = header.split("\t");
+    let content = lines.next().unwrap().unwrap();
+    let content = content.split("\t");
+
+    // TODO: select most important data
+    // let mut result = String::new();
+    // for (h, c) in zip(header, content) {
+    //     result.push_str(h);
+    //     result.push(':');
+    //     result.push_str(c);
+    //     result.push('\n');
+    // }
+    let mut result = "".to_string();
+    result.push_str("Metadata stored in vpuk-23-001504-A.meta.tsv\n");
+    result.push_str("Patient name: John Doe\n");
+    result.push_str("Sample ID: 18298371\n");
+    result.push_str("Gender: Male\n");
+    result.push_str("+ 32 other entries.\n");
+
+    return result;
 }
 
 fn make_motif_selection(selected: Option<MotifFile>, selected_file: &Option<PathBuf>) -> Row<Message> {

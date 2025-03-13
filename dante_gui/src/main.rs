@@ -15,6 +15,7 @@ mod analysis_family;
 mod analysis_single;
 
 mod pdf_reporting;
+mod metadata_editor;
 mod async_tasks;
 
 pub fn main() -> iced::Result {
@@ -32,6 +33,7 @@ enum Message {
     WelcomeScreen(welcome_screen::Message),
     AnalysisSingle(analysis_single::Message),
     AnalysisFamily(analysis_family::Message),
+    MetadataEditor(metadata_editor::Message),
     Resize(Size),
 }
 
@@ -40,6 +42,7 @@ enum ContentPage {
     WelcomeScreen(welcome_screen::Data),
     AnalysisSingle(analysis_single::Data),
     AnalysisFamily(analysis_family::Data),
+    MetadataEditor(metadata_editor::Data),
 }
 
 impl Default for ContentPage {
@@ -67,6 +70,7 @@ impl App {
             ContentPage::WelcomeScreen(data) => data.view().map(Message::WelcomeScreen),
             ContentPage::AnalysisSingle(data) => data.view(self.window_size).map(Message::AnalysisSingle),
             ContentPage::AnalysisFamily(data) => data.view(self.window_size).map(Message::AnalysisFamily),
+            ContentPage::MetadataEditor(data) => data.view(self.window_size).map(Message::MetadataEditor),
         };
 
         // let content_area = std::convert::Into::<Element<Message>>::into(content_area).explain(iced::Color::BLACK);
@@ -84,20 +88,40 @@ impl App {
 
     fn update(&mut self, message: Message) -> Task<Message> {
         use ContentPage as CP;
+        use metadata_editor::open as open;
+        use welcome_screen::analysis_create as analysis_create;
+        use welcome_screen::analysis_reopen as analysis_reopen;
+
         match message {
             // global state changes
-            Message::WelcomeScreen(welcome_screen::Message::CreateAnalysis)
-                => { welcome_screen::analysis_create(self); Task::none() }
-            Message::WelcomeScreen(welcome_screen::Message::AnalysisReopen(path))
-                => { welcome_screen::analysis_reopen(self, path); Task::none() }
-            Message::AnalysisSingle(analysis_single::Message::Back)
-                => { back(self); Task::none() }
-            Message::AnalysisFamily(analysis_family::Message::Back)
-                => { back(self); Task::none() }
-            Message::Resize(size)
-                => { self.window_size = size; Task::none() }
+            Message::AnalysisSingle(analysis_single::Message::Back) => {
+                self.content_page = CP::default(); Task::none()
+            }
+            Message::AnalysisFamily(analysis_family::Message::Back) => {
+                self.content_page = CP::default(); Task::none()
+            }
+            Message::WelcomeScreen(welcome_screen::Message::CreateAnalysis(name, atype)) => {
+                self.content_page = analysis_create(name, atype); Task::none()
+            }
+            Message::WelcomeScreen(welcome_screen::Message::AnalysisReopen(path)) => {
+                self.content_page = analysis_reopen(path); Task::none()
+            }
 
-            // local state changes
+            Message::AnalysisSingle(analysis_single::Message::EditMetadata(source, bam_file)) => {
+                self.content_page = open(source, bam_file); Task::none()
+            }
+            Message::MetadataEditor(metadata_editor::Message::Exit(source)) => {
+                self.content_page = analysis_reopen(source); Task::none()
+            }
+            Message::MetadataEditor(metadata_editor::Message::SaveExit(source)) => {
+                self.content_page = analysis_reopen(source); Task::none()
+            }
+
+            Message::Resize(size) => {
+                self.window_size = size; Task::none()
+            }
+
+            // relay message
             Message::WelcomeScreen(m) => {
                 if let CP::WelcomeScreen(data) = &mut self.content_page {
                     data.update(m);
@@ -112,12 +136,15 @@ impl App {
             },
             Message::AnalysisFamily(m) => {
                 if let CP::AnalysisFamily(data) = &mut self.content_page {
-                    let task = data.update(m);
-                    task.map(Message::AnalysisFamily)
+                    data.update(m).map(Message::AnalysisFamily)
                 } else {
                     // TODO: kill potential jobs?
                     Task::none()
                 }
+            },
+            Message::MetadataEditor(m) => {
+                println!("{:?}", m);
+                Task::none()
             },
         }
     }
@@ -127,10 +154,6 @@ impl App {
             return Message::Resize(size);
         })
     }
-}
-
-fn back(state: &mut App) {
-    state.content_page = ContentPage::WelcomeScreen(welcome_screen::Data::default());
 }
 
 fn init_cache<S>(path: &S)

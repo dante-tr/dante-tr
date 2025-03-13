@@ -16,7 +16,7 @@ use crate::analysis_single::Data as SingleData;
 pub(super) enum Message {
     AnalysisNamed(String),
     AnalysisSelected(Analysis),
-    CreateAnalysis,
+    CreateAnalysis(String, Analysis),
     AnalysisReopen(PathBuf),
     AnalysisDelete(PathBuf),
 }
@@ -62,20 +62,13 @@ impl Data {
             Message::AnalysisSelected(analysis) => { self.selected = Some(analysis); },
             Message::AnalysisNamed(name) => { self.name = name; },
             Message::AnalysisDelete(path) => { fs::remove_dir_all(path).unwrap(); }
-            Message::CreateAnalysis => { unreachable!() /* implemented in App::update */ },
+            Message::CreateAnalysis(_, _) => { unreachable!() /* implemented in App::update */ }
             Message::AnalysisReopen(_) => { unreachable!() /* implemented in App::update */ },
         }
     }
 }
 
-pub(super) fn analysis_create(state: &mut App) {
-    use ContentPage as CP;
-    let (atype, name) = match &state.content_page {
-        CP::WelcomeScreen(Data{selected: Some(atype), name}) => { (atype, name) },
-        _ => { unreachable!() }
-    };
-    let name = name.to_string();
-
+pub(super) fn analysis_create(name: String, atype: Analysis) -> ContentPage {
     let time: DateTime<Local> = SystemTime::now().into();
     let time = time.format("%Y-%m-%d-%H-%M-%S");
 
@@ -83,17 +76,17 @@ pub(super) fn analysis_create(state: &mut App) {
     mkdir_p(&path);
 
     match atype {
-        Analysis::Single => { state.content_page = SingleData::init(path, name); },
-        Analysis::Family => { state.content_page = FamilyData::init(path, name); }
+        Analysis::Single => { return SingleData::init(path, name); },
+        Analysis::Family => { return FamilyData::init(path, name); }
     }
 }
 
-pub(super) fn analysis_reopen(state: &mut App, path: PathBuf) {
+pub(super) fn analysis_reopen(path: PathBuf) -> ContentPage {
     let (_, _, atype) = parse_analysis_dir(&path);
     use ContentPage as CP;
     match atype.as_str() {
-        "single" => { state.content_page = CP::AnalysisSingle(SingleData::load(path)); },
-        "family" => { state.content_page = CP::AnalysisFamily(FamilyData::load(path)); },
+        "single" => { return CP::AnalysisSingle(SingleData::load(path)); },
+        "family" => { return CP::AnalysisFamily(FamilyData::load(path)); },
         _ => { unreachable!() }
     }
 }
@@ -172,9 +165,12 @@ fn make_previous_list(_: &Data) -> Element<Message> {
 }
 
 fn make_button1(data: &Data) -> Element<Message> {
-    if data.selected.is_none() { return button("Create").into() }
     if data.name.is_empty() { return button("Create").into() }
-    return button("Create").on_press(Message::CreateAnalysis).into()
+    let msg = match (&data.name, data.selected) {
+        (_, None) => { return button("Create").into(); },
+        (x, Some(y)) => { Message::CreateAnalysis(x.clone(), y) }
+    };
+    return button("Create").on_press(msg).into()
 }
 
 fn mkdir_p<P>(dir: P)
