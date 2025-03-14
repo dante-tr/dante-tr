@@ -26,7 +26,6 @@ pub(crate) enum Message {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub(super) struct Data {
     source: PathBuf,
-    bam_file: PathBuf,
     meta_file: PathBuf,
     header: Vec<String>,
     content: Vec<String>
@@ -56,11 +55,10 @@ impl Data {
         }
     }
 
-    pub(super) fn open(source: PathBuf, bam_file: PathBuf) -> ContentPage {
-        let mut meta_file = bam_file.clone();
-        meta_file.set_extension("meta.tsv");
-        // if !meta_file.exists() { return "No metadata found.".to_string(); }
-        // if meta_file.is_dir() { return "No metadata found.".to_string(); }
+    pub(super) fn open(source: PathBuf, meta_file: PathBuf) -> ContentPage {
+        if !meta_file.exists() {
+            std::fs::copy("./assets/template.meta.tsv", &meta_file).unwrap();
+        }
 
         let mut lines = BufReader::new(File::open(&meta_file).expect("Cannot open metadata file.")).lines();
         let header = lines.next().unwrap().unwrap();
@@ -70,7 +68,6 @@ impl Data {
 
         let data = Data {
             source,
-            bam_file,
             meta_file,
             header,
             content
@@ -96,7 +93,7 @@ fn view_metadata<'a>(content: Column<'a, Message>, keys: &'a[String], values: &'
 
 fn view_header(mut content: Column<Message>, source: PathBuf) -> Column<Message> {
     content = content.push(row![
-        container(button("Exit").on_press(Message::Exit(source))).width(100),
+        container(button("Back").on_press(Message::Exit(source))).width(100),
         container(text("Metadata editor").size(App::H1_SIZE)).align_x(Horizontal::Center).width(Length::Fill),
         container(button("Save").on_press(Message::Save)).width(100).align_x(Horizontal::Right),
     ].padding(25).align_y(Vertical::Center));

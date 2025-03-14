@@ -107,8 +107,10 @@ impl App {
                 self.content_page = analysis_reopen(path); Task::none()
             }
 
-            Message::AnalysisSingle(analysis_single::Message::EditMetadata(source, bam_file)) => {
-                self.content_page = MetaEditor::open(source, bam_file); Task::none()
+            Message::AnalysisSingle(analysis_single::Message::EditMetadata(source, meta_file)) => {
+                let CP::AnalysisSingle(ref data) = self.content_page else { unreachable!() };
+                data.save();
+                self.content_page = MetaEditor::open(source, meta_file); Task::none()
             }
             Message::MetadataEditor(metadata_editor::Message::Exit(source)) => {
                 self.content_page = analysis_reopen(source); Task::none()
@@ -127,9 +129,10 @@ impl App {
             },
             Message::AnalysisSingle(m) => {
                 if let CP::AnalysisSingle(data) = &mut self.content_page {
-                    data.update(m);
-                };
-                Task::none()
+                    data.update(m).map(Message::AnalysisSingle)
+                } else {
+                    Task::none()
+                }
             },
             Message::AnalysisFamily(m) => {
                 if let CP::AnalysisFamily(data) = &mut self.content_page {

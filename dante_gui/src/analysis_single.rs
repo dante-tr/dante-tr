@@ -1,11 +1,10 @@
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{button, checkbox, column, container, horizontal_rule, horizontal_space, pick_list, row, scrollable, text, text_input, tooltip};
-use iced::widget::{Row, Column};
-use iced::{Element, Length, Size, Padding};
+use iced::widget::{Row, Column, Button};
+use iced::{Element, Length, Size, Padding, Task};
 
 use std::iter::zip;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use native_dialog::FileDialog;
 use serde::{Serialize, Deserialize};
 use std::fs::File;
@@ -14,6 +13,7 @@ use std::collections::HashSet;
 use std::error::Error;
 
 use crate::{App, ContentPage, MotifFile};
+use crate::async_tasks;
 
 #[derive(Debug, Clone)]
 pub(crate) enum Message {
@@ -27,6 +27,7 @@ pub(crate) enum Message {
     EditMetadata(PathBuf, PathBuf),
 
     RunDante,
+    AnalysisProgress(String),
     OpenResults,
     Print,
     CheckboxOutBAM(bool),
@@ -34,8 +35,9 @@ pub(crate) enum Message {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub(super) struct Data {
-    path: PathBuf,
+    analysis_path: PathBuf,
     analysis_name: String,
+
     selected: Option<MotifFile>,
     selected_file: Option<PathBuf>,
 
@@ -53,44 +55,45 @@ impl Data {
     pub(super) fn view(&self, size: Size) -> Element<Message> {
         let mut content = column![].align_x(Horizontal::Center);
 
-        content = make_header(content);
-        content = make_form(content, self);
+        content = view_header(content);
+        content = view_form(content, self);
 
         content = content.push(container(horizontal_rule(2)).padding(25));
-        content = make_report(content, self, size);
+        content = view_report(content, self, size);
         content = content.push(draw_open_button(self));
 
         // let content = std::convert::Into::<Element<Message>>::into(content).explain(iced::Color::BLACK);
         return scrollable(content).into();
     }
 
-    pub(super) fn update(&mut self, m: Message) {
+    pub(super) fn update(&mut self, m: Message) -> Task<Message> {
         match m {
-            Message::BamChanged(content) => { self.bam_file = Some(PathBuf::from(content)); }
-            Message::SelectBam => { load_file(&mut self.bam_file); },
-            Message::RunDante => { run_analysis(self); },
-            Message::OpenResults => { open_results(self); },
-            Message::CheckboxOutBAM(is_checked) => self.out_bam = is_checked,
+            Message::BamChanged(content) => { self.bam_file = Some(PathBuf::from(content)); Task::none() }
+            Message::SelectBam => { load_file(&mut self.bam_file); Task::none() },
+            Message::RunDante => { analyze(self) },
+            Message::OpenResults => { open_results(self); Task::none() },
+            Message::CheckboxOutBAM(is_checked) => { self.out_bam = is_checked; Task::none() },
 
-            Message::SetMotifs(motif_file) => { update_motif_selection(self, motif_file); },
-            Message::MotifGroupbox(idx, checked) => { toggle_group(self, idx, checked); },
-            Message::MotifCheckbox(idx, checked) => { self.motifs[idx].0 = checked; /* Task::none() */ },
-            Message::Print => { println!(); }
+            Message::SetMotifs(motif_file) => { update_motif_selection(self, motif_file); Task::none() },
+            Message::MotifGroupbox(idx, checked) => { toggle_group(self, idx, checked); Task::none() },
+            Message::MotifCheckbox(idx, checked) => { self.motifs[idx].0 = checked; Task::none() },
+            Message::Print => { println!(); Task::none() }
+            Message::AnalysisProgress(msg) => { self.message_line = msg; Task::none() }
 
-            Message::Back => { unreachable!() },
-            Message::EditMetadata(_, _) => { unreachable!() /* implemented in main */ }
+            Message::Back => { unreachable!("Implemented in App::update."); },
+            Message::EditMetadata(_, _) => { unreachable!("Implemented in App::update."); }
         }
     }
 
     pub(super) fn init(path: PathBuf, analysis_name: String) -> ContentPage {
-        let data = Data { path, analysis_name, ..Default::default() };
+        let data = Data { analysis_path: path, analysis_name, ..Default::default() };
         data.save();
         ContentPage::AnalysisSingle(data)
     }
 
-    fn save(&self) -> PathBuf {
+    pub(super) fn save(&self) -> PathBuf {
         let json = serde_json::to_string(self).unwrap();
-        let mut output = self.path.clone();
+        let mut output = self.analysis_path.clone();
         output.push("params.json");
         let mut out = File::create(&output)
             .expect("Cannot open file for writing.");
@@ -197,7 +200,7 @@ fn get_groups(motifs: &[(bool, String, Vec<String>, String)]) -> Vec<(bool, Stri
     return groups;
 }
 
-fn make_header(mut content: Column<Message>) -> Column<Message> {
+fn view_header(mut content: Column<Message>) -> Column<Message> {
     content = content.push(row![
         container(button("Back").on_press(Message::Back)).width(100),
         container(text("Single analysis").size(App::H1_SIZE)).align_x(Horizontal::Center).width(Length::Fill),
@@ -206,7 +209,7 @@ fn make_header(mut content: Column<Message>) -> Column<Message> {
     return content;
 }
 
-fn make_form<'a>(mut content: Column<'a, Message>, data: &'a Data) -> Column<'a, Message> {
+fn view_form<'a>(mut content: Column<'a, Message>, data: &'a Data) -> Column<'a, Message> {
     content = content.push(row![
         container(text("Analysis name: ")).width(160).align_x(Horizontal::Right).padding(App::PAD1),
         container(text(data.analysis_name.clone())).width(Length::Fill).align_x(Horizontal::Left)
@@ -233,14 +236,7 @@ fn make_form<'a>(mut content: Column<'a, Message>, data: &'a Data) -> Column<'a,
 
 fn make_proband_row(data: &Data) -> Row<Message> {
     let proband = data.bam_file.clone().unwrap_or_default().to_string_lossy().to_string();
-
-    let metadata = get_metadata(data.bam_file.clone());
-    let edit_button = if data.bam_file.is_some() {
-        let edit_msg = Message::EditMetadata(data.path.clone(), data.bam_file.clone().unwrap());
-        button("Edit metadata").on_press(edit_msg)
-    } else {
-        button("Edit metadata")
-    };
+    let (metadata, edit_button) = get_metadata(data);
 
     row![
         container(text("BAM file: ")).width(160).align_x(Horizontal::Right).padding(App::PAD1),
@@ -257,36 +253,40 @@ fn make_proband_row(data: &Data) -> Row<Message> {
     ].padding(10).align_y(Vertical::Center)
 }
 
-fn get_metadata(bam_file: Option<PathBuf>) -> String {
-    if bam_file.is_none() { return "No metadata found.".to_string(); }
+fn get_metadata(data: &Data) -> (String, Button<Message>) {
+    let bam_file = match &data.bam_file {
+        None => { return ("No BAM file found.".to_string(), button("Edit metadata")); },
+        Some(bam_file) => { bam_file },
+    };
+    if !bam_file.exists() { return ("No BAM file found.".to_string(), button("Edit metadata")); }
 
-    let mut meta_file = bam_file.unwrap();
+    let mut meta_file = bam_file.clone();
     meta_file.set_extension("meta.tsv");
-    if !meta_file.exists() { return "No metadata found.".to_string(); }
-    if meta_file.is_dir() { return "No metadata found.".to_string(); }
+    let edit_msg = Message::EditMetadata(data.analysis_path.clone(), meta_file.clone());
+    if !meta_file.exists() {
+        return ("No metadata found.".to_string(), button("Edit metadata").on_press(edit_msg));
+    }
 
-    let mut lines = BufReader::new(File::open(meta_file).expect("Cannot open metadata file.")).lines();
+    let mut lines = BufReader::new(File::open(&meta_file).expect("Cannot open metadata file.")).lines();
     let header = lines.next().unwrap().unwrap();
     let header = header.split("\t");
     let content = lines.next().unwrap().unwrap();
     let content = content.split("\t");
 
-    // TODO: select most important data
-    // let mut result = String::new();
-    // for (h, c) in zip(header, content) {
-    //     result.push_str(h);
-    //     result.push(':');
-    //     result.push_str(c);
-    //     result.push('\n');
-    // }
-    let mut result = "".to_string();
-    result.push_str("Metadata stored in vpuk-23-001504-A.meta.tsv\n");
-    result.push_str("Patient name: John Doe\n");
-    result.push_str("Sample ID: 18298371\n");
-    result.push_str("Gender: Male\n");
-    result.push_str("+ 32 other entries.\n");
+    let mut metadata = String::new();
+    let mut n_others = 0;
+    metadata.push_str(&format!("Metadata stored in {}\n", meta_file.file_name().unwrap().to_str().unwrap()));
+    for (h, c) in zip(header, content) {
+        if !c.is_empty() {
+            match h.strip_prefix("*") {
+                Some(stripped) => {metadata.push_str(&format!("{}: {}\n", stripped, c)); },
+                None => { n_others += 1; }
+            }
+        }
+    }
+    metadata.push_str(&format!("+ {} other entries.\n", n_others));
 
-    return result;
+    return (metadata, button("Edit metadata").on_press(edit_msg));
 }
 
 fn make_motif_selection(selected: Option<MotifFile>, selected_file: &Option<PathBuf>) -> Row<Message> {
@@ -317,45 +317,43 @@ fn make_motif_selection(selected: Option<MotifFile>, selected_file: &Option<Path
     return content;
 }
 
-fn run_analysis(data: &Data) {
-    let out_dir = data.path.to_string_lossy().to_string();
+fn analyze(data: &mut Data) -> Task<Message> {
     data.save();
 
-    // required params
-    let Some(ref bam_file) = data.bam_file else { return; };
-    let Some(ref motif_file) = data.selected_file else { return; };
-    let output: String = out_dir.clone() + "/remaSTR_result.tsv";
+    let Some(ref motif_file) = data.selected_file else { unreachable!() }; 
+    let Some(ref bam_file) = data.bam_file else { unreachable!() };
 
-    // optional params
-    let out_bam = data.out_bam;
-    let dedup = false;
-    let print_quality = false;
-    let q = 30;
-    let score: Option<char> = None;
+    let mut output_file = data.analysis_path.clone();
+    output_file.push(bam_file.file_name().unwrap());
+    output_file.set_extension("");
+    let dante_output_dir = output_file.clone();
+    output_file.push("annotations.tsv");
 
-    remastr::run(bam_file, motif_file, output.clone(), out_bam, (dedup, q, score, print_quality));
-    println!("remaSTR finished.");
+    if !dante_output_dir.exists() {
+        std::fs::create_dir(&dante_output_dir).expect("Cannot create directory.");
+    }
 
-    // self.message_line = "remaSTR finished.".to_string();
-    let bin = format!("{}/dante_remastr_standalone", App::DATA_DIR);
-    let output_log = Command::new(bin)
-        .arg("--input-tsv").arg(output.clone())
-        .arg("--output-dir").arg(out_dir)
-        .arg("--verbose")
-        .output()
-        .expect("failed to run python part of Dante");
-    println!("Dante finished.");
-    // self.message_line = "Dante finished.".to_string();
-    println!("{:?}", output_log);
+    let task_annotation = Task::perform(
+        async_tasks::run_annotation(motif_file.to_path_buf(), bam_file.to_path_buf(), output_file.clone()),
+        Message::AnalysisProgress
+    );
+    let task_genotyping = Task::perform(
+        async_tasks::run_genotyping(output_file, dante_output_dir),
+        Message::AnalysisProgress
+    );
+
+    data.message_line = "Analysis started. It might take some time.".to_string();
+
+    return task_annotation.chain(task_genotyping);
 }
 
 fn open_results(state: &mut Data) {
-    let output = state.path.to_string_lossy().to_string() + "/report.html";
+    let output = state.analysis_path.to_string_lossy().to_string() + "/report.html";
     opener::open(output).unwrap();
 }
 
 fn draw_open_button<'a>(state: &Data) -> Element<'a, Message> {
-    let output = state.path.to_string_lossy().to_string() + "/report.html";
+    let output = state.analysis_path.to_string_lossy().to_string() + "/report.html";
     if Path::new(&output).exists() { 
         let report_line = format!("Report file stored in {}.", output);
         row![
@@ -384,7 +382,7 @@ fn load_file(result: &mut Option<PathBuf>) {
     *result = Some(path);
 }
 
-fn make_report<'a>(mut content: Column<'a, Message>, data: &'a Data, size: Size) -> Column<'a, Message> {
+fn view_report<'a>(mut content: Column<'a, Message>, data: &'a Data, size: Size) -> Column<'a, Message> {
     let available_width = size.width as usize - 5 - 160 - 5 - 5;
 
     let mut i = 0;
