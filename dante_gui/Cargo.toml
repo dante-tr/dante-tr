@@ -24,6 +24,9 @@ typst-pdf = "0.13.0"
 # https://lib.rs/crates/egui
 # https://lib.rs/crates/egui_plot
 
+[features]
+# Expects dante_remastr_standalone.py in relative path ./../../dante/
+local = []
 
 # [profile.test.build-override]
 # rustflags = ["-Awarnings"]
