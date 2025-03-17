@@ -25,6 +25,7 @@ pub(crate) enum Message {
     BamChanged(String),
     SelectBam,
     EditMetadata(PathBuf, PathBuf),
+    EditResults(Data),
 
     RunDante,
     AnalysisProgress(String),
@@ -82,6 +83,7 @@ impl Data {
 
             Message::Back => { unreachable!("Implemented in App::update."); },
             Message::EditMetadata(_, _) => { unreachable!("Implemented in App::update."); }
+            Message::EditResults(_) => { unreachable!("Implemented in App::update.") }
         }
     }
 
@@ -414,7 +416,7 @@ fn view_report<'a>(mut content: Column<'a, Message>, data: &'a Data, size: Size)
     const PAD2: Padding = Padding { bottom: 0.0, top: 10.0, right: 15.0, left: 0.0 };
     let r = row![
         container(text("")).width(160),
-        container(button("View")).padding(PAD2),
+        container(button("View").on_press(Message::EditResults(data.clone()))).padding(PAD2),
         container(button("Print").on_press(Message::Print)).padding(PAD2),
         horizontal_space(),
     ].padding(10).align_y(Vertical::Center);
@@ -465,5 +467,3 @@ fn make_checkbox_row<'a>(motifs: &'a[(bool, String, Vec<String>, String)], avail
     }
     return v;
 }
-
-

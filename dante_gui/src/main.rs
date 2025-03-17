@@ -17,6 +17,7 @@ mod analysis_single;
 mod pdf_reporting;
 mod metadata_editor;
 mod async_tasks;
+mod editor_results;
 
 pub fn main() -> iced::Result {
     if !Path::new(App::DATA_DIR).exists() { init_cache(App::DATA_DIR); }
@@ -32,6 +33,7 @@ pub fn main() -> iced::Result {
 enum Message {
     WelcomeScreen(welcome_screen::Message),
     AnalysisSingle(analysis_single::Message),
+    SingleResults(editor_results::Message),
     AnalysisFamily(analysis_family::Message),
     MetadataEditor(metadata_editor::Message),
     Resize(Size),
@@ -41,6 +43,7 @@ enum Message {
 enum ContentPage {
     WelcomeScreen(welcome_screen::Data),
     AnalysisSingle(analysis_single::Data),
+    SingleResults(editor_results::Data),
     AnalysisFamily(analysis_family::Data),
     MetadataEditor(metadata_editor::Data),
 }
@@ -67,10 +70,11 @@ impl App {
 
     fn view(&self) -> Element<Message> {
         let content_area: Element<Message> = match &self.content_page {
-            ContentPage::WelcomeScreen(data) => data.view().map(Message::WelcomeScreen),
+            ContentPage::WelcomeScreen(data)  => data.view().map(Message::WelcomeScreen),
             ContentPage::AnalysisSingle(data) => data.view(self.window_size).map(Message::AnalysisSingle),
             ContentPage::AnalysisFamily(data) => data.view(self.window_size).map(Message::AnalysisFamily),
             ContentPage::MetadataEditor(data) => data.view(self.window_size).map(Message::MetadataEditor),
+            ContentPage::SingleResults(data)  => data.view(self.window_size).map(Message::SingleResults),
         };
 
         // let content_area = std::convert::Into::<Element<Message>>::into(content_area).explain(iced::Color::BLACK);
@@ -112,7 +116,16 @@ impl App {
                 data.save();
                 self.content_page = MetaEditor::open(source, meta_file); Task::none()
             }
+            Message::AnalysisSingle(analysis_single::Message::EditResults(data)) => {
+                use editor_results::Data as ResultData;
+                println!("{:#?}", data);
+                self.content_page = ResultData::open();
+                Task::none()
+            }
             Message::MetadataEditor(metadata_editor::Message::Exit(source)) => {
+                self.content_page = analysis_reopen(source); Task::none()
+            }
+            Message::SingleResults(editor_results::Message::Exit(source)) => {
                 self.content_page = analysis_reopen(source); Task::none()
             }
 
@@ -121,6 +134,12 @@ impl App {
             }
 
             // relay message
+            Message::SingleResults(m) => {
+                if let CP::SingleResults(data) = &mut self.content_page {
+                    data.update(m);
+                };
+                Task::none()
+            },
             Message::WelcomeScreen(m) => {
                 if let CP::WelcomeScreen(data) = &mut self.content_page {
                     data.update(m);
