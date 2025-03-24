@@ -48,12 +48,9 @@ fn work_on_me() -> String {
 }
 
 fn run_pdf() -> Result<(), Box<dyn Error>> {
-    println!("idem");
     let output_filename = "src/report_data/report_result.typ";
     let mut output_file = File::create(output_filename)?;
-    println!("1");
     let metadata_rows = get_metadata_row_count("src/report_data/metadata.tsv")?;
-    println!("2");
     let base_height = 70 - 16;
     let row_height = 16;
     let rect_height = base_height + metadata_rows * row_height;
@@ -97,8 +94,7 @@ fn get_metadata_row_count(filename: &str) -> io::Result<usize> {
 
 
 fn process_metadata(output_file: &mut File) -> io::Result<usize> {
-    let input_filename = "src/report_data/metadata.tsv";
-    println!("3");
+    let input_filename = "src/report_data/metadata.tsv";                // kde presne budu data?
     let input_file = File::open(input_filename)?;
     let reader = BufReader::new(input_file);
     let mut lines = reader.lines();
@@ -154,7 +150,6 @@ fn process_metadata(output_file: &mut File) -> io::Result<usize> {
 
 fn process_strset(output_file: &mut File) -> Result<(), Box<dyn Error>> {
     let file = File::open("src/report_data/STRset.tsv")?;
-    println!("4");
     let reader = BufReader::new(file);
     let mut headers: Vec<String> = Vec::new();
     let mut values: HashMap<String, String> = HashMap::new();
