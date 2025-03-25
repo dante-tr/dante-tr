@@ -1,29 +1,27 @@
+use typst_as_lib::package_resolver::FileSystemCache;
+use typst_as_lib::package_resolver::PackageResolver;
 use typst_as_lib::typst_kit_options::TypstKitFontOptions;
 use typst_as_lib::TypstEngine;
-use typst_as_lib::package_resolver::PackageResolver;
-use typst_as_lib::package_resolver::FileSystemCache;
 
 use std::path::PathBuf;
 
 use crate::analysis_family::Data as FamilyData;
 use crate::App;
 
-use std::fs::File;
-use std::io::{self, BufRead, Write, BufReader};
 use std::collections::HashMap;
 use std::error::Error;
-use std::process::Command;
-
+use std::fs::File;
+use std::io::{self, BufRead, BufReader, Write};
 
 pub(super) fn simple_report(data: &FamilyData) {
     let output_pdf = "typst_report.pdf";
-    let typst_template = work_on_me();
+    // Names of the input files will probably be somewhere in data, so you should pass them down in
+    // functions. 
+    let typst_template = work_on_me();  // P.S.: I can take parameters.
 
     // Here be dragons
     let typst_cache = App::DATA_DIR.to_string() + "/typst_cache";
-    let pkg_resolver = PackageResolver::builder()
-        .cache(FileSystemCache(PathBuf::from(typst_cache)))
-        .build();
+    let pkg_resolver = PackageResolver::builder().cache(FileSystemCache(PathBuf::from(typst_cache))).build();
 
     let template = TypstEngine::builder()
         .main_file(typst_template)
@@ -32,8 +30,7 @@ pub(super) fn simple_report(data: &FamilyData) {
         .with_file_system_resolver(App::DATA_DIR)
         .build();
 
-    let doc = template.compile().output
-        .expect("typst::compile() returned an error!");
+    let doc = template.compile().output.expect("typst::compile() returned an error!");
 
     let options = Default::default();
 
@@ -42,21 +39,30 @@ pub(super) fn simple_report(data: &FamilyData) {
 }
 
 fn work_on_me() -> String {
+    // This function is maybe too short. You can inline run_pdf. 
     run_pdf().unwrap();
+
+    // run_pdf writes to report_result.typ and then here you read from that file.
+    // TODO: Avoid going through filesystem. Pass String directly. 
     return std::fs::read_to_string("src/report_data/report_result.typ")
         .expect("Failed to read the generated Typst template");
 }
 
+// I wouldn't use trait objects (Box<dyn Error>) yet. Use expect function to handle errors for now.
 fn run_pdf() -> Result<(), Box<dyn Error>> {
     let output_filename = "src/report_data/report_result.typ";
-    let mut output_file = File::create(output_filename)?;
     let metadata_rows = get_metadata_row_count("src/report_data/metadata.tsv")?;
+
+    let mut output_file = File::create(output_filename)?;
     let base_height = 70 - 16;
     let row_height = 16;
     let rect_height = base_height + metadata_rows * row_height;
-    
+
     writeln!(
         output_file,
+        // This needs to go to template and the include it with include_str macro
+        // https://doc.rust-lang.org/std/macro.include_str.html
+        // This comment is also valid for any longer string literal below. :-D
         "#set page(margin: 15mm) // A4 is default\n\
         \n#image(\"logo.png\", width: 180mm)\n\
         #align(right + top)[#text(20pt, strong[RESULTS REPORT])]\n\
@@ -68,7 +74,7 @@ fn run_pdf() -> Result<(), Box<dyn Error>> {
         #set table(\n  stroke: none,\n  align: (x, y) => (\n    if x > 0 {{ center }}\n    else {{ left }}\n  )\n)",
         rect_height, rect_height - 35
     )?;
-    
+
     process_metadata(&mut output_file)?;
 
     let content = r#"
@@ -85,31 +91,35 @@ fn run_pdf() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-
 fn get_metadata_row_count(filename: &str) -> io::Result<usize> {
     let input_file = File::open(filename)?;
     let reader = BufReader::new(input_file);
     Ok(reader.lines().count() - 1)
 }
 
-
+// this needs to take input_filename as a parameter
 fn process_metadata(output_file: &mut File) -> io::Result<usize> {
-    let input_filename = "src/report_data/metadata.tsv";                // kde presne budu data?
+    let input_filename = "src/report_data/metadata.tsv"; // kde presne budu data?
     let input_file = File::open(input_filename)?;
     let reader = BufReader::new(input_file);
-    let mut lines = reader.lines();
 
     let required_headers = vec![
-        "No.", "Sample ID", "Sample SI", "Gender", 
-        "Patient position in analysis", "Affection status", "Family ID"
+        "No.",
+        "Sample ID",
+        "Sample SI",
+        "Gender",
+        "Patient position in analysis",
+        "Affection status",
+        "Family ID",
     ];
 
     let mut row_count = 0;
 
+    let mut lines = reader.lines();
     if let Some(Ok(header)) = lines.next() {
         let headers: Vec<&str> = header.split('\t').collect();
         let mut col_indices: HashMap<&str, usize> = HashMap::new();
-        
+
         for (i, h) in headers.iter().enumerate() {
             if required_headers.contains(h) {
                 col_indices.insert(h, i);
@@ -128,8 +138,13 @@ fn process_metadata(output_file: &mut File) -> io::Result<usize> {
             }
         }
         writeln!(output_file, "  ),")?;
+        // header parsing if should end somewhere here and then the content parsing if shuld start 
+        // }
+        // if let ...content... = lines.next() { ...
 
         let mut row_number = 1;
+        // Metadata will only contain 2 lines - header and content. You don't need to iterate over
+        // it. This is part of our "contract" with Jancsi :-D
         for line in lines.flatten() {
             let values: Vec<&str> = line.split('\t').collect();
             write!(output_file, "  [{}],", row_number)?;
@@ -148,6 +163,10 @@ fn process_metadata(output_file: &mut File) -> io::Result<usize> {
     Ok(row_count)
 }
 
+// this needs file as an input
+// also prefer expect instead for Box<dyn Error> for now.
+// I want to have a first version where the happy path works and then solve the errors if we can do
+// something smarter than just stop execution.
 fn process_strset(output_file: &mut File) -> Result<(), Box<dyn Error>> {
     let file = File::open("src/report_data/STRset.tsv")?;
     let reader = BufReader::new(file);
@@ -160,10 +179,11 @@ fn process_strset(output_file: &mut File) -> Result<(), Box<dyn Error>> {
     } else {
         return Err("Empty file".into());
     }
-    
+
     for line in lines {
         let row: Vec<String> = line?.split('\t').map(String::from).collect();
-        if let Some(index) = headers.iter().position(|h| h == "Disease ID") {           // premysliet
+        if let Some(index) = headers.iter().position(|h| h == "Disease ID") {
+            // premysliet
             if row.get(index) == Some(&"DM1".to_string()) {
                 for (i, value) in row.iter().enumerate() {
                     values.insert(headers[i].clone(), value.clone());
@@ -172,13 +192,15 @@ fn process_strset(output_file: &mut File) -> Result<(), Box<dyn Error>> {
             }
         }
     }
-    
+
     if values.is_empty() {
         return Err("Disease not found".into());
     }
-    
+
     writeln!(
         output_file,
+        // This needs to go to template and the include it with include_str macro
+        // https://doc.rust-lang.org/std/macro.include_str.html
         "#table(
   columns: 3,
   [#table(
@@ -243,3 +265,4 @@ fn process_strset(output_file: &mut File) -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
+
