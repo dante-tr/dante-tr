@@ -1,5 +1,5 @@
 use iced::alignment::{Horizontal, Vertical};
-use iced::widget::{column, row, container, button, text};
+use iced::widget::{button, column, container, horizontal_rule, horizontal_space, row, text};
 use iced::widget::Column;
 use iced::{Element, Size, Length};
 
@@ -20,11 +20,12 @@ pub(crate) enum Message {
 pub(super) struct Data {
     source: PathBuf,
     motif_ids: Vec<String>,
+    json: PathBuf,
 }
 
 impl Data {
     pub(super) fn view(&self, _size: Size) -> Element<Message> {
-        let mut content = column![].align_x(Horizontal::Center);
+        let mut content = column![];
 
         content = view_header(content, self.source.clone());
         content = view_results(content, self);
@@ -40,10 +41,17 @@ impl Data {
     }
 
     pub(super) fn open() -> ContentPage {
-        let source = PathBuf::from("dante_data/analyses/2025-03-14-17-19-06_akjndkjenka_single".to_string());
-        let motif_ids = vec!["ALS".to_string(), "DM2".to_string()];
-        // dante_data/analyses/2025-03-14-17-19-06_akjndkjenka_single/vpuk-23-001440-A/data.json
-        let data = Data { source, motif_ids };
+        let motif_ids: Vec<String> = [
+            "ALS", "DM1", "DM2", "SCA27B", "SCA4"
+        ].iter().map(|x| x.to_string()).collect();
+        let source = "dante_data/analyses/2025-03-18-10-48-22_analysis1_single";
+        let json = "dante_data/analyses/2025-03-18-10-48-22_analysis1_single/vpuk-23-001504-A/data_v2.json";
+        // BAM???
+        // meta???
+
+        let source = PathBuf::from(source.to_string());
+        let json = PathBuf::from(json.to_string());
+        let data = Data { source, motif_ids, json };
         return ContentPage::SingleResults(data);
     }
 }
@@ -57,17 +65,69 @@ fn view_header(mut content: Column<Message>, source: PathBuf) -> Column<Message>
     return content;
 }
 
-fn view_results<'a>(content: Column<'a, Message>, _data: &Data) -> Column<'a, Message> {
-    let json = "dante_data/analyses/2025-03-14-17-19-06_akjndkjenka_single/vpuk-23-001440-A/data.json";
-    let json: String = std::fs::read_to_string(json).expect("Cannot read file.");
+fn view_results<'a>(mut content: Column<'a, Message>, data: &Data) -> Column<'a, Message> {
+    let json: String = std::fs::read_to_string(&data.json).expect("Cannot read file.");
     let json: Value = serde_json::from_str(&json).expect("JSON was not well-formatted");
 
-    println!("{:?}", json);
-    // let x = &json["x"];
-    // for motif_id in &self.motif_ids {
-    //     content = content.push(row![
-    //         container(text(motif_id))
-    //     ]);
+    content = content.push(horizontal_rule(1));
+    content = content.push(row![container(text(format!("motif {} module {}", "ALS", 0)))]);
+
+    content = content.push(row![
+        horizontal_space(),
+        container(text("Predicted results")),
+        horizontal_space()
+    ]);
+
+    use iced::widget::text::Wrapping;
+    // use iced::widget::text::Shaping;
+    content = content.push(row![
+        container(text("Repeat numbershdkfjsnkcdnskdcnskdnskdcnsdncskjdcnskdjcnskdjsn")).max_width(20),
+        container(text("Repeat numbershdkfjsnkcdnskdcnskdnskdcnsdncskjdcnskdjcnskdjsn").wrapping(Wrapping::None)).clip(true),
+    ].clip(true));
+
+    // content = content.push(row![
+    //     container(text("Sample")).width(Length::FillPortion(2)),
+    //     container(text("Allele 1")).width(Length::FillPortion(6)),
+    //     container(text("Allele 2")).width(Length::FillPortion(6)),
+    //     container(text("Overall")).width(Length::FillPortion(7)),
+    // ]);
+
+    // content = content.push(row![
+    //     container(text("No.")).width(Length::FillPortion(1)).clip(true),
+    //     container(text("ID")).width(Length::FillPortion(1)).clip(true),
+
+    //     container(text("Repeat number")).clip(true).width(Length::FillPortion(1)),
+    //     container(text("Confidence")).width(Length::FillPortion(1)).clip(true),
+    //     container(text("Pathogenicity")).width(Length::FillPortion(1)).clip(true),
+    //     container(text("Spanning reads")).width(Length::FillPortion(1)).clip(true),
+    //     container(text("Indel errors")).width(Length::FillPortion(1)).clip(true),
+    //     container(text("Mismatch error")).width(Length::FillPortion(1)).clip(true),
+
+    //     container(text("Repeat number")).width(Length::FillPortion(1)),
+    //     container(text("Confidence")).width(Length::FillPortion(1)),
+    //     container(text("Pathogenicity")).width(Length::FillPortion(1)),
+    //     container(text("Spanning reads")).width(Length::FillPortion(1)),
+    //     container(text("Indel errors")).width(Length::FillPortion(1)),
+    //     container(text("Mismatch error")).width(Length::FillPortion(1)),
+
+    //     container(text("???")).width(Length::FillPortion(1)),
+    //     container(text("???")).width(Length::FillPortion(1)),
+    //     container(text("???")).width(Length::FillPortion(1)),
+    //     container(text("???")).width(Length::FillPortion(1)),
+    //     container(text("???")).width(Length::FillPortion(1)),
+    //     container(text("???")).width(Length::FillPortion(1)),
+    //     container(text("???")).width(Length::FillPortion(1)),
+    // ]);
+    // for motif in json["motifs"].as_array().unwrap() {
+    //     let x = motif["motif_id"].as_str().unwrap().to_string();
+    //     if data.motif_ids.contains(&x) {
+    //         content = content.push(horizontal_rule(2));
+    //         content = content.push(row![container(text(motif["motif_id"].to_string()))]);
+    //         content = content.push(row![container(text(motif["motif_stats"].to_string()))]);
+    //         content = content.push(row![container(text(motif["phased_seqs"].to_string()))]);
+    //         content = content.push(row![container(text(motif["nomenclatures"].to_string()))]);
+    //         // println!("{:?}", motif["modules"]);
+    //     }
     // }
     return content;
 }
