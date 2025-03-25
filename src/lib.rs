@@ -9,6 +9,7 @@ use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
 use std::io::Write;
+use std::iter::zip;
 use std::path::Path;
 use std::path::PathBuf;
 use std::str;
@@ -92,36 +93,6 @@ fn process_motif(
     }
 }
 
-fn header<P: AsRef<Path>>(bam_filename: P) -> Header {
-    let file = File::open(bam_filename).unwrap();
-    let header = bam::io::Reader::new(file).read_header().unwrap();
-    return header;
-}
-
-fn init_tsv(filename: &str) -> File {
-    let mut out = File::create(filename).expect("Cannot open file for writing.");
-    out.write_all(
-        b"name\tmotif\tread_sn\tread_id\tmate_order\tread\treference\tmodules\tquality\tlog_likelihood\n"
-    ).expect("Cannot write to output file.");
-    return out;
-}
-
-fn init_bam(tsv_file: &str, header: &Header) -> Writer<bgzf::Writer<File>> {
-    let mut filename = PathBuf::from(tsv_file);
-    filename.set_extension("bam");
-    let new_bam = File::create(filename).expect("Cannot open file for writing.");
-    let mut writer = bam::io::Writer::new(new_bam);
-    writer.write_header(header).unwrap();
-    return writer;
-}
-
-fn mapq_less_than(rec: &bam::Record, x: u8) -> bool {
-    let x = MappingQuality::new(x)
-        .expect("Mapq is from 0 to 254. 255 is reserved for None.");
-    let Some(q) = rec.mapping_quality() else { return false };
-    return q < x;
-}
-
 fn annotate_reads<T>(reads: T, model: Hmm, repeat: &TandemRepeat, score: Option<char>, print_quality: bool)
     -> (String, Vec<bam::Record>)
 where
@@ -142,32 +113,126 @@ where
 
         let qual_str =
             if print_quality { qual.clone() }
-            else { vec![] };
-
+            else { "No quality".bytes().collect() };
 
         let (likelihood, annotation) = model.log_predict(&seq, &qual_mod);
 
         let (new_annot, reconstructed_read) = model.realign(&annotation, &seq);
         let reconstructed_reference = model.reconstruct_sequence(&new_annot);
         let mods = model.reconstruct_mod_ids(&new_annot);
+
+        // b"name\tmotif\tread_sn\tread_id\tmate_order\tread\treference\tmodules\tquality\tlog_likelihood\n"
         let name: String = match &repeat.name {
             Some(x) => x.to_string(),
             None    => "None".to_string(),
         };
+        let motif = repeat;
+        let read_sn = i;
+        let read_id = str::from_utf8(read.name().unwrap().as_bytes()).unwrap();
+        let mate_order = mate_order(&read);
+        let read = str::from_utf8(&reconstructed_read).unwrap();
+        let reference = str::from_utf8(&reconstructed_reference).unwrap();
+        let modules = str::from_utf8(&mods).unwrap();
+        let quality = str::from_utf8(&qual_str).unwrap();
+        let log_likelihood = likelihood;
 
-        annotation_str.push_str(&format!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
-            name, repeat, i,
-            str::from_utf8(read.name().unwrap().as_bytes()).unwrap(),
-            mate_order(&read),
-            str::from_utf8(&reconstructed_read).unwrap(),
-            str::from_utf8(&reconstructed_reference).unwrap(),
-            str::from_utf8(&mods).unwrap(),
-            str::from_utf8(&qual_str).unwrap(),
-            likelihood
-        ));
+        let mut left_bg = 0;
+        while left_bg < mods.len() && mods[left_bg] == b'-' { left_bg += 1; }
+        let right_bg = 0;  // TODO: finish this?
+
+        let mismatches_str = generate_mismatches(&reconstructed_read, &reconstructed_reference);
+        let n_deletions = mismatches_str.bytes().filter(|x| *x == b'D').count();
+        let n_insertions = mismatches_str.bytes().filter(|x| *x == b'I').count();
+        let n_mismatches = mismatches_str.bytes().filter(|x| *x == b'M').count();
+
+        let n_modules = repeat.copy_number.len() + 2;
+
+        let mut module_bases: Vec<u8> = Vec::with_capacity(n_modules);
+        let mut module_repetitions: Vec<u8> = Vec::with_capacity(n_modules);
+        let mut module_sequences: Vec<String> = Vec::with_capacity(n_modules);
+        for i in 0..n_modules {
+            let mb = get_module_bases(&mods, i);
+            let mr = get_module_repetitions(mb, &repeat.copy_unit, i);
+            // let ms = get_module_sequences(i, )
+            let ms = "".to_string();  // TODO: finish this
+            module_bases.push(mb);
+            module_repetitions.push(mr);
+            module_sequences.push(ms);
+        }
+
+        let module_bases = module_bases.into_iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
+        let module_repetitions = module_repetitions.into_iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
+        let module_sequences = module_sequences.join(",");
+
+        let line = format!("\
+            {name}\t{motif}\t\
+            {read_sn}\t{read_id}\t{mate_order}\t{quality}\t{log_likelihood}\t\
+            {read}\t\
+            {reference}\t\
+            {n_modules}\t{left_bg}\t{module_bases}\t{right_bg}\t{module_repetitions}\t{module_sequences}\t\
+            {modules}\t\
+            {n_deletions}\t{n_insertions}\t{n_mismatches}\t\
+            {mismatches_str}\n\
+            "
+        );
+        annotation_str.push_str(&line);
     }
     return (annotation_str, annotated_reads);
+}
+
+fn get_module_repetitions(mb: u8, copy_units: &[Vec<u8>], idx: usize) -> u8 {
+    if mb == 0 { return 0; }
+    if idx == 0 { return 1; }
+    if idx == copy_units.len() + 1 { return 1; }
+    if idx > copy_units.len() + 1 { panic!("This should never happen."); }
+    let copy_len: u8 = copy_units[idx - 1].len().try_into().unwrap();
+    return mb / copy_len;
+}
+
+fn get_module_bases(mods: &[u8], idx: usize) -> u8 {
+    const ASCII_ZERO: usize = 48;
+    let idx: u8 = (idx + ASCII_ZERO).try_into().unwrap();
+    let count = mods.iter().filter(|&&x| x == idx).count();
+    return count.try_into().unwrap();
+}
+
+fn header<P: AsRef<Path>>(bam_filename: P) -> Header {
+    let file = File::open(bam_filename).unwrap();
+    let header = bam::io::Reader::new(file).read_header().unwrap();
+    return header;
+}
+
+fn init_tsv(filename: &str) -> File {
+    let mut out = File::create(filename).expect("Cannot open file for writing.");
+    let line = b"\
+    name\tmotif\t\
+    read_sn\tread_id\tmate_order\tquality\tlog_likelihood\t\
+    read\t\
+    reference\t\
+    n_modules\tleft_bg\tmodule_bases\tright_bg\tmodule_repetitions\tmodule_sequences\t\
+    modules\t\
+    n_deletions\tn_insertions\tn_mismatches\t\
+    mismatches_str\n\
+    ";
+
+    out.write_all(line).expect("Cannot write to output file.");
+    return out;
+}
+
+fn init_bam(tsv_file: &str, header: &Header) -> Writer<bgzf::Writer<File>> {
+    let mut filename = PathBuf::from(tsv_file);
+    filename.set_extension("bam");
+    let new_bam = File::create(filename).expect("Cannot open file for writing.");
+    let mut writer = bam::io::Writer::new(new_bam);
+    writer.write_header(header).unwrap();
+    return writer;
+}
+
+fn mapq_less_than(rec: &bam::Record, x: u8) -> bool {
+    let x = MappingQuality::new(x)
+        .expect("Mapq is from 0 to 254. 255 is reserved for None.");
+    let Some(q) = rec.mapping_quality() else { return false };
+    return q < x;
 }
 
 fn read_motifs(filename: &Path) -> Vec<(Vec<u8>, TandemRepeat, Vec<u8>)> {
@@ -191,6 +256,21 @@ fn read_motifs(filename: &Path) -> Vec<(Vec<u8>, TandemRepeat, Vec<u8>)> {
         let right_flank = split[3].as_bytes().to_owned();
 
         result.push((left_flank, repeat, right_flank));
+    }
+    return result;
+}
+
+fn generate_mismatches(read: &[u8], reference: &[u8]) -> String {
+    let mut result = String::with_capacity(read.len());
+    for (x, y) in zip(read, reference) {
+        match (x, y) {
+            (_,    b'-') => { result.push('_'); }
+            (b'_', _   ) => { result.push('D'); }
+            (_,    b'_') => { result.push('I'); }
+            (x,    y   ) => {
+                if x == y { result.push('_'); } else { result.push('M'); }
+            }
+        }
     }
     return result;
 }
