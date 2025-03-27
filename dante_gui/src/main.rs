@@ -13,6 +13,7 @@ mod welcome_screen;
 
 mod analysis_family;
 mod analysis_single;
+mod analysis_common;
 
 mod pdf_reporting;
 mod metadata_editor;

@@ -9,7 +9,6 @@ use native_dialog::FileDialog;
 use serde::{Serialize, Deserialize};
 use std::fs::File;
 use std::io::{Write, BufReader, BufRead};
-use std::collections::HashSet;
 use std::error::Error;
 
 use crate::{App, ContentPage, MotifFile};
@@ -120,6 +119,7 @@ fn toggle_group(data: &mut Data, idx: usize, checked: bool) {
 }
 
 fn update_motif_selection(data: &mut Data, motif_file: MotifFile) {
+    use crate::analysis_common::{parse_motifs, get_groups};
     match motif_file {
         MotifFile::Custom => {
             if let Ok(Some(path)) = FileDialog::new().show_open_single_file() {
@@ -172,34 +172,6 @@ fn validate_STR_format(path: &Path) -> Result<(), Box<dyn Error>> {
         { return Err("6th column has incorrect name".into()); }
 
     return Ok(());
-}
-
-fn parse_motifs(path: &Path) -> Vec<(bool, String, Vec<String>, String)> {
-    let file = File::open(path).expect("Cannot find motif file.");
-    let reader = BufReader::new(file);
-
-    let mut result = Vec::new();
-    for line in reader.lines().skip(1) {
-        let line = line.expect("Cannot read line from motif file.").trim().to_string();
-        let split: Vec<_> = line.split('\t').collect();
-
-        let id = split[0].to_string();
-        let groups = split[4].split(',').map(|x| x.to_string()).collect();
-        let description = split[5].to_string();
-        result.push((false, id, groups, description));
-    }
-
-    return result;
-}
-
-fn get_groups(motifs: &[(bool, String, Vec<String>, String)]) -> Vec<(bool, String)> {
-    let groups: HashSet<(bool, String)> = motifs.iter()
-        .flat_map(|x| &x.2)
-        .map(|x| (false, x.to_string()))
-        .collect();
-    let mut groups: Vec<_> = groups.into_iter().collect();
-    groups.sort();
-    return groups;
 }
 
 fn view_header(mut content: Column<Message>) -> Column<Message> {

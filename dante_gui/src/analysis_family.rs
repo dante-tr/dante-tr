@@ -1,9 +1,6 @@
 use native_dialog::FileDialog;
 use serde::{Serialize, Deserialize};
-use std::collections::HashSet;
 use std::fs::File;
-use std::io::BufRead;
-use std::io::BufReader;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
@@ -258,7 +255,7 @@ fn make_proband_row(data: &Data) -> Row<Message> {
 }
 
 fn make_motif_selection(selected: Option<MotifFile>, selected_file: &Option<PathBuf>) -> Row<Message> {
-    let motif_files = [MotifFile::STRSet_20220902, MotifFile::Custom];
+    let motif_files = [MotifFile::STRSet_20250311, MotifFile::Custom];
 
     let content = match selected {
         None => row![
@@ -286,6 +283,7 @@ fn make_motif_selection(selected: Option<MotifFile>, selected_file: &Option<Path
 }
 
 fn update_motif_selection(data: &mut Data, motif_file: MotifFile) {
+    use crate::analysis_common::{parse_motifs, get_groups};
     match motif_file {
         MotifFile::STRSet_20220902 => {
             let path = PathBuf::from(App::DATA_DIR.to_string() + "/STRSet_20220902.tsv");
@@ -317,35 +315,6 @@ fn toggle_group(data: &mut Data, idx: usize, checked: bool) {
     data.groups[idx].0 = checked;
     let group = data.groups[idx].1.clone();
     for x in &mut data.motifs { if x.2.contains(&group) { x.0 = checked; } }
-}
-
-fn parse_motifs(path: &Path) -> Vec<(bool, String, Vec<String>, String)> {
-    let file = File::open(path).expect("Cannot find motif file.");
-    let reader = BufReader::new(file);
-
-    let mut result = Vec::new();
-    for line in reader.lines() {
-        let line = line.expect("Cannot read line from motif file.").trim().to_string();
-        let split: Vec<_> = line.split('\t').collect();
-
-        let id = split[0].to_string();
-        // let hgvs = split[1];
-        let groups = split[2].split(',').map(|x| x.to_string()).collect();
-        let description = split[3].to_string();
-        result.push((false, id, groups, description));
-    }
-
-    return result;
-}
-
-fn get_groups(motifs: &[(bool, String, Vec<String>, String)]) -> Vec<(bool, String)> {
-    let groups: HashSet<(bool, String)> = motifs.iter()
-        .flat_map(|x| &x.2)
-        .map(|x| (false, x.to_string()))
-        .collect();
-    let mut groups: Vec<_> = groups.into_iter().collect();
-    groups.sort();
-    return groups;
 }
 
 fn analyze(data: &mut Data) -> Task<Message> {
@@ -509,5 +478,4 @@ fn print_report(data: &mut Data) {
     pdf_reporting::simple_report(data);
     opener::open("typst_report.pdf").unwrap();
     println!("{:?}", data);
-    
 }
