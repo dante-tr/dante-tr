@@ -47,7 +47,7 @@ pub(super) struct Data {
     out_bam: bool,
     message_line: String,
 
-    motifs: Vec<(bool, String, Vec<String>, String)>,
+    motifs: Vec<(bool, String, Vec<String>, String)>,  // (checked, id, groups, description)
     groups: Vec<(bool, String)>,
 }
 
@@ -109,6 +109,21 @@ impl Data {
             .expect("Cannot read file.");
         serde_json::from_str(&json)
             .expect("Cannot parse json.")
+    }
+
+    pub(super) fn get_checked_motif_ids(&self) -> Vec<String> {
+        return self.motifs.iter().filter(|x| x.0).map(|x| x.1.clone()).collect();
+    }
+
+    pub(crate) fn get_source(&self) -> PathBuf {
+        return self.analysis_path.clone();
+    }
+
+    pub(crate) fn get_sample(&self) -> String {
+        let Some(ref filepath) = self.bam_file else { panic!("There is no BAM file."); };
+        let mut samplepath = filepath.clone();
+        samplepath.set_extension("");
+        return samplepath.file_name().expect("No filename.").to_string_lossy().to_string();
     }
 }
 

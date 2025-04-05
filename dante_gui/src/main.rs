@@ -118,9 +118,10 @@ impl App {
                 self.content_page = MetaEditor::open(source, meta_file); Task::none()
             }
             Message::AnalysisSingle(analysis_single::Message::EditResults(data)) => {
-                use editor_results::Data as ResultData;
-                println!("{:#?}", data);
-                self.content_page = ResultData::open();
+                data.save();
+                self.content_page = editor_results::Data::open(
+                    data.get_checked_motif_ids(), data.get_source(), data.get_sample()
+                );
                 Task::none()
             }
             Message::MetadataEditor(metadata_editor::Message::Exit(source)) => {
