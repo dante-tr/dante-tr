@@ -112,7 +112,7 @@ impl Data {
     }
 
     pub(super) fn get_checked_motif_ids(&self) -> Vec<String> {
-        return self.motifs.iter().filter(|x| x.0).map(|x| x.1.clone()).collect();
+        return self.motifs.iter().filter(|x| x.0).map(|x| x.1.replace("/", "_")).collect();
     }
 
     pub(crate) fn get_source(&self) -> PathBuf {

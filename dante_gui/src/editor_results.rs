@@ -6,6 +6,8 @@ use iced::widget::{
 use iced::widget::{Column, Row, Tooltip};
 use iced::{Element, Length, Padding, Size};
 
+use std::fs::File;
+use std::io::Write;
 use std::path::PathBuf;
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
@@ -20,7 +22,7 @@ pub(super) enum Message {
     Exit(PathBuf),
     RevisionChanged(String, usize, usize, usize),   // text, motif_pos, module_idx, allele
     PatChanged(Status, usize, usize, usize),        // ^-
-    Save,
+    Save(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -34,12 +36,12 @@ pub(super) struct Data {
 }
 
 impl Data {
-    pub(super) fn view(&self, _size: Size) -> Element<Message> {
+    pub(super) fn view(&self, size: Size) -> Element<Message> {
         let mut content = column![];
 
         content = view_header(content, self.source.clone());
-        for motif_id in &self.motif_ids {
-            content = content.push(view_results(motif_id, self));
+        for motif_idx in 0..self.motif_ids.len() {
+            content = content.push(view_results(self, motif_idx, size));
         }
         // let content = std::convert::Into::<Element<Message>>::into(content).explain(iced::Color::BLACK);
         return scrollable(content).into();
@@ -48,7 +50,15 @@ impl Data {
     pub(super) fn update(&mut self, m: Message) {
         match m {
             Message::Exit(_) => { unreachable!("Implemented in App::update."); }
-            Message::Save => { println!("Save"); }
+            Message::Save(motif_idx) => {
+                let json = serde_json::to_string(&self.revisions[motif_idx]).unwrap();
+                println!("Save {} {}", motif_idx, json);
+                let mut output = self.source.clone(); output.push("revisions");
+                output.push(format!("{}.json", self.motif_ids[motif_idx]));
+
+                let mut out = File::create(&output).expect("Cannot open file for writing.");
+                out.write_all(json.as_bytes()).expect("Cannot write to output file.");
+            }
             Message::PatChanged(status, motif_idx, module_idx, allele_idx) => {
                 self.revisions[motif_idx].modules[module_idx][allele_idx].1 = Some(status);
             }
@@ -62,9 +72,15 @@ impl Data {
         let mut json = source.clone(); json.push(&sample); json.push("data_v2.json");
         let mut plots: PathBuf = source.clone(); plots.push(&sample); plots.push("plots");
 
-        let mut revisions = Vec::with_capacity(motif_ids.len());
+        let mut revisions: Vec<Revision> = Vec::with_capacity(motif_ids.len());
         for motif_id in &motif_ids {
-            revisions.push(Revision::extract_from_json(&json, motif_id));
+            let mut revision = source.clone(); revision.push("revisions"); revision.push(format!("{}.json", motif_id));
+            if revision.exists() {
+                let json: String = std::fs::read_to_string(revision).expect("Cannot read file.");
+                revisions.push(serde_json::from_str(&json).expect("Cannot parse json."));
+            } else {
+                revisions.push(Revision::empty(motif_id));
+            }
         }
 
         let data = Data {
@@ -88,34 +104,62 @@ fn view_header(mut content: Column<Message>, source: PathBuf) -> Column<Message>
     return content;
 }
 
-fn view_results<'a>(motif_id: &str, data: &Data) -> Column<'a, Message> {
+fn view_results<'a>(data: &Data, motif_idx: usize, size: Size) -> Column<'a, Message> {
     let mut motif_section = column![].padding(PADLR25);
 
     motif_section = motif_section.push(horizontal_rule(0));
     motif_section = motif_section.push(vertical_space().height(25));
     motif_section = motif_section.push(row![
-        container(text(motif_id.to_string()).size(App::H1_SIZE)).padding(PADLR25),
+        container(text(data.motif_ids[motif_idx].to_string()).size(App::H1_SIZE)).padding(PADLR25),
         horizontal_space(),
-        container(button("Save").on_press(Message::Save)).width(100).align_x(Horizontal::Right),
+        container(button("Save").on_press(Message::Save(motif_idx))).width(100).align_x(Horizontal::Right),
         horizontal_space().width(25)
     ]);
     motif_section = motif_section.push(vertical_space().height(25));
 
-    motif_section = motif_section.push(view_predicted_table(motif_id, data));
+    motif_section = motif_section.push(view_predicted_table(&data.motif_ids[motif_idx], data));
     motif_section = motif_section.push(vertical_space().height(25));
 
-    motif_section = motif_section.push(view_revised_table(motif_id, data));
+    motif_section = motif_section.push(view_revised_table(&data.motif_ids[motif_idx], data));
     motif_section = motif_section.push(vertical_space().height(25));
 
-    let plot_dir = data.plots.to_string_lossy().to_string();  // This is not correct.
-    motif_section = motif_section.push(row![
-        horizontal_space(),
-        image(format!("{plot_dir}/{motif_id}_histogram.png")),
-        horizontal_space()
-    ]);
+    {  // add_plots
+        let plot_dir = data.plots.to_string_lossy().to_string();  // This is not correct.
+        let motif_id = &data.motif_ids[motif_idx];
 
-    motif_section = motif_section.push(vertical_space().height(25));
+        let json: String = std::fs::read_to_string(&data.json).expect("Cannot read file.");
+        let json: Value = serde_json::from_str(&json).expect("JSON was not well-formatted");
+
+        let motif = json["motifs"].as_array().unwrap().iter().find(|x| x["motif_id"] == *motif_id).unwrap();
+
+        use iced::widget::Space;
+        for module_pos in 0..motif["modules"].as_array().unwrap().len() {
+            motif_section = motif_section.push(row![
+                horizontal_space(),
+                image(format!("{plot_dir}/{motif_id}_{module_pos}_histogram.png")),
+                Space::with_width(50),
+                view_nomenclatures(&motif["modules"][module_pos], size),
+                horizontal_space()
+            ].align_y(Vertical::Center));
+            motif_section = motif_section.push(vertical_space().height(25));
+        }
+    }
+
     return motif_section;
+}
+
+fn view_nomenclatures<'a>(module: &Value, size: Size) -> Column<'a, Message> {
+    let pat: &[_] = &['"', ' '];
+    let mut res: Vec<Element<'a, Message>> = Vec::new();
+    res.push(text("Nomenclature counts (5 most common):").into());
+    for nomenclature in module["nomenclatures"].as_array().unwrap() {
+        res.push(text(format!("{}x {}",
+            nomenclature["count"],
+            nomenclature["noms"][0].to_string().trim_matches(pat)
+        )).into());
+    }
+    let w = size.width - 640.0 /* plot */ - 4.0 * 25.0 /* margins */ - 50.0 /* mid sep */;
+    return column![].extend(res).width(w).max_width(640);
 }
 
 fn view_predicted_table<'a>(motif_id: &str, data: &Data) -> Column<'a, Message> {
@@ -335,18 +379,10 @@ struct Revision {
 }
 
 impl Revision {
-    fn extract_from_json(json: &PathBuf, motif_id: &str) -> Self {
-        let json: String = std::fs::read_to_string(json).expect("Cannot read file.");
-        let json: Value = serde_json::from_str(&json).expect("JSON was not well-formatted");
-
-        let motif = json["motifs"].as_array().unwrap().iter().find(|x| x["motif_id"] == motif_id).unwrap();
-        let mut modules = Vec::new();
-        for module in motif["modules"].as_array().unwrap() {
-            modules.push([
-                (module["allele_1"][0].to_string(), None),
-                (module["allele_2"][0].to_string(), None)
-            ]);
-        }
-        return Self { motif_id: motif_id.to_string(), modules };
+    fn empty(motif_id: &str) -> Self {
+        return Self {
+            motif_id: motif_id.to_string(),
+            modules: vec![[("".to_string(), None), ("".to_string(), None)]]
+        };
     }
 }

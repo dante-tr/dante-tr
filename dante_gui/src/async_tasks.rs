@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+#[cfg(not(feature = "local"))]
 use crate::App;
 
 pub async fn run_annotation(motif_file: PathBuf, bam_file: PathBuf, output_file: PathBuf) -> String {
@@ -28,12 +29,13 @@ pub async fn run_genotyping(annotation_file: PathBuf, dante_output_dir: PathBuf)
 
     #[cfg(feature = "local")] {
     let script = "./../../dante/dante_remastr_standalone.py".to_string();
-    output_log = Command::new("python")
-        .arg(&script)
+    let mut cmd = Command::new("python");
+    let cmd = cmd.arg(&script)
         .arg("--input-tsv").arg(&annotation_file)
         .arg("--output-dir").arg(&dante_output_dir)
-        .arg("--verbose")
-        .output()
+        .arg("--verbose");
+    println!("{:?}", cmd);
+    output_log = cmd.output()
         .expect("failed to run python part of Dante locally");
     }
 
