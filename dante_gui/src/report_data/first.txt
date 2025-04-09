@@ -1,0 +1,15 @@
+#set page(margin: 15mm)
+#image("logo.png", width: 180mm)
+#align(right + top)[#text(20pt, strong[RESULTS REPORT])]
+#align(right + top)[*Report ID:* 2025022]
+#place(right, dy: -8pt, dx: 9pt, rect(width: 190mm, height: {rect_height}pt, fill: rgb(195, 215, 255), radius: 15%))
+#place(right, dy: 20pt, rect(width: 182mm, height: {rect_height_minus_35}pt, fill: rgb(255, 255, 255), radius: 15%))
+#block[#text(14pt, rgb(7, 7, 87), strong[Sample information])]
+#set text(size: 10pt)
+#set table(
+  stroke: none,
+  align: (x, y) => (
+    if x > 0 {{ center }}
+    else {{ left }}
+  )
+)

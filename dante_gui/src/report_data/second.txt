@@ -1,0 +1,6 @@
+#place(right, dy: 10pt, dx: 9pt, rect(width: 190mm, height: 320pt, fill: rgb(195, 215, 255), radius: 5%))
+#place(right, dy: 38pt, dx: -2pt, rect(width: 182mm, height: 285pt, fill: rgb(255, 255, 255), radius:5%))
+#" "
+#block[#text(14pt, rgb(7, 7, 87), strong[Target information])]
+#set text(size: 8pt)
+

@@ -9,15 +9,14 @@ use crate::analysis_family::Data as FamilyData;
 use crate::App;
 
 use std::collections::HashMap;
-use std::error::Error;
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Write};
+use std::fs;
+use std::io::{self, BufRead, BufReader};
 
-pub(super) fn simple_report(data: &FamilyData) {
+pub fn simple_report(data: &FamilyData) {
     let output_pdf = "typst_report.pdf";
-    // Names of the input files will probably be somewhere in data, so you should pass them down in
-    // functions. 
-    let typst_template = work_on_me();  // P.S.: I can take parameters.
+    let typst_template = run_pdf("src/report_data/metadata.tsv", "src/report_data/STRset.tsv", &1)
+    .expect("Failed to generate Typst content");        //number of samples will be counted from the number of metadata files
 
     // Here be dragons
     let typst_cache = App::DATA_DIR.to_string() + "/typst_cache";
@@ -38,69 +37,31 @@ pub(super) fn simple_report(data: &FamilyData) {
     std::fs::write(output_pdf, pdf).expect("Could not write pdf.");
 }
 
-fn work_on_me() -> String {
-    // This function is maybe too short. You can inline run_pdf. 
-    run_pdf().unwrap();
-
-    // run_pdf writes to report_result.typ and then here you read from that file.
-    // TODO: Avoid going through filesystem. Pass String directly. 
-    return std::fs::read_to_string("src/report_data/report_result.typ")
-        .expect("Failed to read the generated Typst template");
-}
-
-// I wouldn't use trait objects (Box<dyn Error>) yet. Use expect function to handle errors for now.
-fn run_pdf() -> Result<(), Box<dyn Error>> {
-    let output_filename = "src/report_data/report_result.typ";
-    let metadata_rows = get_metadata_row_count("src/report_data/metadata.tsv")?;
-
-    let mut output_file = File::create(output_filename)?;
-    let base_height = 70 - 16;
+fn run_pdf(metadata_path: &str, strset_path: &str, samples: &i32) -> Result<String, io::Error> {
+    let base_height = 54;
     let row_height = 16;
-    let rect_height = base_height + metadata_rows * row_height;
+    let rect_height = base_height + samples * row_height;
+    let rect_height_minus_35 = rect_height - 35;
 
-    writeln!(
-        output_file,
-        // This needs to go to template and the include it with include_str macro
-        // https://doc.rust-lang.org/std/macro.include_str.html
-        // This comment is also valid for any longer string literal below. :-D
-        "#set page(margin: 15mm) // A4 is default\n\
-        \n#image(\"logo.png\", width: 180mm)\n\
-        #align(right + top)[#text(20pt, strong[RESULTS REPORT])]\n\
-        #align(right + top)[*Report ID:* 2025022]\n\
-        \n#place(right, dy: -8pt, dx: 9pt, rect(width: 190mm, height: {}pt, fill: rgb(195, 215, 255), radius: 15%))\n\
-        #place(right, dy: 20pt, rect(width: 182mm, height: {}pt, fill: rgb(255, 255, 255), radius: 15%))\n\
-        #block[\n  #text(14pt, rgb(7, 7, 87), strong[Sample information])]\n\
-        \n#set text(size: 10pt)\n\
-        #set table(\n  stroke: none,\n  align: (x, y) => (\n    if x > 0 {{ center }}\n    else {{ left }}\n  )\n)",
-        rect_height, rect_height - 35
-    )?;
+    let template = fs::read_to_string("src/report_data/first.txt")?;
 
-    process_metadata(&mut output_file)?;
+    let mut content = template
+        .replace("{rect_height}", &rect_height.to_string())
+        .replace("{rect_height_minus_35}", &rect_height_minus_35.to_string());
 
-    let content = r#"
-#place(right, dy: 10pt, dx: 9pt, rect(width: 190mm, height: 320pt, fill: rgb(195, 215, 255), radius: 5%))
-#place(right, dy: 38pt, dx: -2pt, rect(width: 182mm, height: 285pt, fill: rgb(255, 255, 255), radius:5%))
-#" "
-#block[#text(14pt, rgb(7, 7, 87), strong[Target information])]
-#set text(size: 8pt)
-"#;
+    let metadata_content = process_metadata_to_string(metadata_path)?;
+    content.push_str(&metadata_content);
 
-    writeln!(output_file, "{}", content)?;
+    let template2 = fs::read_to_string("src/report_data/second.txt")?;
+    content.push_str(&template2);
 
-    process_strset(&mut output_file)?;
-    Ok(())
+    content.push_str(&process_strset_to_string(strset_path)?);
+
+    Ok(content)
 }
 
-fn get_metadata_row_count(filename: &str) -> io::Result<usize> {
-    let input_file = File::open(filename)?;
-    let reader = BufReader::new(input_file);
-    Ok(reader.lines().count() - 1)
-}
-
-// this needs to take input_filename as a parameter
-fn process_metadata(output_file: &mut File) -> io::Result<usize> {
-    let input_filename = "src/report_data/metadata.tsv"; // kde presne budu data?
-    let input_file = File::open(input_filename)?;
+fn process_metadata_to_string(metadata_path: &str) -> io::Result<String> {
+    let input_file = File::open(metadata_path)?;
     let reader = BufReader::new(input_file);
 
     let required_headers = vec![
@@ -113,7 +74,7 @@ fn process_metadata(output_file: &mut File) -> io::Result<usize> {
         "Family ID",
     ];
 
-    let mut row_count = 0;
+    let mut output = String::new();
 
     let mut lines = reader.lines();
     if let Some(Ok(header)) = lines.next() {
@@ -126,49 +87,47 @@ fn process_metadata(output_file: &mut File) -> io::Result<usize> {
             }
         }
 
-        writeln!(output_file, "\n#table(")?;
-        writeln!(output_file, "  columns: {},", required_headers.len())?;
-        writeln!(output_file, "  table.header(")?;
+        output.push_str("\n#table(\n");
+        output.push_str(&format!("  columns: {},\n", required_headers.len()));
+        output.push_str("  table.header(\n");
         for (i, h) in required_headers.iter().enumerate() {
             let color = "text(rgb(5, 5, 126))";
             if i == required_headers.len() - 1 {
-                writeln!(output_file, "    {}[*{}*]", color, h)?;
+                output.push_str(&format!("    {}[*{}*]\n", color, h));
             } else {
-                writeln!(output_file, "    {}[*{}*],", color, h)?;
+                output.push_str(&format!("    {}[*{}*],\n", color, h));
             }
         }
-        writeln!(output_file, "  ),")?;
-        // header parsing if should end somewhere here and then the content parsing if shuld start 
-        // }
-        // if let ...content... = lines.next() { ...
+        output.push_str("  ),\n");
 
-        let mut row_number = 1;
-        // Metadata will only contain 2 lines - header and content. You don't need to iterate over
-        // it. This is part of our "contract" with Jancsi :-D
-        for line in lines.flatten() {
+        // here we will iterate over each metadata file
+        let lines: Vec<_> = lines.flatten().collect();
+        if let Some(line) = lines.get(1) {
+            let row_number = 1;
             let values: Vec<&str> = line.split('\t').collect();
-            write!(output_file, "  [{}],", row_number)?;
+            
+            output.push_str("  [");
+            output.push_str(&format!("{}", row_number));
+            output.push_str("],");
+
             for h in &required_headers[1..] {
-                let value = col_indices.get(h).and_then(|&i| values.get(i)).unwrap_or(&"");
-                write!(output_file, "[{}],", value)?;
+                let value = col_indices
+                    .get(h)
+                    .and_then(|&i| values.get(i))
+                    .unwrap_or(&"");
+                output.push_str(&format!("[{}],", value));
             }
-            writeln!(output_file)?;
-            row_number += 1;
-            row_count += 1;
+            output.push('\n');
         }
 
-        writeln!(output_file, ")")?;
+        output.push_str(")\n");
     }
 
-    Ok(row_count)
+    Ok(output)
 }
 
-// this needs file as an input
-// also prefer expect instead for Box<dyn Error> for now.
-// I want to have a first version where the happy path works and then solve the errors if we can do
-// something smarter than just stop execution.
-fn process_strset(output_file: &mut File) -> Result<(), Box<dyn Error>> {
-    let file = File::open("src/report_data/STRset.tsv")?;
+fn process_strset_to_string(strset_path: &str) -> io::Result<String> {
+    let file = File::open(strset_path)?;
     let reader = BufReader::new(file);
     let mut headers: Vec<String> = Vec::new();
     let mut values: HashMap<String, String> = HashMap::new();
@@ -177,13 +136,12 @@ fn process_strset(output_file: &mut File) -> Result<(), Box<dyn Error>> {
     if let Some(header_line) = lines.next() {
         headers = header_line?.split('\t').map(String::from).collect();
     } else {
-        return Err("Empty file".into());
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "Empty file"));
     }
 
     for line in lines {
         let row: Vec<String> = line?.split('\t').map(String::from).collect();
         if let Some(index) = headers.iter().position(|h| h == "Disease ID") {
-            // premysliet
             if row.get(index) == Some(&"DM1".to_string()) {
                 for (i, value) in row.iter().enumerate() {
                     values.insert(headers[i].clone(), value.clone());
@@ -194,75 +152,34 @@ fn process_strset(output_file: &mut File) -> Result<(), Box<dyn Error>> {
     }
 
     if values.is_empty() {
-        return Err("Disease not found".into());
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "Disease not found"));
     }
 
-    writeln!(
-        output_file,
-        // This needs to go to template and the include it with include_str macro
-        // https://doc.rust-lang.org/std/macro.include_str.html
-        "#table(
-  columns: 3,
-  [#table(
-    align: left,
-    columns: 2,
-    stroke: none,
-    text(rgb(5, 5, 126))[*Disease*], [*{}*],
-    text(rgb(5, 5, 126))[Disease abbreviation], [{}],
-    text(rgb(5, 5, 126))[OMIM ID], [#{}],
-    text(rgb(5, 5, 126))[Motif complexity], [{}],
-    text(rgb(5, 5, 126))[*Clinically relevant unit (HGVS)*], [*{}*],
-    text(rgb(5, 5, 126))[Clinically relevant unit (historical)], [{}],
-    text(rgb(5, 5, 126))[Whole motif (HGVS)], [{}],
-    text(rgb(5, 5, 126))[Whole motif (historical)], [{}],
-    text(rgb(5, 5, 126))[HGVS nomenclature (GRCh38)], [{}],
-    text(rgb(5, 5, 126))[Molecular mechanism], [{}],
-    text(rgb(5, 5, 126))[Motif - Notes], [{}],
-    text(rgb(5, 5, 126))[Citation (references)], [{}],
-  )], [#table(
-    align: left,
-    columns: 2,
-    stroke: none,
-    text(rgb(5, 5, 126))[Gene], [{}],
-    text(rgb(5, 5, 126))[Gene abbreviation], [{}],
-    text(rgb(5, 5, 126))[Inheritance], [{}],
-    text(rgb(5, 5, 126))[Physiological range], [{}],
-    text(rgb(5, 5, 126))[Premutation range], [{}],
-    text(rgb(5, 5, 126))[Pathogenic range], [{}],
-    text(rgb(5, 5, 126))[Grey-zone range], [{}],
-  )], [#table(
-    align: left,
-    columns: 2,
-    stroke: none,
-    text(rgb(5, 5, 126))[Chromosome], [{}],
-    text(rgb(5, 5, 126))[Gene context], [{}],
-    text(rgb(5, 5, 126))[Protein context], [{}],
-  )],
-)",
-        values.get("Disease name").unwrap_or(&"".to_string()),
-        values.get("Disease ID").unwrap_or(&"".to_string()),
-        values.get("OMIM ID").unwrap_or(&"".to_string()),
-        values.get("Motif complexity").unwrap_or(&"".to_string()),
-        values.get("Clinically relevant unit (HGVS)").unwrap_or(&"".to_string()),
-        values.get("Clinically relevant unit (historical)").unwrap_or(&"".to_string()),
-        values.get("Whole motif (HGVS)").unwrap_or(&"".to_string()),
-        values.get("Whole motif (historical)").unwrap_or(&"".to_string()),
-        values.get("HGVS nomenclature (GRCh38)").unwrap_or(&"".to_string()),
-        values.get("Molecular mechanism").unwrap_or(&"".to_string()),
-        values.get("Notes").unwrap_or(&"".to_string()),
-        values.get("Citation (references)").unwrap_or(&"".to_string()),
-        values.get("Gene").unwrap_or(&"".to_string()),
-        values.get("Gene abbreviation").unwrap_or(&"".to_string()),
-        values.get("Inheritance").unwrap_or(&"".to_string()),
-        values.get("Physiological range").unwrap_or(&"".to_string()),
-        values.get("Premutation range").unwrap_or(&"".to_string()),
-        values.get("Pathogenic range").unwrap_or(&"".to_string()),
-        values.get("Grey-zone range").unwrap_or(&"".to_string()),
-        values.get("Chromosome").unwrap_or(&"".to_string()),
-        values.get("Gene context").unwrap_or(&"".to_string()),
-        values.get("Protein context").unwrap_or(&"".to_string()),
-    );
+    let template = fs::read_to_string("src/report_data/third.txt")?;
 
-    Ok(())
+    let output = template
+        .replace("{DN}", values.get("Disease name").unwrap_or(&"".to_string()))
+        .replace("{DI}", values.get("Disease ID").unwrap_or(&"".to_string()))
+        .replace("{OI}", values.get("OMIM ID").unwrap_or(&"".to_string()))
+        .replace("{MC}", values.get("Motif complexity").unwrap_or(&"".to_string()))
+        .replace("{HGVS}", values.get("Clinically relevant unit (HGVS)").unwrap_or(&"".to_string()))
+        .replace("{hist}", values.get("Clinically relevant unit (historical)").unwrap_or(&"".to_string()))
+        .replace("{WMHGVS}", values.get("Whole motif (HGVS)").unwrap_or(&"".to_string()))
+        .replace("{WMhist}", values.get("Whole motif (historical)").unwrap_or(&"".to_string()))
+        .replace("{nom}", values.get("HGVS nomenclature (GRCh38)").unwrap_or(&"".to_string()))
+        .replace("{MM}", values.get("Molecular mechanism").unwrap_or(&"".to_string()))
+        .replace("{N}", values.get("Notes").unwrap_or(&"".to_string()))
+        .replace("{C}", values.get("Citation (references)").unwrap_or(&"".to_string()))
+        .replace("{G}", values.get("Gene").unwrap_or(&"".to_string()))
+        .replace("{GA}", values.get("Gene abbreviation").unwrap_or(&"".to_string()))
+        .replace("{I}", values.get("Inheritance").unwrap_or(&"".to_string()))
+        .replace("{PhR}", values.get("Physiological range").unwrap_or(&"".to_string()))
+        .replace("{PrR}", values.get("Premutation range").unwrap_or(&"".to_string()))
+        .replace("{PaR}", values.get("Pathogenic range").unwrap_or(&"".to_string()))
+        .replace("{GZR}", values.get("Grey-zone range").unwrap_or(&"".to_string()))
+        .replace("{Chr}", values.get("Chromosome").unwrap_or(&"".to_string()))
+        .replace("{GC}", values.get("Gene context").unwrap_or(&"".to_string()))
+        .replace("{PC}", values.get("Protein context").unwrap_or(&"".to_string()));
+    
+    Ok(output)
 }
-
