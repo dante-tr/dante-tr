@@ -52,8 +52,8 @@ impl Data {
             Message::Exit(_) => { unreachable!("Implemented in App::update."); }
             Message::Save(motif_idx) => {
                 let json = serde_json::to_string(&self.revisions[motif_idx]).unwrap();
-                println!("Save {} {}", motif_idx, json);
                 let mut output = self.source.clone(); output.push("revisions");
+                let _ = std::fs::create_dir(&output); /* ignoring error when dir already exists */
                 output.push(format!("{}.json", self.motif_ids[motif_idx]));
 
                 let mut out = File::create(&output).expect("Cannot open file for writing.");
@@ -76,10 +76,11 @@ impl Data {
         for motif_id in &motif_ids {
             let mut revision = source.clone(); revision.push("revisions"); revision.push(format!("{}.json", motif_id));
             if revision.exists() {
-                let json: String = std::fs::read_to_string(revision).expect("Cannot read file.");
-                revisions.push(serde_json::from_str(&json).expect("Cannot parse json."));
+                let rev_json: String = std::fs::read_to_string(revision).expect("Cannot read file.");
+                let rev = serde_json::from_str(&rev_json).expect("Cannot parse json.");
+                revisions.push(rev);
             } else {
-                revisions.push(Revision::empty(motif_id));
+                revisions.push(Revision::empty(&json, motif_id));
             }
         }
 
@@ -259,39 +260,39 @@ fn view_allele_row<'a>(allele_data: &Value, num: usize) -> Row<'a, Message> {
 fn view_revised_allele_row<'a>(
     data: &Data, allele_data: &Value, motif_pos: usize, module_idx: usize, num: usize
 ) -> Row<'a, Message> {
-        let pat: &[_] = &['"', ' '];
-        let conf    = allele_data[1].to_string().trim_matches(pat).to_string();
-        let indels  = allele_data[2].to_string().trim_matches(pat).to_string();
-        let matches = allele_data[3].to_string().trim_matches(pat).to_string();
+    let pat: &[_] = &['"', ' '];
+    let conf    = allele_data[1].to_string().trim_matches(pat).to_string();
+    let indels  = allele_data[2].to_string().trim_matches(pat).to_string();
+    let matches = allele_data[3].to_string().trim_matches(pat).to_string();
 
-        let pred = allele_data[0].to_string().trim_matches(pat).to_string();
-        let value = &data.revisions[motif_pos].modules[module_idx][num-1].0;
-        let on_input_f = move |x| { Message::RevisionChanged(x, motif_pos, module_idx, num-1) };
-        let txt_in = text_input(&pred, value).on_input(on_input_f).width(40);
+    let pred = allele_data[0].to_string().trim_matches(pat).to_string();
+    let value = &data.revisions[motif_pos].modules[module_idx][num-1].0;
+    let on_input_f = move |x| { Message::RevisionChanged(x, motif_pos, module_idx, num-1) };
+    let txt_in = text_input(&pred, value).on_input(on_input_f).width(40);
 
-        let options = [ Status::Benign, Status::Suspicious, Status::Malignant, Status::Unknown ];
-        let selected: Option<Status> = data.revisions[motif_pos].modules[module_idx][num-1].1;
-        let on_pick_f = move |x| { Message::PatChanged(x, motif_pos, module_idx, num-1) };
-        let pck_lst = pick_list(options, selected, on_pick_f);
+    let options = [ Status::Benign, Status::Suspicious, Status::Malignant, Status::Unknown ];
+    let selected: Option<Status> = data.revisions[motif_pos].modules[module_idx][num-1].1;
+    let on_pick_f = move |x| { Message::PatChanged(x, motif_pos, module_idx, num-1) };
+    let pck_lst = pick_list(options, selected, on_pick_f);
 
-        // type VElem<'a> = Vec<Element<'a, Message>>;
-        let x: Vec<Element<'a, Message>> = vec![
-            text(num.to_string()).into(),
-            txt_in.into(),
-            text(conf).into(),
-            pck_lst.into(),
-            text(allele_data[4].to_string()).into(),
-            text(indels).into(),
-            text(matches).into()
-        ];
+    // type VElem<'a> = Vec<Element<'a, Message>>;
+    let x: Vec<Element<'a, Message>> = vec![
+        text(num.to_string()).into(),
+        txt_in.into(),
+        text(conf).into(),
+        pck_lst.into(),
+        text(allele_data[4].to_string()).into(),
+        text(indels).into(),
+        text(matches).into()
+    ];
 
-        let result = row![]
-            .padding(Padding {left: 0.0, top: 5.0, right: 0.0, bottom: 5.0})
-            .align_y(Vertical::Center);
+    let result = row![]
+        .padding(Padding {left: 0.0, top: 5.0, right: 0.0, bottom: 5.0})
+        .align_y(Vertical::Center);
 
-        let allele_row: Vec<Element<'a, Message>> = x.into_iter()
-            .map(|y| container(y).width(Length::FillPortion(1)).into()).collect();
-        result.extend(allele_row)
+    let allele_row: Vec<Element<'a, Message>> = x.into_iter()
+        .map(|y| container(y).width(Length::FillPortion(1)).into()).collect();
+    result.extend(allele_row)
 }
 
 fn view_stats_row<'a>(module: &Value) -> Row<'a, Message> {
@@ -379,10 +380,15 @@ struct Revision {
 }
 
 impl Revision {
-    fn empty(motif_id: &str) -> Self {
+    fn empty(json_path: &PathBuf, motif_id: &str) -> Self {
+        let json: String = std::fs::read_to_string(json_path).expect("Cannot read file.");
+        let json: Value = serde_json::from_str(&json).expect("Cannot parse json.");
+        let motif = json["motifs"].as_array().unwrap().iter().find(|x| x["motif_id"] == motif_id).unwrap();
+        let n = motif["modules"].as_array().unwrap().len();
+
         return Self {
             motif_id: motif_id.to_string(),
-            modules: vec![[("".to_string(), None), ("".to_string(), None)]]
+            modules: vec![[("".to_string(), None), ("".to_string(), None)]; n]
         };
     }
 }

@@ -30,6 +30,7 @@ pub(crate) enum Message {
     AnalysisProgress(String),
     OpenResults,
     Print,
+    SetReport(ReportType),
     CheckboxOutBAM(bool),
 }
 
@@ -47,6 +48,9 @@ pub(super) struct Data {
     out_bam: bool,
     message_line: String,
 
+    selected_report: Option<ReportType>,
+    message_line2: String,
+
     motifs: Vec<(bool, String, Vec<String>, String)>,  // (checked, id, groups, description)
     groups: Vec<(bool, String)>,
 }
@@ -60,7 +64,7 @@ impl Data {
 
         content = content.push(container(horizontal_rule(2)).padding(25));
         content = view_report(content, self, size);
-        content = content.push(draw_open_button(self));
+        // content = content.push(draw_open_button(self));
 
         // let content = std::convert::Into::<Element<Message>>::into(content).explain(iced::Color::BLACK);
         return scrollable(content).into();
@@ -77,8 +81,9 @@ impl Data {
             Message::SetMotifs(motif_file) => { update_motif_selection(self, motif_file); Task::none() },
             Message::MotifGroupbox(idx, checked) => { toggle_group(self, idx, checked); Task::none() },
             Message::MotifCheckbox(idx, checked) => { self.motifs[idx].0 = checked; Task::none() },
-            Message::Print => { println!(); Task::none() }
             Message::AnalysisProgress(msg) => { self.message_line = msg; Task::none() }
+            Message::SetReport(report) => { self.selected_report = Some(report); Task::none() }
+            Message::Print => { print_report(self); Task::none() }
 
             Message::Back => { unreachable!("Implemented in App::update."); },
             Message::EditMetadata(_, _) => { unreachable!("Implemented in App::update."); }
@@ -400,11 +405,16 @@ fn view_report<'a>(mut content: Column<'a, Message>, data: &'a Data, size: Size)
         content = content.push(r);
     }
 
-    const PAD2: Padding = Padding { bottom: 0.0, top: 10.0, right: 15.0, left: 0.0 };
+    const PAD2: Padding = Padding { bottom: 0.0, top: 10.0, right: 25.0, left: 0.0 };
+    const PAD3: Padding = Padding { bottom: 0.0, top: 10.0, right: 5.0, left: 0.0 };
+    let report_types = [ReportType::OnePage, ReportType::Summary, ReportType::Result, ReportType::Technical];
+
     let r = row![
         container(text("")).width(160),
         container(button("View").on_press(Message::EditResults(data.clone()))).padding(PAD2),
-        container(button("Print").on_press(Message::Print)).padding(PAD2),
+        container(button("Print").on_press(Message::Print)).padding(PAD3),
+        container(pick_list(report_types, data.selected_report, Message::SetReport).placeholder("report type")).padding(PAD3),
+        container(text(data.message_line2.clone())).padding(PAD2),
         horizontal_space(),
     ].padding(10).align_y(Vertical::Center);
     // let r = std::convert::Into::<Element<Message>>::into(r).explain(iced::Color::BLACK);
@@ -453,4 +463,56 @@ fn make_checkbox_row<'a>(motifs: &'a[(bool, String, Vec<String>, String)], avail
         *i += 1;
     }
     return v;
+}
+
+fn print_report(data: &mut Data) {
+    let Ok(Some(output_pdf)) = FileDialog::new().show_save_single_file() else { return; };
+    data.message_line2 = format!(
+        "{} report saved to {}", data.selected_report.unwrap(), output_pdf.to_string_lossy()
+    );
+
+    // println!("{:#?}", data);
+    // println!("{:?}", output_pdf);
+    let typst_template = include_str!("../assets/templates/report_onepage.typ");
+
+    use typst_as_lib::package_resolver::FileSystemCache;
+    use typst_as_lib::package_resolver::PackageResolver;
+    use typst_as_lib::typst_kit_options::TypstKitFontOptions;
+    use typst_as_lib::TypstEngine;
+
+    let typst_cache = App::DATA_DIR.to_string() + "/typst_cache";
+    let pkg_resolver = PackageResolver::builder().cache(FileSystemCache(PathBuf::from(typst_cache))).build();
+
+    let template = TypstEngine::builder()
+        .main_file(typst_template)
+        .search_fonts_with(TypstKitFontOptions::default())
+        .add_file_resolver(pkg_resolver)
+        .with_file_system_resolver(App::DATA_DIR)
+        .build();
+
+    let doc = template.compile().output.expect("typst::compile() returned an error!");
+
+    let options = Default::default();
+
+    let pdf = typst_pdf::pdf(&doc, &options).expect("Could not generate pdf.");
+    std::fs::write(output_pdf, pdf).expect("Could not write pdf.");
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) enum ReportType {
+    OnePage,
+    Summary,
+    Result,
+    Technical,
+}
+
+impl std::fmt::Display for ReportType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::OnePage => "One-page",
+            Self::Summary => "Summary",
+            Self::Result => "Result",
+            Self::Technical => "Technical",
+        })
+    }
 }
