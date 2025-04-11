@@ -1,152 +1,165 @@
-#set page(paper: "a4", margin: 15mm)
+#set page(
+  paper: "a4",
+  margin: (top: 25mm, right: 10mm, bottom: 25mm, left: 10mm)
+)
 
 #let dark_blue = rgb(7, 7, 87)
 #let blue = rgb(5, 5, 126)
 #let light_blue = rgb(195, 215, 255)
-#let green = rgb(178, 255, 108)
-#let r = 1mm
+#let r = 2mm
 
-#align(right + top)[#text(20pt, strong[ONE-PAGE REPORT])]
-#align(right + top)[*Report ID:* {2025022}]
+#let benign = rect(radius: 50%, fill: green)[Benign]
+#let pathogenic = rect(radius: 50%, fill: red)[Pathogenic]
+#let premutation = rect(radius: 50%, fill: yellow)[Premutation]
 
-#place(right, dy: -8pt, dx: 9pt, rect(width: 190mm, height: 80%, fill: light_blue, radius: r))
+// some useful functions for debugging and prototyping
+#let dbox(content) = box(stroke: red)[content] /* this is useful for debuging layouts */
+#let placeholder(width, height) = box(
+  width: width, height: height, fill: gray, stroke: gray
+)[#align(center + horizon)[Image]]
 
-#v(0.2cm)
-#place(right, dy: -6pt, dx: 2pt, rect(width: 185mm, height: 25pt, fill: white, radius: r))
-#block[
-  #text(16pt, dark_blue, strong[Proband]) #h(1cm)
-  #text(15pt)[{9-2025}] #h(7cm)
-  #text(16pt, dark_blue, strong[Family ID]) #h(1cm)
-  #text(14pt)[{DM-152}]
-]
+// ----------------------------------------------------------------------------
 
-#v(0.4cm)
-#place(right, dy: -5pt, dx: -389pt, rect(width: 47mm, height: 60pt, fill: white, radius: r))
-#place(right, dy: 15pt, dx: 2pt, rect(width: 185mm, height: 60pt, fill: white, radius: r))
-#block[#text(14pt, dark_blue, strong[Family structure])]
-
-#set text(size: 10pt)
-#set table(
+#table(
+  columns: (60%, 40%),
   stroke: none,
-  align: (x, y) => (
-    if x > 0 { center }
-    else { left }
-  )
+  inset: 0mm,
+  [#placeholder(100%, 10%)],
+  [
+    #align(right)[#text(20pt)[*ONE-PAGE REPORT*]]
+    #align(right)[*Report ID:* {{ report_id }}]
+  ]
 )
 
-#table(
-  columns: 7,
-  table.header(
-    text(blue)[*No.*],
-    text(blue)[*Sample ID*],
-    text(blue)[*Sample SI*],
-    text(blue)[*Gender*],
-    text(blue)[*Patient position in analysis*],
-    text(blue)[*Affection status \ (cause of testing)*],
-    text(blue)[*Date of birth*]
-  ),
-  [{1}],
-  [{9-2025}],
-  [{JD}],
-  [{Male}],
-  [{Proband}],
-  [{Affected}],
-  [{1954-12-02}],
-)
+#v(5mm)
+#rect(width: 100%,fill: light_blue, radius: r, inset: 2.5mm)[
 
-#v(0.4cm)
-#place(right, dy: -5pt, dx: -389pt, rect(width: 47mm, height: 60pt, fill: white, radius: r))
-#place(right, dy: 15pt, dx: 2pt, rect(width: 185mm, height: 175pt, fill: white, radius: r))
-#block[
-  #text(14pt, dark_blue, strong[Case description])
-]
+  #rect(radius: r, fill: white)[
+    #table(columns: (50%, 50%), inset: 1mm, fill: white, stroke: none)[
+      #align(left)[
+        #text(16pt, dark_blue)[*Proband*]
+        #h(0.5cm)
+        #text(15pt)[{{ proband_id }}]
+      ]
+    ][
+      #align(right)[
+        #text(16pt, dark_blue)[*Family ID*]
+        #h(0.5cm)
+        #text(14pt)[{{ family_id }}]
+      ]
+    ]
+  ]
 
-#show table.cell.where(x: 0): set text(
-  fill: rgb(5, 5, 126),
-  weight: "bold",
-)
+  #rect(fill: white, radius: r, height: 1cm)[
+    #text(14pt, dark_blue)[*Family structure*]
+  ]
 
-#show table.cell.where(x: 2): set text(
-  fill: rgb(5, 5, 126),
-  weight: "bold",
-)
+  #v(-8mm) /* 5mm seems to be the diff between sections */
+  #rect(fill: white, radius: r)[
+    #table(
+      columns: (3fr, 9fr, 9fr, 6fr, 8fr, 16fr, 13fr), /* number of letters in header seems like a good heuristic */
+      stroke: none,
+      align: (x, _) => (
+        if x > 0 { center }
+        else { left }
+      ),
+      table.header(
+        text(blue)[*No.*],
+        text(blue)[*Sample ID*],
+        text(blue)[*Sample SI*],
+        text(blue)[*Gender*],
+        text(blue)[*Position*], /* [*Patient position in analysis*] */
+        text(blue)[*Affection status*], /* [*Affection status \ (cause of testing)*] */
+        text(blue)[*Date of birth*]
+      ),
+      [{{ row[0] }}],
+      [{{ row[1] }}],
+      [{{ row[2] }}],
+      [{{ row[3] }}],
+      [{{ row[4] }}],
+      [{{ row[5] }}],
+      [{{ row[6] }}],
+    )
+  ]
 
-#set table(
-  stroke: (x, y) => if y == 0 {},
-  align: (x, y) => (
-    if x > 0 { center }
-    else { left }
-  )
-)
+  #rect(fill: white, radius: r, height: 1cm)[
+    #text(14pt, dark_blue)[*Case description*]
+  ]
 
-#table(
-  columns: 4,
-  align: left,
-  [Suspected diagnosis], [Myotonic dystrophy], [Requesting person], [Dr. Umberto Eco],
+  #v(-8mm) /* 5mm seems to be the diff between sections */
+  #rect(fill: white, radius: r)[
+    // This is some serious gourmet feature
+    #show table.cell.where(x: 0): set text(
+      fill: blue,
+      weight: "bold",
+    )
+
+    #table(
+      columns: 2,
+      stroke: none,
+      align: left,
+      [Suspected diagnosis],              [{{ sus_diag }}],
+      [Requesting person],                [{{ req_person }}],
+      [Reason for testing],               [{{ reason }}],
+      [Requesting facility],              [{{ req_facility }}],
+      [Other health conditions],          [{{ health_cond }}],
+      [Phenotype in HPO terms],           [{{ hpo_terms }}],
+      [Requested target(s) of analysis],  [{{ req_targets }}],
+      [Patient note],                     [{{ note }}],
+    )
+  ]
   
-  [Reason for testing],
-  [Patient has long term muscle pain (proximal muscles), cataract surgery 5 years ago, etc.],
-  [Requesting facility],
-  [Milano Faculty Hospital],
-  
-  [Other health conditions], [High blood pressure], [Phenotype in HPO terms], [proximal muscle pain, cataract],
-  [Requested target(s) of analysis], [DMPK (DM1); CNBP (DM2)], [], [],
-  [Patient note], [Nothing to note], [], []
-)
+  #rect(fill: white, radius: r, height: 1cm)[
+    #text(14pt, dark_blue)[*Analysis resume*]
+  ]
+  #v(-8mm)
+  #rect(fill: white, radius: r, width: 100%)[
+    #table(
+      columns: 6,
+      stroke: none,
+      [#text(blue)[*No. of requested targets:*]], [{{ n_req_targets }}],
+      [#text(blue)[*No. of QC passed loci:*]], [{{ n_loci_qc_pass }}],
+      [#text(blue)[*No. of QC failed loci:*]], [{{ n_loci_qc_fail }}],
+    )
+    #v(-4.7mm)
+    #table(
+      columns: 2,
+      stroke: none,
+      [#text(blue)[*Failure reasons:*]], [{{ fail_reason }}]
+    )
+  ]
 
-#v(0.8cm)
-#place(right, dy: -5pt, dx: -389pt, rect(width: 47mm, height: 60pt, fill: white, radius: r))
-#place(right, dy: 15pt, dx: 2pt, rect(width: 185mm, height: 45pt, fill: white, radius: r))
-#block[
-  #text(14pt, rgb(7, 7, 87), strong[Analysis resume])
+  #rect(fill: white, radius: r, height: 1cm)[
+    #text(14pt, dark_blue)[*Results interpretation*]
+  ]
+  #v(-8mm)
+  #rect(fill: white, radius: r, width: 100%)[
+    {{ interpretation }}
+    #v(2mm)
+  ]
+
+  #rect(fill: white, radius: r, height: 1cm)[
+    #text(14pt, dark_blue)[*Clinically relevant findings*]
+  ]
+  #v(-8mm)
+  #rect(fill: white, radius: r, width: 100%)[
+    #table(
+      columns: 7,
+      stroke: none,
+      align: left,
+      table.header(
+        [#text(blue)[*No.*]],
+        [#text(blue)[*Sample ID*]],
+        [#text(blue)[*Sample SI*]],
+        [#text(blue)[*Allele*]],
+        [#text(blue)[*No. of repeats*]], /* [Repeat number \ (revision)], */
+        [#text(blue)[*Pathogenicity*]], /* [HGVS nomenclature \ (revision)], */
+        [#text(blue)[*HGVS nomenclature*]], /* [Pathogenicity \ (revision)], */
+      ),
+        [{{ row[0] }}], [{{ row[1] }}], [{{ row[2] }}],
+        [Allele 1], [{{ a1_repnum }}], [{{ a1_status }}], [{{ a1_nom }}],
+        [], [], [],
+        [Allele 2], [{{ a2_repnum }}], [{{ a2_status }}], [{{ a2_nom }}],
+    )
+  ]
 ]
-
-#show table.cell.where(x: 4): set text(
-  fill: rgb(5, 5, 126),
-  weight: "bold",
-)
-
-#table(
-  columns: 6,
-  [No. of requested target(s):], [2], [No. of QC passed loci], [2], [No. of QC failed loci], [0],
-  [Failure reason(s)], [None], [], [], [], []
-)
-
-#v(0.4cm)
-#place(right, dy: -5pt, dx: -355pt, rect(width: 59mm, height: 30pt, fill: white, radius: r))
-#place(right, dy: 15pt, dx: 2pt, rect(width: 185mm, height: 35pt, fill: white, radius: r))
-#block[
-  #text(14pt, rgb(7, 7, 87), strong[Results interpretation])
-]
-#block[From the 2 analyzed target loci all 2 passed the QC filter and all 2 were interpretable. We identified no pathogenic repeat structures in these loci... However, the repeat structure in the DM1 (DMPK) CTG motif was found to be atypical...]
-
-#v(0.5cm)
-#place(right, dy: -5pt, dx: -324pt, rect(width: 70mm, height: 60pt, fill: white, radius: r))
-#place(right, dy: 15pt, dx: 2pt, rect(width: 185mm, height: 90pt, fill: white, radius: r))
-#block[
-  #text(14pt, rgb(7, 7, 87), strong[Clinically relevant findings])
-]
-
-#show table.cell.where(x: 2): set text(
-  fill: black,
-  weight: "regular",
-)
-
-#show table.cell.where(x: 4): set text(
-  fill: black,
-  weight: "regular",
-)
-
-#show table.cell.where(y: 0): set text(
-  fill: rgb(5, 5, 126),
-  weight: "bold",
-)
-
-#table(
-  columns: 7,
-  table.header(
-    [No.], [Sample ID], [Sample SI], [Allele], [Repeat number (revision)], [HGVS nomenclature (revision)], [Pathogenicity (revision)],
-  ),
-    [{1}], [{9-2025}], [{JD}], [Allele 1], [5],  [chr19:g.45770207_45770266GCA[5]],  rect(radius: 50%, fill: green)[Benign],
-    [],  [],       [],   [Allele 2], [12], [chr19:g.45770207_45770266GCA[12]], rect(radius: 50%, fill: green)[Benign],
-)

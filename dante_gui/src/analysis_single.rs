@@ -471,9 +471,7 @@ fn print_report(data: &mut Data) {
         "{} report saved to {}", data.selected_report.unwrap(), output_pdf.to_string_lossy()
     );
 
-    // println!("{:#?}", data);
-    // println!("{:?}", output_pdf);
-    let typst_template = include_str!("../assets/templates/report_onepage.typ");
+    let typst_template = construct_report(data);
 
     use typst_as_lib::package_resolver::FileSystemCache;
     use typst_as_lib::package_resolver::PackageResolver;
@@ -496,6 +494,57 @@ fn print_report(data: &mut Data) {
 
     let pdf = typst_pdf::pdf(&doc, &options).expect("Could not generate pdf.");
     std::fs::write(output_pdf, pdf).expect("Could not write pdf.");
+}
+
+fn construct_report(data: &Data) -> String {
+    use minijinja::{Environment, context};
+    let mut env = Environment::new();
+
+    let template_id = "onepage";
+    let typst_template = include_str!("../assets/templates/report_onepage.typ");
+    env.add_template(template_id, typst_template).unwrap();
+
+    let ctx = context!(
+        report_id => "2025022",
+        proband_id => "9-2025",
+        family_id => "DM-152",
+        row => vec!["1", "9-2025", "JD", "Male", "Proband", "Affected", "1954-12-02"],
+
+        sus_diag => "Myotonic dystrophy",
+        req_person => "Dr. Umbero Eco",
+        reason => "Patient has long term muscle pain (proximal muscles), cataract surgery 5 years ago, etc.",
+        req_facility => "Milano Faculty Hospital",
+        health_cond => "High blood pressure",
+        hpo_terms => "proximal muscle pain, cataract",
+        req_targets => "DMPK (DM1); CNBP (DM2)",
+        note => "Nothing to note",
+
+        n_req_targets => 2,
+        n_loci_qc_pass => 2,
+        n_loci_qc_fail => 0,
+        fail_reason => "None",
+
+        interpretation => "\
+            From the 2 analyzed target loci all 2 passed the QC \
+            filter and all 2 were interpretable. \
+            We identified no pathogenic repeat structures in these loci... \
+            However, the repeat structure in the DM1 (DMPK) CTG motif \
+            was found to be atypical...\
+        ",
+
+        a1_repnum => 5,
+        a1_status => "#benign",
+        a1_nom => "chr19:g.45770207_45770266GCA[5]",
+        a2_repnum => "E",
+        a2_status => "#pathogenic",
+        a2_nom => "GCA[12]",
+    );
+    // println!("{ctx}");
+
+    let template = env.get_template(template_id).unwrap();
+    let result = template.render(ctx).unwrap();
+
+    return result;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
