@@ -87,7 +87,7 @@
   ]
 
   #v(-8mm) /* 5mm seems to be the diff between sections */
-  #rect(fill: white, radius: r)[
+  #rect(fill: white, radius: r, width: 100%)[
     // This is some serious gourmet feature
     #show table.cell.where(x: 0): set text(
       fill: blue,

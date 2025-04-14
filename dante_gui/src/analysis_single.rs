@@ -1,8 +1,12 @@
+// #![deny(clippy::unwrap_used)]
+// #![deny(clippy::expect_used)]
+
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{button, checkbox, column, container, horizontal_rule, horizontal_space, pick_list, row, scrollable, text, text_input, tooltip};
 use iced::widget::{Row, Column, Button};
 use iced::{Element, Length, Size, Padding, Task};
 
+use std::collections::HashMap;
 use std::iter::zip;
 use std::path::{Path, PathBuf};
 use native_dialog::FileDialog;
@@ -247,25 +251,33 @@ fn make_proband_row(data: &Data) -> Row<Message> {
     ].padding(10).align_y(Vertical::Center)
 }
 
-fn get_metadata(data: &Data) -> (String, Button<Message>) {
-    let bam_file = match &data.bam_file {
-        None => { return ("No BAM file found.".to_string(), button("Edit metadata")); },
-        Some(bam_file) => { bam_file },
-    };
-    if !bam_file.exists() { return ("No BAM file found.".to_string(), button("Edit metadata")); }
-
-    let mut meta_file = bam_file.clone();
+fn get_meta_file(bam_file: &Path) -> PathBuf {
+    let mut meta_file: PathBuf = bam_file.to_path_buf();
     meta_file.set_extension("meta.tsv");
-    let edit_msg = Message::EditMetadata(data.analysis_path.clone(), meta_file.clone());
-    if !meta_file.exists() {
-        return ("No metadata found.".to_string(), button("Edit metadata").on_press(edit_msg));
-    }
+    return meta_file;
+}
 
-    let mut lines = BufReader::new(File::open(&meta_file).expect("Cannot open metadata file.")).lines();
+fn read_meta_file(meta_file: &Path) -> (Vec<String>, Vec<String>) {
+    let mut lines = BufReader::new(File::open(meta_file).expect("Cannot open metadata file.")).lines();
     let header = lines.next().unwrap().unwrap();
-    let header = header.split("\t");
+    let header = header.split("\t").map(|x| x.to_string()).collect();
     let content = lines.next().unwrap().unwrap();
-    let content = content.split("\t");
+    let content = content.split("\t").map(|x| x.to_string()).collect();
+    return (header, content);
+}
+
+fn get_metadata(data: &Data) -> (String, Button<Message>) {
+    if data.bam_file.is_none()
+        { return ("No BAM file found.".to_string(), button("Edit metadata")); }
+    if !data.bam_file.as_ref().unwrap().exists()
+        { return ("No BAM file found.".to_string(), button("Edit metadata")); } 
+
+    let meta_file = get_meta_file(data.bam_file.as_ref().unwrap());
+    let edit_msg = Message::EditMetadata(data.analysis_path.clone(), meta_file.clone());
+    if !meta_file.exists()
+        { return ("No metadata found.".to_string(), button("Edit metadata").on_press(edit_msg)); }
+
+    let (header, content) = read_meta_file(&meta_file);
 
     let mut metadata = String::new();
     let mut n_others = 0;
@@ -504,42 +516,60 @@ fn construct_report(data: &Data) -> String {
     let typst_template = include_str!("../assets/templates/report_onepage.typ");
     env.add_template(template_id, typst_template).unwrap();
 
+    let meta_file = get_meta_file(data.bam_file.as_ref().unwrap());
+    println!("{:?}", meta_file);
+    let dict_tmp: HashMap<String, String> = if meta_file.exists() {
+        let (header, content) = read_meta_file(&meta_file);
+        HashMap::from_iter(zip(header, content).filter(|x| !x.1.is_empty()))
+    } else {
+        HashMap::new()
+    };
+
+    let get = |id| { dict_tmp.get(id).unwrap_or(&"-".to_string()).to_string() };
+
     let ctx = context!(
-        report_id => "2025022",
-        proband_id => "9-2025",
-        family_id => "DM-152",
-        row => vec!["1", "9-2025", "JD", "Male", "Proband", "Affected", "1954-12-02"],
-
-        sus_diag => "Myotonic dystrophy",
-        req_person => "Dr. Umbero Eco",
-        reason => "Patient has long term muscle pain (proximal muscles), cataract surgery 5 years ago, etc.",
-        req_facility => "Milano Faculty Hospital",
-        health_cond => "High blood pressure",
-        hpo_terms => "proximal muscle pain, cataract",
-        req_targets => "DMPK (DM1); CNBP (DM2)",
-        note => "Nothing to note",
-
-        n_req_targets => 2,
-        n_loci_qc_pass => 2,
-        n_loci_qc_fail => 0,
-        fail_reason => "None",
-
-        interpretation => "\
-            From the 2 analyzed target loci all 2 passed the QC \
-            filter and all 2 were interpretable. \
-            We identified no pathogenic repeat structures in these loci... \
-            However, the repeat structure in the DM1 (DMPK) CTG motif \
-            was found to be atypical...\
-        ",
-
+        report_id => "2025022 ???",
+        proband_id => get("*Sample ID"),
+        family_id => get("*Family ID"),
+        row => vec![
+            "1".to_string(),
+            get("*Sample ID"),
+            get("*Sample SI (second identifier)"),
+            get("Gender"),
+            "Proband".to_string(),
+            get("*Affection status (primary cause of testing)"),
+            get("Date of birth")
+        ],
         a1_repnum => 5,
         a1_status => "#benign",
         a1_nom => "chr19:g.45770207_45770266GCA[5]",
         a2_repnum => "E",
         a2_status => "#pathogenic",
         a2_nom => "GCA[12]",
+
+        sus_diag => get("Suspected diagnosis - Name"),
+        req_person => get("Requesting person"),
+        reason => get("Reason for testing"),
+        req_facility => get("Requesting facility"),
+        health_cond => get("Other health conditions"),
+        hpo_terms => get("Phenotype in HPO terms"),
+        req_targets => get("Requested target(s) of analysis"),
+        note => get("Patient notes"),
+
+        n_req_targets => 2,
+        n_loci_qc_pass => 2,
+        n_loci_qc_fail => 0,
+        fail_reason => "None",
+
+        interpretation => "Where should I get this?",
+        // "\
+        //     From the 2 analyzed target loci all 2 passed the QC \
+        //     filter and all 2 were interpretable. \
+        //     We identified no pathogenic repeat structures in these loci... \
+        //     However, the repeat structure in the DM1 (DMPK) CTG motif \
+        //     was found to be atypical...\
+        // ",
     );
-    // println!("{ctx}");
 
     let template = env.get_template(template_id).unwrap();
     let result = template.render(ctx).unwrap();
