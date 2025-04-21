@@ -325,4 +325,60 @@
   ]
 ]
 
-TODO: grafy
+#v(-5mm)
+#rect(width: 100%,fill: light_blue, radius: r, inset: 2.5mm)[
+  #rect(fill: white, radius: r, width: 100%)[
+    #table(
+      columns: (1fr, 1fr, 50%, 1fr),
+      stroke: none,
+      // align: center + horizon,
+      align: (horizon, horizon, center + horizon, horizon),
+      [], /* [#text(blue)[*Family tree*]],*/
+      [#text(blue)[*Sample ID \ Genotype prediction \ Genotype revision*]],
+      [#text(blue)[*Histogram*]],
+      [#text(blue)[*Nomenclatures*]]
+    )
+  ]
+]
+#v(-5mm)
+#rect(width: 100%,fill: light_blue, radius: r, inset: 2.5mm)[
+  #rect(fill: white, radius: r, width: 100%)[
+    #table(
+      columns: (1fr, 1fr, 50%, 1fr),
+      stroke: none,
+      align: horizon,
+      [],
+      [07-2025 \ 5/12 \ 5/12],
+      [#image("DM2_0_histogram.png")],
+      [10x GCA[10] \ 7x GCA[4]]
+    )
+  ]
+]
+#v(-5mm)
+#rect(width: 100%,fill: light_blue, radius: r, inset: 2.5mm)[
+  #rect(fill: white, radius: r, width: 100%)[
+    #table(
+      columns: (1fr, 1fr, 50%, 1fr),
+      stroke: none,
+      align: horizon,
+      [],
+      [07-2025 \ 5/12 \ 5/12],
+      [#image("DM2_1_histogram.png")],
+      [10x GCA[10] \ 7x GCA[4]]
+    )
+  ]
+]
+#v(-5mm)
+#rect(width: 100%,fill: light_blue, radius: r, inset: 2.5mm)[
+  #rect(fill: white, radius: r, width: 100%)[
+    #table(
+      columns: (1fr, 1fr, 50%, 1fr),
+      stroke: none,
+      align: horizon,
+      [],
+      [07-2025 \ 5/12 \ 5/12],
+      [#image("DM2_2_histogram.png")],
+      [10x GCA[10] \ 7x GCA[4]]
+    )
+  ]
+]
