@@ -1,5 +1,6 @@
 #set page(margin: 10mm)
-#set text(font: "Fira Sans", stretch: 50%, size: 8pt)  // This is correct font to use
+// This is correct font to use
+#set text(font: "Fira Sans", stretch: 50%, size: 8pt)
 
 #let dark_blue = rgb(7, 7, 87)
 #let blue = rgb(5, 5, 126)
@@ -25,7 +26,6 @@
 )[#align(center + horizon)[Image]]
 
 // ---------------------------------------------------------------------------------
-// I have one sample, but 2 motifs with 1 and 3 modules
 
 #table(
   columns: (60%, 40%),
@@ -34,7 +34,7 @@
   [#placeholder(100%, 10%)],
   [
     #align(right)[#text(20pt)[*RESULTS REPORT*]]
-    #align(right)[*Report ID:* {G-analysis1-001}]
+    #align(right)[*Report ID:* {{g.report_id}}]
   ]
 )
 
@@ -58,13 +58,13 @@
         text(blue)[*Affection status*], /* [*Affection status \ (cause of testing)*] */
         text(blue)[*Family ID*]
       ),
-      [{G-1}],
-      [{M-9-2025}],
-      [{M-JD}],
-      [{M-Male}],
-      [{M-Proband}],
-      [{M-Affected}],
-      [{M-DM-152}],
+      [1.],
+      [{{m.pid}}],
+      [{{m.sid}}],
+      [{{m.gender}}],
+      [Proband],
+      [{{m.status}}],
+      [{{m.fid}}],
     )
   ]
 ]
@@ -81,11 +81,10 @@
       #table(
         columns: 6,
         stroke: none,
-        [Disease], [{H-Myotonic dystrophy type 1}], [Gene],	[{H-Dystrophia myotonica kinase}], [Chromosome], [{H-19}],
-        [Disease abbreviation], [{H-DM1}], [Gene abbreviation], [{H-DMPK}], [Gene context],	[{H-3´UTR}],
-        [OMIM ID], [{H-\#160900}], [Inheritance], [{H-AD (anticipation)}], [Protein context], [{H-Untranslated}],
-        [Motif complexity], [{H-Simple (interruptions may occur)}],
-        
+        [Disease], [{{h.name}}], [Gene], [{{h.gene}}], [Chromosome], [{{h.chr}}],
+        [Disease abbreviation], [{{h.abbr}}], [Gene abbreviation], [{{h.gene_abbr}}], [Gene context], [{{h.gene_ctx}}],
+        [OMIM ID], [{{h.omim_id}}], [Inheritance], [{{h.inheritance}}], [Protein context], [{{h.prot_ctx}}],
+        [Motif complexity], [{{h.motif_cpx}}],
       )
     ]
     #table(
@@ -100,17 +99,17 @@
         #table(
           columns: 4,
           stroke: none,
-          [Module], [{H-ALS-0}],
-          [Clinically relevant unit (HGVS)], [{H-GCA}],
-          [Physiological range], [{H-5-35}],
-          [Clinically relevant unit (historical)], [{H-CTG}],
-          [Premutation range], [{H-35-50}],
-          [Whole motif (HGVS)], [{H-GCA}],
-          [Pathogenic range], [{H-50+}],
-          [Whole motif (historical)], [{H-CTG}],
+          [Module], [{{h.module}}],
+          [Clinically relevant unit (HGVS)], [{{h.unit_hgvs}}],
+          [Physiological range], [{{h.physiological}}],
+          [Clinically relevant unit (historical)], [{{h.unit_hist}}],
+          [Premutation range], [{{h.premutation}}],
+          [Whole motif (HGVS)], [{{h.motif_hgvs}}],
+          [Pathogenic range], [{{h.pathogenic}}],
+          [Whole motif (historical)], [{{h.motif_hist}}],
         )
       ],
-      [#image("allele_dist_example.png")]
+      [#image("{{h.dist_image}}")]
     )
     #[
       #show table.cell: it => {
@@ -121,11 +120,11 @@
         columns: 2,
         stroke: none,
         align: horizon,
-        [GRCh38 reference allele \ (HGVS nomenclature)], [{H-NC_000019.10:g.45770207_45770266GCA[20]}],
+        [GRCh38 reference allele \ (HGVS nomenclature)], [{{h.ref_allele_hgvs}}],
         [GRCh38 reference allele \ (Visualization)], [#placeholder(100%, 12pt)],
-        [Molecular mechanism], [{H-Complex; Spliceopathy; ...}],
-        [Motif - Notes], [{H-Nothing to note}],
-        [Citation (references)], [{H-Abracadabra et al. 2002}]
+        [Molecular mechanism], [{{h.mechanism}}],
+        [Motif - Notes], [{{h.notes}}],
+        [Citation (references)], [{{h.citations}}]
       )
     ]
   ]
@@ -150,11 +149,11 @@
         text(blue)[*HGVS nomenclature \ (revision)*],
         text(blue)[*Pathogenicity \ (revision)*],
       ),
-      [{G-1.}], [{G-DM2-0}], [{M-9-2025}], [{M-JD}], [Allele 1], [{R-5}],  [{R-chr19:g.45770207_45770266GCA[5]}], benign,
+      [{G-1.}], [{G-DM2-0}], [{{m.pid}}], [{{m.sid}}], [Allele 1], [{R-5}],  [{R-chr19:g.45770207_45770266GCA[5]}], benign,
       [],       [],          [],           [],       [Allele 2], [{R-12}], [{R-chr19:g.45770207_45770266GCA[12]}], likely_benign,
-      [{G-2.}], [{G-DM2-1}], [{M-9-2025}], [{M-JD}], [Allele 1], [{R-5}],  [{R-chr19:g.45770207_45770266GCA[5]}], premutation,
+      [{G-2.}], [{G-DM2-1}], [{{m.pid}}], [{{m.sid}}], [Allele 1], [{R-5}],  [{R-chr19:g.45770207_45770266GCA[5]}], premutation,
       [],       [],          [],           [],       [Allele 2], [{R-12}], [{R-chr19:g.45770207_45770266GCA[12]}], likely_pathogenic,
-      [{G-3.}], [{G-DM2-2}], [{M-9-2025}], [{M-JD}], [Allele 1], [{R-5}],  [{R-chr19:g.45770207_45770266GCA[5]}], pathogenic,
+      [{G-3.}], [{G-DM2-2}], [{{m.pid}}], [{{m.sid}}], [Allele 1], [{R-5}],  [{R-chr19:g.45770207_45770266GCA[5]}], pathogenic,
       [],       [],          [],           [],       [Allele 2], [{R-12}], [{R-chr19:g.45770207_45770266GCA[12]}], unknown,
     )
   ]
@@ -164,8 +163,8 @@
       stroke: none,
       align: horizon,
       inset: (x: 2mm, y: 0.5mm),
-      [#text(blue)[*Results QC*]], [#positive[Passed]],
-      [#text(blue)[*Included in One-page report?*]], [#negative[No]],
+      [#text(blue)[*Results QC*]], [{R-#positive[Passed]}],
+      [#text(blue)[*Included in One-page report?*]], [{R-#negative[No]}],
     )
     #v(-2mm)
     #box(width: 20mm, inset: (x: 2mm, y: 0mm))[#text(blue)[*Failure reason*]]
@@ -198,9 +197,6 @@
       },
       stroke: none,
       inset: (x: 2mm, y: 0.75mm),
-      // table.vline(x: 4),
-      // table.vline(x: 10),
-      // table.vline(x: 17),
       table.cell(colspan: 4)[#text(blue)[*Sample info*]],
       [],
       table.cell(colspan: 6)[#text(blue)[*Results*]],
@@ -208,7 +204,7 @@
       table.cell(colspan: 7)[#text(blue)[*Overall statistics*]],
       [],
       table.cell(colspan: 2)[#text(blue)[*Flags*]],
-      
+
       h1[*No.*],
       h1[*Module*],
       h1[*Sample ID*],
@@ -231,28 +227,28 @@
       [],
       h1[*Alert of edited results*],
       h1[*Results QC*],
-        
+
       table.hline(y: 2, stroke: 0.1mm),
-      mc[1.], mc[DM2-0], mc[07-2025], mc[JD], mc[],
-      [Allele 1], [5],  [#benign],        [10], [2], [1],
-      mc[], mc[90%], mc[10], mc[10], mc[7], mc[3], mc[0.3], mc[0.5], mc[], mc[!], mc[ok],
-      [Allele 2], [12], [#likely_benign], [2],  [2], [1],
+      mc[{G-1.}], mc[{D-DM2-0}], mc[{{m.pid}}], mc[{{m.sid}}], mc[],
+      [Allele 1], [{D-5}],  [{?-#benign}],        [{D-10}], [{D-2}], [{D-1}],
+      mc[], mc[{D-90%}], mc[{D-10}], mc[{D-10}], mc[{D-7}], mc[{D-3}], mc[{D-0.3}], mc[{D-0.5}], mc[], mc[{R-!}], mc[{R-ok}],
+      [Allele 2], [{D-12}], [{?-#likely_benign}], [{D-2}],  [{D-2}], [{D-1}],
 
       table.hline(y: 4, stroke: 0.1mm),
-      mc[2.], mc[DM2-1], mc[07-2025], mc[JD], mc[],
+      mc[2.], mc[DM2-1], mc[{{m.pid}}], mc[{{m.sid}}], mc[],
       [Allele 1], [8],  [#pathogenic],        [10], [2], [1],
       mc[], mc[90%], mc[10], mc[10], mc[7], mc[3], mc[0.3], mc[0.5], mc[], mc[!], mc[ok],
       [Allele 2], [20], [#unknown], [2],  [2], [1],
 
       table.hline(y: 6, stroke: 0.1mm),
-      mc[2.], mc[DM2-2], mc[07-2025], mc[JD], mc[],
+      mc[2.], mc[DM2-2], mc[{{m.pid}}], mc[{{m.sid}}], mc[],
       [Allele 1], [17],  [#benign],        [10], [2], [1],
       mc[], mc[90%], mc[10], mc[10], mc[7], mc[3], mc[0.3], mc[0.5], mc[], mc[!], mc[ok],
       [Allele 2], [17], [#benign], [2],  [2], [1],
 
-      table.hline(y: 8, stroke: 0.1mm),      
+      table.hline(y: 8, stroke: 0.1mm),
     )
-    
+
     #v(1em)
     #align(center)[#text(10pt, blue)[*Revised predictions*]]
     #table(
@@ -268,9 +264,6 @@
       },
       stroke: none,
       inset: (x: 2mm, y: 0.75mm),
-      // table.vline(x: 4),
-      // table.vline(x: 10),
-      // table.vline(x: 17),
       table.cell(colspan: 4)[#text(blue)[*Sample info*]],
       [],
       table.cell(colspan: 6)[#text(blue)[*Results*]],
@@ -278,7 +271,7 @@
       table.cell(colspan: 7)[#text(blue)[*Overall statistics*]],
       [],
       table.cell(colspan: 2)[#text(blue)[*Flags*]],
-      
+
       h1[*No.*],
       h1[*Module*],
       h1[*Sample ID*],
@@ -301,21 +294,21 @@
       [],
       h1[*Alert of edited results*],
       h1[*Results QC*],
-        
+
       table.hline(y: 2, stroke: 0.1mm),
-      mc[1.], mc[DM2-0], mc[07-2025], mc[JD], mc[],
+      mc[1.], mc[DM2-0], mc[{{m.pid}}], mc[{{m.sid}}], mc[],
       [Allele 1], [5],  [#benign],        [10], [2], [1],
       mc[], mc[90%], mc[10], mc[10], mc[7], mc[3], mc[0.3], mc[0.5], mc[], mc[!], mc[ok],
       [Allele 2], [12], [#likely_benign], [2],  [2], [1],
 
       table.hline(y: 4, stroke: 0.1mm),
-      mc[2.], mc[DM2-1], mc[07-2025], mc[JD], mc[],
+      mc[2.], mc[DM2-1], mc[{{m.pid}}], mc[{{m.sid}}], mc[],
       [Allele 1], [8],  [#pathogenic],        [10], [2], [1],
       mc[], mc[90%], mc[10], mc[10], mc[7], mc[3], mc[0.3], mc[0.5], mc[], mc[!], mc[ok],
       [Allele 2], [20], [#unknown], [2],  [2], [1],
 
       table.hline(y: 6, stroke: 0.1mm),
-      mc[2.], mc[DM2-2], mc[07-2025], mc[JD], mc[],
+      mc[2.], mc[DM2-2], mc[{{m.pid}}], mc[{{m.sid}}], mc[],
       [Allele 1], [17],  [#benign],        [10], [2], [1],
       mc[], mc[90%], mc[10], mc[10], mc[7], mc[3], mc[0.3], mc[0.5], mc[], mc[!], mc[ok],
       [Allele 2], [17], [#benign], [2],  [2], [1],
@@ -348,7 +341,7 @@
       stroke: none,
       align: horizon,
       [],
-      [07-2025 \ 5/12 \ 5/12],
+      [{{m.pid}} \ 5/12 \ 5/12],
       [#image("DM2_0_histogram.png")],
       [10x GCA[10] \ 7x GCA[4]]
     )
@@ -362,7 +355,7 @@
       stroke: none,
       align: horizon,
       [],
-      [07-2025 \ 5/12 \ 5/12],
+      [{{m.pid}} \ 5/12 \ 5/12],
       [#image("DM2_1_histogram.png")],
       [10x GCA[10] \ 7x GCA[4]]
     )
@@ -376,7 +369,7 @@
       stroke: none,
       align: horizon,
       [],
-      [07-2025 \ 5/12 \ 5/12],
+      [{{m.pid}} \ 5/12 \ 5/12],
       [#image("DM2_2_histogram.png")],
       [10x GCA[10] \ 7x GCA[4]]
     )

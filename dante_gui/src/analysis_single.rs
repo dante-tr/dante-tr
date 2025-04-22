@@ -6,6 +6,8 @@ use iced::widget::{button, checkbox, column, container, horizontal_rule, horizon
 use iced::widget::{Row, Column, Button};
 use iced::{Element, Length, Size, Padding, Task};
 
+use minijinja::{Environment, context, Value};
+
 use std::collections::HashMap;
 use std::iter::zip;
 use std::path::{Path, PathBuf};
@@ -483,8 +485,18 @@ fn print_report(data: &mut Data) {
         "{} report saved to {}", data.selected_report.unwrap(), output_pdf.to_string_lossy()
     );
 
-    let typst_template = construct_report(data);
+    let typst_template = match data.selected_report {
+        None => { println!("First select report."); return; }
+        Some(ReportType::Result) => { construct_report_results(data) },
+        Some(ReportType::OnePage) => { construct_report_onepage(data) },
+        Some(x) => { println!("{x} not yet implemented."); return; }
+    };
+    std::fs::write("tmp.typ", &typst_template).expect("Unable to write file");
+    let pdf = typst_compile(typst_template);
+    std::fs::write(output_pdf, pdf).expect("Could not write pdf.");
+}
 
+fn typst_compile(typst_template: String) -> Vec<u8> {
     use typst_as_lib::package_resolver::FileSystemCache;
     use typst_as_lib::package_resolver::PackageResolver;
     use typst_as_lib::typst_kit_options::TypstKitFontOptions;
@@ -493,8 +505,11 @@ fn print_report(data: &mut Data) {
     let typst_cache = App::DATA_DIR.to_string() + "/typst_cache";
     let pkg_resolver = PackageResolver::builder().cache(FileSystemCache(PathBuf::from(typst_cache))).build();
 
+    static FONT1: &[u8] = include_bytes!("../assets/fonts/Fira_Sans_Extra_Condensed/FiraSansExtraCondensed-Regular.ttf");
+    static FONT2: &[u8] = include_bytes!("../assets/fonts/Fira_Sans_Extra_Condensed/FiraSansExtraCondensed-Bold.ttf");
     let template = TypstEngine::builder()
         .main_file(typst_template)
+        .fonts([FONT1, FONT2])
         .search_fonts_with(TypstKitFontOptions::default())
         .add_file_resolver(pkg_resolver)
         .with_file_system_resolver(App::DATA_DIR)
@@ -505,11 +520,129 @@ fn print_report(data: &mut Data) {
     let options = Default::default();
 
     let pdf = typst_pdf::pdf(&doc, &options).expect("Could not generate pdf.");
-    std::fs::write(output_pdf, pdf).expect("Could not write pdf.");
+    return pdf;
 }
 
-fn construct_report(data: &Data) -> String {
-    use minijinja::{Environment, context};
+#[test]
+fn tmp_test() {
+    let mut data = Data {
+        analysis_path: "dante_data/analyses/2025-04-09-19-11-09_analysis1_single".into(),
+        analysis_name: "analysis1".into(),
+        selected: Some(MotifFile::STRSet_20250311),
+        selected_file: Some("dante_data/STRSet_20250311.tsv".into()),
+        bam_file: Some("/home/balaz/projects/STRs2/tools/remaSTR/dante_gui/example_data/vpuk-23-001504-A.bam".into()),
+        motif_file: None,
+        output: None,
+        message_line: "".into(),
+        selected_report: Some(ReportType::Result),
+        message_line2: "Result report saved to /home/balaz/projects/STRs2/tools/remaSTR/dante_gui/results/Dante_result.pdf".into(),
+        motifs: vec![
+            ( true, "ALS".into(), vec!["All".into()], "Amyotrophic lateral sclerosis".into()),
+            ( true, "DM2".into(), vec!["All".into()], "Myotonic dystrophy type 2".into())
+        ],
+        groups: vec![(false, "All".into())],
+        ..Data::default()
+    };
+    let typ = construct_report_results(&data);
+    std::fs::write("tmp.typ", &typ).expect("Unable to write file");
+    let pdf = typst_compile(typ);
+    std::fs::write("tmp.pdf", &pdf).expect("Unable to write file");
+}
+
+fn construct_report_results(data: &Data) -> String {
+    println!("{:#?}", data);
+    let mut env = Environment::new();
+
+    let template_id = "result";
+    let typst_template = include_str!("../assets/templates/single-results-report.typ");
+    env.add_template(template_id, typst_template).unwrap();
+
+    let meta_file = get_meta_file(data.bam_file.as_ref().unwrap());
+    let meta_context: Value = get_meta_context(&meta_file);
+
+    /* e.g. dante_data/STRSet_20250311.tsv */
+    let hgvs_db = data.selected_file.as_ref().unwrap();
+    let motif: &str = data.motifs[0].1.as_ref(); /* e.g. ALS */
+    let hgvs_context: Value = get_hgvs_context(hgvs_db, motif);
+
+    let generated_context: Value = context!(
+        report_id => "20250422",
+    );
+
+    let dante_out: Value = context!(
+        a1 => 5,
+    );
+
+    let revision_context: Value = context!(
+        tmp => 1,
+    );
+
+    let ctx = context!(
+        g => generated_context,
+        m => meta_context,
+        h => hgvs_context,
+        d => dante_out,
+        r => revision_context,
+    );
+
+    let template = env.get_template(template_id).unwrap();
+    let result = template.render(ctx).unwrap();
+
+    return result;
+}
+
+fn get_hgvs_context(hgvs_file: &Path, motif_id: &str) -> Value {
+    println!("{:?} {:?}", hgvs_file, motif_id);
+    context!(
+        name => "Myotonic dystrophy type 1",
+        abbr => "DM1",
+        gene => "Dystrophia myotonica kinase",
+        gene_abbr => "DMPK",
+        gene_ctx => "3´UTR",
+        omim_id => "\\#160900",
+        inheritance => "AD (anticipation)",
+        prot_ctx => "Untranslated",
+        chr => "19",
+        motif_cpx => "Simple (interruptions may occur)",
+
+        module => "ALS-0",
+        physiological => "5-35",
+        premutation => "35-50",
+        pathogenic => "50+",
+        unit_hgvs => "GCA",
+        unit_hist => "CTG",
+        motif_hgvs => "GCA",
+        motif_hist => "CTG",
+        dist_image => "allele_dist_example.png",
+
+        ref_allele_hgvs => "NC_000019.10:g.45770207_45770266GCA[20]",
+        ref_allele_vis => "",
+        mechanism => "Complex; Spliceopathy; ...",
+        notes => "Nothing to note",
+        citations => "Abracadabra et al. 2002"
+    )
+}
+
+fn get_meta_context(meta_file: &Path) -> Value {
+    let dict_tmp: HashMap<String, String> = if meta_file.exists() {
+        let (header, content) = read_meta_file(meta_file);
+        HashMap::from_iter(zip(header, content).filter(|x| !x.1.is_empty()))
+    } else {
+        HashMap::new()
+    };
+    let get = |id| { dict_tmp.get(id).unwrap_or(&"-".to_string()).to_string() };
+
+    return context!(
+        pid => get("*Sample ID"), /* primary ID */
+        sid => get("*Sample SI (second identifier)"),
+        gender => get("Gender"),
+        status => get("*Affection status (primary cause of testing)"),
+        fid => get("*Family ID"),
+        /* more? */
+    );
+}
+
+fn construct_report_onepage(data: &Data) -> String {
     let mut env = Environment::new();
 
     let template_id = "onepage";
@@ -579,18 +712,18 @@ fn construct_report(data: &Data) -> String {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) enum ReportType {
+    Result,
     OnePage,
     Summary,
-    Result,
     Technical,
 }
 
 impl std::fmt::Display for ReportType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
+            Self::Result => "Result",
             Self::OnePage => "One-page",
             Self::Summary => "Summary",
-            Self::Result => "Result",
             Self::Technical => "Technical",
         })
     }
