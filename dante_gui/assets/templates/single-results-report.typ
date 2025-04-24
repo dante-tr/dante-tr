@@ -1,4 +1,4 @@
-#set page(margin: 10mm)
+#set page(margin: 10mm, numbering: "1 / 1", number-align: right)
 // This is correct font to use
 #set text(font: "Fira Sans", stretch: 50%, size: 8pt)
 
@@ -79,6 +79,8 @@
   ]
 ]
 
+{% for _ in h %}
+{% set i = loop.index0 %}
 #rect(width: 100%,fill: light_blue, radius: r, inset: 2.5mm)[
   #rect(fill: white, radius: r, height: 1cm)[#text(14pt, dark_blue)[*Target information*]]
   #v(-7mm)
@@ -91,10 +93,10 @@
       #table(
         columns: 6,
         stroke: none,
-        [Disease], [{{h.name}}], [Gene], [{{h.gene}}], [Chromosome], [{{h.chr}}],
-        [Disease abbreviation], [{{h.abbr}}], [Gene abbreviation], [{{h.gene_abbr}}], [Gene context], [{{h.gene_ctx}}],
-        [OMIM ID], [\{{h.omim_id}}], [Inheritance], [{{h.inheritance}}], [Protein context], [{{h.prot_ctx}}],
-        [Motif complexity], [{{h.motif_cpx}}],
+        [Disease], [{{h[i].name}}], [Gene], [{{h[i].gene}}], [Chromosome], [{{h[i].chr}}],
+        [Disease abbreviation], [{{h[i].abbr}}], [Gene abbreviation], [{{h[i].gene_abbr}}], [Gene context], [{{h[i].gene_ctx}}],
+        [OMIM ID], [\{{h[i].omim_id}}], [Inheritance], [{{h[i].inheritance}}], [Protein context], [{{h[i].prot_ctx}}],
+        [Motif complexity], [{{h[i].motif_cpx}}],
       )
     ]
     #table(
@@ -109,17 +111,17 @@
         #table(
           columns: 4,
           stroke: none,
-          [Module], [{{h.module}}],
-          [Clinically relevant unit (HGVS)], [{{h.unit_hgvs}}],
-          [Physiological range], [{{h.physiological}}],
-          [Clinically relevant unit (historical)], [{{h.unit_hist}}],
-          [Premutation range], [{{h.premutation}}],
-          [Whole motif (HGVS)], [{{h.motif_hgvs}}],
-          [Pathogenic range], [{{h.pathogenic}}],
-          [Whole motif (historical)], [{{h.motif_hist}}],
+          [Module], [{{h[i].module}}],
+          [Clinically relevant unit (HGVS)], [{{h[i].unit_hgvs}}],
+          [Physiological range], [{{h[i].physiological}}],
+          [Clinically relevant unit (historical)], [{{h[i].unit_hist}}],
+          [Premutation range], [{{h[i].premutation}}],
+          [Whole motif (HGVS)], [{{h[i].motif_hgvs}}],
+          [Pathogenic range], [{{h[i].pathogenic}}],
+          [Whole motif (historical)], [{{h[i].motif_hist}}],
         )
       ],
-      [#maybe_image("{{h.dist_image}}", 100%, 4cm)]
+      [#maybe_image("{{h[i].dist_image}}", 100%, 4cm)]
     )
     #[
       #show table.cell: it => {
@@ -130,11 +132,11 @@
         columns: 2,
         stroke: none,
         align: horizon,
-        [GRCh38 reference allele \ (HGVS nomenclature)], [{{h.ref_allele_hgvs}}],
+        [GRCh38 reference allele \ (HGVS nomenclature)], [{{h[i].ref_allele_hgvs}}],
         [GRCh38 reference allele \ (Visualization)], [#maybe_image("visualization", 100%, 12pt)],
-        [Molecular mechanism], [{{h.mechanism}}],
-        [Motif - Notes], [{{h.notes}}],
-        [Citation (references)], [{{h.citations}}]
+        [Molecular mechanism], [{{h[i].mechanism}}],
+        [Motif - Notes], [{{h[i].notes}}],
+        [Citation (references)], [{{h[i].citations}}]
       )
     ]
   ]
@@ -385,3 +387,4 @@
     )
   ]
 ]
+{% endfor %}
