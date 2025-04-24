@@ -21,9 +21,19 @@
 
 // some useful functions for debugging and prototyping
 #let dbox(content) = box(stroke: red)[content] /* this is useful for debuging layouts */
-#let placeholder(width, height) = box(
-  width: width, height: height, fill: gray, stroke: gray
-)[#align(center + horizon)[Image]]
+
+// Determine if a path is a valid image (using magic) and either show it or use some placeholder.
+#let maybe_image(path, width, height) = context {
+  let context_function = (context { }).func()
+  let first_time = query(context_function).len() == 0
+  let path_label = label(path)
+  let used_path = query(path_label).len() > 0
+  if first_time or used_path {
+    [#image(path, height: height)#path_label]
+  } else {
+    [#box(width: width, height: height, fill: gray)[#align(center + horizon, path)]]
+  }
+}
 
 // ---------------------------------------------------------------------------------
 
@@ -31,7 +41,7 @@
   columns: (60%, 40%),
   stroke: none,
   inset: 0mm,
-  [#placeholder(100%, 10%)],
+  [#maybe_image("logo", 100%, 10%)],
   [
     #align(right)[#text(20pt)[*RESULTS REPORT*]]
     #align(right)[*Report ID:* {{g.report_id}}]
@@ -83,7 +93,7 @@
         stroke: none,
         [Disease], [{{h.name}}], [Gene], [{{h.gene}}], [Chromosome], [{{h.chr}}],
         [Disease abbreviation], [{{h.abbr}}], [Gene abbreviation], [{{h.gene_abbr}}], [Gene context], [{{h.gene_ctx}}],
-        [OMIM ID], [{{h.omim_id}}], [Inheritance], [{{h.inheritance}}], [Protein context], [{{h.prot_ctx}}],
+        [OMIM ID], [\{{h.omim_id}}], [Inheritance], [{{h.inheritance}}], [Protein context], [{{h.prot_ctx}}],
         [Motif complexity], [{{h.motif_cpx}}],
       )
     ]
@@ -109,7 +119,7 @@
           [Whole motif (historical)], [{{h.motif_hist}}],
         )
       ],
-      [#image("{{h.dist_image}}")]
+      [#maybe_image("{{h.dist_image}}", 100%, 4cm)]
     )
     #[
       #show table.cell: it => {
@@ -121,7 +131,7 @@
         stroke: none,
         align: horizon,
         [GRCh38 reference allele \ (HGVS nomenclature)], [{{h.ref_allele_hgvs}}],
-        [GRCh38 reference allele \ (Visualization)], [#placeholder(100%, 12pt)],
+        [GRCh38 reference allele \ (Visualization)], [#maybe_image("visualization", 100%, 12pt)],
         [Molecular mechanism], [{{h.mechanism}}],
         [Motif - Notes], [{{h.notes}}],
         [Citation (references)], [{{h.citations}}]
@@ -231,19 +241,19 @@
       table.hline(y: 2, stroke: 0.1mm),
       mc[{G-1.}], mc[{D-DM2-0}], mc[{{m.pid}}], mc[{{m.sid}}], mc[],
       [Allele 1], [{D-5}],  [{?-#benign}],        [{D-10}], [{D-2}], [{D-1}],
-      mc[], mc[{D-90%}], mc[{D-10}], mc[{D-10}], mc[{D-7}], mc[{D-3}], mc[{D-0.3}], mc[{D-0.5}], mc[], mc[{R-!}], mc[{R-ok}],
+      mc[], mc[{D-90%}], mc[{D-10}], mc[{D-10}], mc[{D-7}], mc[{D-3}], mc[{D-0.3}], mc[{D-0.5}], mc[], mc[{R-!}], mc[{R-OK}],
       [Allele 2], [{D-12}], [{?-#likely_benign}], [{D-2}],  [{D-2}], [{D-1}],
 
       table.hline(y: 4, stroke: 0.1mm),
       mc[2.], mc[DM2-1], mc[{{m.pid}}], mc[{{m.sid}}], mc[],
       [Allele 1], [8],  [#pathogenic],        [10], [2], [1],
-      mc[], mc[90%], mc[10], mc[10], mc[7], mc[3], mc[0.3], mc[0.5], mc[], mc[!], mc[ok],
+      mc[], mc[90%], mc[10], mc[10], mc[7], mc[3], mc[0.3], mc[0.5], mc[], mc[!], mc[OK],
       [Allele 2], [20], [#unknown], [2],  [2], [1],
 
       table.hline(y: 6, stroke: 0.1mm),
       mc[2.], mc[DM2-2], mc[{{m.pid}}], mc[{{m.sid}}], mc[],
       [Allele 1], [17],  [#benign],        [10], [2], [1],
-      mc[], mc[90%], mc[10], mc[10], mc[7], mc[3], mc[0.3], mc[0.5], mc[], mc[!], mc[ok],
+      mc[], mc[90%], mc[10], mc[10], mc[7], mc[3], mc[0.3], mc[0.5], mc[], mc[!], mc[OK],
       [Allele 2], [17], [#benign], [2],  [2], [1],
 
       table.hline(y: 8, stroke: 0.1mm),
@@ -298,19 +308,19 @@
       table.hline(y: 2, stroke: 0.1mm),
       mc[1.], mc[DM2-0], mc[{{m.pid}}], mc[{{m.sid}}], mc[],
       [Allele 1], [5],  [#benign],        [10], [2], [1],
-      mc[], mc[90%], mc[10], mc[10], mc[7], mc[3], mc[0.3], mc[0.5], mc[], mc[!], mc[ok],
+      mc[], mc[90%], mc[10], mc[10], mc[7], mc[3], mc[0.3], mc[0.5], mc[], mc[!], mc[OK],
       [Allele 2], [12], [#likely_benign], [2],  [2], [1],
 
       table.hline(y: 4, stroke: 0.1mm),
       mc[2.], mc[DM2-1], mc[{{m.pid}}], mc[{{m.sid}}], mc[],
       [Allele 1], [8],  [#pathogenic],        [10], [2], [1],
-      mc[], mc[90%], mc[10], mc[10], mc[7], mc[3], mc[0.3], mc[0.5], mc[], mc[!], mc[ok],
+      mc[], mc[90%], mc[10], mc[10], mc[7], mc[3], mc[0.3], mc[0.5], mc[], mc[!], mc[OK],
       [Allele 2], [20], [#unknown], [2],  [2], [1],
 
       table.hline(y: 6, stroke: 0.1mm),
       mc[2.], mc[DM2-2], mc[{{m.pid}}], mc[{{m.sid}}], mc[],
       [Allele 1], [17],  [#benign],        [10], [2], [1],
-      mc[], mc[90%], mc[10], mc[10], mc[7], mc[3], mc[0.3], mc[0.5], mc[], mc[!], mc[ok],
+      mc[], mc[90%], mc[10], mc[10], mc[7], mc[3], mc[0.3], mc[0.5], mc[], mc[!], mc[OK],
       [Allele 2], [17], [#benign], [2],  [2], [1],
 
       table.hline(y: 8, stroke: 0.1mm), 
@@ -342,7 +352,7 @@
       align: horizon,
       [],
       [{{m.pid}} \ 5/12 \ 5/12],
-      [#image("DM2_0_histogram.png")],
+      [#maybe_image("DM2_0_histogram.png", 100%, 65mm)],
       [10x GCA[10] \ 7x GCA[4]]
     )
   ]
@@ -356,7 +366,7 @@
       align: horizon,
       [],
       [{{m.pid}} \ 5/12 \ 5/12],
-      [#image("DM2_1_histogram.png")],
+      [#maybe_image("DM2_1_histogram.png", 100%, 65mm)],
       [10x GCA[10] \ 7x GCA[4]]
     )
   ]
@@ -370,7 +380,7 @@
       align: horizon,
       [],
       [{{m.pid}} \ 5/12 \ 5/12],
-      [#image("DM2_2_histogram.png")],
+      [#maybe_image("DM2_2_histogram.png", 100%, 65mm)],
       [10x GCA[10] \ 7x GCA[4]]
     )
   ]

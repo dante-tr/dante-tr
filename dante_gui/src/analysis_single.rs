@@ -70,7 +70,7 @@ impl Data {
 
         content = content.push(container(horizontal_rule(2)).padding(25));
         content = view_report(content, self, size);
-        // content = content.push(draw_open_button(self));
+        content = content.push(draw_open_button(self));
 
         // let content = std::convert::Into::<Element<Message>>::into(content).explain(iced::Color::BLACK);
         return scrollable(content).into();
@@ -525,7 +525,7 @@ fn typst_compile(typst_template: String) -> Vec<u8> {
 
 #[test]
 fn tmp_test() {
-    let mut data = Data {
+    let data = Data {
         analysis_path: "dante_data/analyses/2025-04-09-19-11-09_analysis1_single".into(),
         analysis_name: "analysis1".into(),
         selected: Some(MotifFile::STRSet_20250311),
@@ -562,7 +562,7 @@ fn construct_report_results(data: &Data) -> String {
 
     /* e.g. dante_data/STRSet_20250311.tsv */
     let hgvs_db = data.selected_file.as_ref().unwrap();
-    let motif: &str = data.motifs[0].1.as_ref(); /* e.g. ALS */
+    let motif: &str = "DM1"; // data.motifs[0].1.as_ref(); /* e.g. ALS */
     let hgvs_context: Value = get_hgvs_context(hgvs_db, motif);
 
     let generated_context: Value = context!(
@@ -593,33 +593,51 @@ fn construct_report_results(data: &Data) -> String {
 
 fn get_hgvs_context(hgvs_file: &Path, motif_id: &str) -> Value {
     println!("{:?} {:?}", hgvs_file, motif_id);
-    context!(
-        name => "Myotonic dystrophy type 1",
-        abbr => "DM1",
-        gene => "Dystrophia myotonica kinase",
-        gene_abbr => "DMPK",
-        gene_ctx => "3´UTR",
-        omim_id => "\\#160900",
-        inheritance => "AD (anticipation)",
-        prot_ctx => "Untranslated",
-        chr => "19",
-        motif_cpx => "Simple (interruptions may occur)",
+    let mut lines = BufReader::new(File::open(hgvs_file).expect("Cannot open HGVS db file.")).lines();
 
-        module => "ALS-0",
-        physiological => "5-35",
-        premutation => "35-50",
-        pathogenic => "50+",
-        unit_hgvs => "GCA",
-        unit_hist => "CTG",
-        motif_hgvs => "GCA",
-        motif_hist => "CTG",
+    let pattern = motif_id.to_string() + "\t"; // make sure that for SCA we don't match SCA1
+    let first = lines.next().unwrap().unwrap();
+    let relevant = lines.find(|x| x.as_ref().unwrap().starts_with(&pattern)).unwrap().unwrap();
+    println!("{:?}", first);
+    println!("{:?}", relevant);
+
+    let header = first.split("\t").map(|x| x.to_string());
+    let content = relevant.split("\t").map(|x| x.to_string());
+    let dict_tmp: HashMap<String, String> = HashMap::from_iter(zip(header, content).filter(|x| !x.1.is_empty()));
+    let get = |x| { dict_tmp.get(x).unwrap_or(&"-".to_string()).to_string() };
+
+    // HGVS repeat unit
+    // Historical nomenclature
+    // Clinically relevant part (in case of complex motifs)
+    // Grey-zone range
+    // Allele distribution in population (gnomAD, STRchive, Stripy)
+    context!(
+        name => get("Disease name"),
+        abbr => get("Disease ID"),
+        gene => get("Gene"),
+        gene_abbr => get("Gene abbreviation"),
+        gene_ctx => get("Gene context"),
+        omim_id => get("OMIM ID"),
+        inheritance => get("Inheritance"),
+        prot_ctx => get("Protein context"),
+        chr => "?19",
+        motif_cpx => get("Motif complexity"),
+
+        module => "?ALS-0",
+        physiological => get("Physiological range"),
+        premutation => get("Premutation range"),
+        pathogenic => get("Pathogenic range"),
+        unit_hgvs => "?GCA",
+        unit_hist => "?CTG",
+        motif_hgvs => "?GCA",
+        motif_hist => "?CTG",
         dist_image => "allele_dist_example.png",
 
-        ref_allele_hgvs => "NC_000019.10:g.45770207_45770266GCA[20]",
-        ref_allele_vis => "",
-        mechanism => "Complex; Spliceopathy; ...",
-        notes => "Nothing to note",
-        citations => "Abracadabra et al. 2002"
+        ref_allele_hgvs => get("HGVS nomenclature (GRCh38 reference)"),
+        ref_allele_vis => get("GRCh38 reference allele - Visualisation"),
+        mechanism => get("Molecular mechanism"),
+        notes => get("Notes"),
+        citations => get("Citation (references)")
     )
 }
 
