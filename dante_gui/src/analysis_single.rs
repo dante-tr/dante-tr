@@ -578,7 +578,6 @@ mod reporting {
     }
 
     fn construct_report_results(data: &Data) -> String {
-        println!("{:#?}", data);
         let mut env = Environment::new();
 
         let template_id = "result";
@@ -592,7 +591,7 @@ mod reporting {
             report_id => "20250422",
         );
 
-        let motifs = data.motifs.iter().filter(|x| x.0).map(|x| x.1.to_string()).collect::<Vec<_>>();
+        let motifs = data.motifs.iter().filter(|x| x.0).map(|x| x.1.to_string().replace("/", "_")).collect::<Vec<_>>();
 
         let hgvs_db = data.selected_file.as_ref().unwrap();
         let hgvs_context: Vec<Value> = motifs.iter().map(|x| get_hgvs_context(hgvs_db, x)).collect();
@@ -612,8 +611,6 @@ mod reporting {
             r => revision_context,
         );
 
-        println!("{:#?}", ctx); // TODO: if I select all motifs next lines crash. Maybe something
-                                // to do with / in name?
         let template = env.get_template(template_id).unwrap();
         let result = template.render(ctx).unwrap();
 
@@ -649,7 +646,7 @@ mod reporting {
             let mut histogram = plot_dir.to_path_buf();
             histogram.push(format!("{motif_id}_{i}_histogram.png"));
 
-            let nomenclatures = format_nomenclatures(&module["nomenclatures"]);
+            let nomenclatures = format_nomenclatures(&module["nomenclatures"]).replace("_", "\\_");
 
             module_info.push(context!(
                 a1_pred   => module["allele_1"][0],
@@ -695,7 +692,7 @@ mod reporting {
     fn get_hgvs_context(hgvs_file: &Path, motif_id: &str) -> Value {
         let mut lines = BufReader::new(File::open(hgvs_file).expect("Cannot open HGVS db file.")).lines();
 
-        let pattern = motif_id.to_string() + "\t"; // make sure that for SCA we don't match SCA1
+        let pattern = motif_id.to_string().replace("_", "/") + "\t"; // make sure that for SCA we don't match SCA1
         let first = lines.next().unwrap().unwrap();
         let relevant = lines.find(|x| x.as_ref().unwrap().starts_with(&pattern)).unwrap().unwrap();
 

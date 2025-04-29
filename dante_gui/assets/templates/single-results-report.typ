@@ -161,14 +161,11 @@
         text(blue)[*HGVS nomenclature \ (revision)*],
         text(blue)[*Pathogenicity \ (revision)*],
       ),
-      // for module in motif
-      [{G-1.}], [{G-DM2-0}], [{{m.pid}}], [{{m.sid}}], [Allele 1], [{R-5}],  [{R-chr19:g.45770207_45770266GCA[5]}], benign,
-      [],       [],          [],           [],       [Allele 2], [{R-12}], [{R-chr19:g.45770207_45770266GCA[12]}], likely_benign,
-      [{G-2.}], [{G-DM2-1}], [{{m.pid}}], [{{m.sid}}], [Allele 1], [{R-5}],  [{R-chr19:g.45770207_45770266GCA[5]}], premutation,
-      [],       [],          [],           [],       [Allele 2], [{R-12}], [{R-chr19:g.45770207_45770266GCA[12]}], likely_pathogenic,
-      [{G-3.}], [{G-DM2-2}], [{{m.pid}}], [{{m.sid}}], [Allele 1], [{R-5}],  [{R-chr19:g.45770207_45770266GCA[5]}], pathogenic,
-      [],       [],          [],           [],       [Allele 2], [{R-12}], [{R-chr19:g.45770207_45770266GCA[12]}], unknown,
-      // endfor
+      // {% for _ in d[i].m %}
+      // {% set j = loop.index0 %}
+      [{{j}}], [{G-DM2-0}], [{{m.pid}}], [{{m.sid}}], [Allele 1], [{R-5}],  [{R-chr19:g.45770207_45770266GCA[5]}], benign,
+      [],       [],          [],           [],        [Allele 2], [{R-12}], [{R-chr19:g.45770207_45770266GCA[12]}], likely_benign,
+      // {% endfor %}
     )
   ]
   #rect(fill: white, radius: r, width: 100%)[
@@ -177,8 +174,8 @@
       stroke: none,
       align: horizon,
       inset: (x: 2mm, y: 0.5mm),
-      [#text(blue)[*Results QC*]], [{R-#positive[Passed]}],
-      [#text(blue)[*Included in One-page report?*]], [{R-#negative[No]}],
+      [#text(blue)[*Results QC*]], [#positive[Passed]],
+      [#text(blue)[*Included in One-page report?*]], [#negative[No]],
     )
     #v(-2mm)
     #box(width: 20mm, inset: (x: 2mm, y: 0mm))[#text(blue)[*Failure reason*]]
