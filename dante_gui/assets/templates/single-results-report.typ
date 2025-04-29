@@ -161,12 +161,14 @@
         text(blue)[*HGVS nomenclature \ (revision)*],
         text(blue)[*Pathogenicity \ (revision)*],
       ),
+      // for module in motif
       [{G-1.}], [{G-DM2-0}], [{{m.pid}}], [{{m.sid}}], [Allele 1], [{R-5}],  [{R-chr19:g.45770207_45770266GCA[5]}], benign,
       [],       [],          [],           [],       [Allele 2], [{R-12}], [{R-chr19:g.45770207_45770266GCA[12]}], likely_benign,
       [{G-2.}], [{G-DM2-1}], [{{m.pid}}], [{{m.sid}}], [Allele 1], [{R-5}],  [{R-chr19:g.45770207_45770266GCA[5]}], premutation,
       [],       [],          [],           [],       [Allele 2], [{R-12}], [{R-chr19:g.45770207_45770266GCA[12]}], likely_pathogenic,
       [{G-3.}], [{G-DM2-2}], [{{m.pid}}], [{{m.sid}}], [Allele 1], [{R-5}],  [{R-chr19:g.45770207_45770266GCA[5]}], pathogenic,
       [],       [],          [],           [],       [Allele 2], [{R-12}], [{R-chr19:g.45770207_45770266GCA[12]}], unknown,
+      // endfor
     )
   ]
   #rect(fill: white, radius: r, width: 100%)[
@@ -230,7 +232,7 @@
       h1[*Mismatch errors*],
       [],
       h1[*Confidence*],
-      h1[*BAM-Dante - Reads*],
+      h1[*Reads BAM-Dante*],
       h1[*Reads total*],
       h1[*Reads spanning*],
       h1[*Reads partial*],
@@ -240,25 +242,20 @@
       h1[*Alert of edited results*],
       h1[*Results QC*],
 
-      table.hline(y: 2, stroke: 0.1mm),
-      mc[{G-1.}], mc[{D-DM2-0}], mc[{{m.pid}}], mc[{{m.sid}}], mc[],
-      [Allele 1], [{D-5}],  [{?-#benign}],        [{D-10}], [{D-2}], [{D-1}],
-      mc[], mc[{D-90%}], mc[{D-10}], mc[{D-10}], mc[{D-7}], mc[{D-3}], mc[{D-0.3}], mc[{D-0.5}], mc[], mc[{R-!}], mc[{R-OK}],
-      [Allele 2], [{D-12}], [{?-#likely_benign}], [{D-2}],  [{D-2}], [{D-1}],
+      // {% for _ in d[i].m %}
+      // {% set j = loop.index0 %}
+      // {% set mod_id = h[i].abbr ~ "-" ~ j %}
+      table.hline(y: {{2 + 2 * j}}, stroke: 0.1mm),
+      mc[{{j + 1}}], mc[{{mod_id}}], mc[{{m.pid}}], mc[{{m.sid}}],
+      mc[],
+      [Allele 1], [{{d[i].m[j].a1_pred}}], [{{d[i].m[j].a1_type}}], [{{d[i].m[j].a1_reads}}], [{{d[i].m[j].a1_indels}}], [{{d[i].m[j].a1_misses}}],
+      mc[], mc[{{d[i].m[j].conf}}], mc[{{d[i].m[j].reads_used}}], mc[{{d[i].m[j].reads_total}}], mc[{{d[i].m[j].reads_span}}], mc[{{d[i].m[j].reads_flank}}], mc[{{d[i].m[j].indels}}], mc[{{d[i].m[j].misses}}],
+      mc[], mc[{R-!}], mc[{R-OK}],
+      [Allele 2], [{{d[i].m[j].a2_pred}}], [{{d[i].m[j].a2_type}}], [{{d[i].m[j].a2_reads}}], [{{d[i].m[j].a2_indels}}], [{{d[i].m[j].a2_misses}}],
+      // {% endfor %}
 
-      table.hline(y: 4, stroke: 0.1mm),
-      mc[2.], mc[DM2-1], mc[{{m.pid}}], mc[{{m.sid}}], mc[],
-      [Allele 1], [8],  [#pathogenic],        [10], [2], [1],
-      mc[], mc[90%], mc[10], mc[10], mc[7], mc[3], mc[0.3], mc[0.5], mc[], mc[!], mc[OK],
-      [Allele 2], [20], [#unknown], [2],  [2], [1],
-
-      table.hline(y: 6, stroke: 0.1mm),
-      mc[2.], mc[DM2-2], mc[{{m.pid}}], mc[{{m.sid}}], mc[],
-      [Allele 1], [17],  [#benign],        [10], [2], [1],
-      mc[], mc[90%], mc[10], mc[10], mc[7], mc[3], mc[0.3], mc[0.5], mc[], mc[!], mc[OK],
-      [Allele 2], [17], [#benign], [2],  [2], [1],
-
-      table.hline(y: 8, stroke: 0.1mm),
+      // {% set j = d[i].m|length %}
+      table.hline(y: {{2 + 2 * j}}, stroke: 0.1mm),
     )
 
     #v(1em)
@@ -313,19 +310,7 @@
       mc[], mc[90%], mc[10], mc[10], mc[7], mc[3], mc[0.3], mc[0.5], mc[], mc[!], mc[OK],
       [Allele 2], [12], [#likely_benign], [2],  [2], [1],
 
-      table.hline(y: 4, stroke: 0.1mm),
-      mc[2.], mc[DM2-1], mc[{{m.pid}}], mc[{{m.sid}}], mc[],
-      [Allele 1], [8],  [#pathogenic],        [10], [2], [1],
-      mc[], mc[90%], mc[10], mc[10], mc[7], mc[3], mc[0.3], mc[0.5], mc[], mc[!], mc[OK],
-      [Allele 2], [20], [#unknown], [2],  [2], [1],
-
-      table.hline(y: 6, stroke: 0.1mm),
-      mc[2.], mc[DM2-2], mc[{{m.pid}}], mc[{{m.sid}}], mc[],
-      [Allele 1], [17],  [#benign],        [10], [2], [1],
-      mc[], mc[90%], mc[10], mc[10], mc[7], mc[3], mc[0.3], mc[0.5], mc[], mc[!], mc[OK],
-      [Allele 2], [17], [#benign], [2],  [2], [1],
-
-      table.hline(y: 8, stroke: 0.1mm), 
+      table.hline(y: 4, stroke: 0.1mm), 
     )
   ]
 ]
@@ -336,7 +321,6 @@
     #table(
       columns: (1fr, 1fr, 50%, 1fr),
       stroke: none,
-      // align: center + horizon,
       align: (horizon, horizon, center + horizon, horizon),
       [], /* [#text(blue)[*Family tree*]],*/
       [#text(blue)[*Sample ID \ Genotype prediction \ Genotype revision*]],
@@ -345,6 +329,8 @@
     )
   ]
 ]
+{% for _ in d[i].m %}
+{% set j = loop.index0 %}
 #v(-5mm)
 #rect(width: 100%,fill: light_blue, radius: r, inset: 2.5mm)[
   #rect(fill: white, radius: r, width: 100%)[
@@ -353,38 +339,11 @@
       stroke: none,
       align: horizon,
       [],
-      [{{m.pid}} \ 5/12 \ 5/12],
-      [#maybe_image("DM2_0_histogram.png", 100%, 65mm)],
-      [10x GCA[10] \ 7x GCA[4]]
+      [{{m.pid}} \ {{d[i].m[j].a1_pred}}/{{d[i].m[j].a2_pred}} \ 5/12],
+      [#maybe_image("{{d[i].m[j].histogram}}", 100%, 65mm)],
+      [{{d[i].m[j].nomenclatures}}]
     )
   ]
 ]
-#v(-5mm)
-#rect(width: 100%,fill: light_blue, radius: r, inset: 2.5mm)[
-  #rect(fill: white, radius: r, width: 100%)[
-    #table(
-      columns: (1fr, 1fr, 50%, 1fr),
-      stroke: none,
-      align: horizon,
-      [],
-      [{{m.pid}} \ 5/12 \ 5/12],
-      [#maybe_image("DM2_1_histogram.png", 100%, 65mm)],
-      [10x GCA[10] \ 7x GCA[4]]
-    )
-  ]
-]
-#v(-5mm)
-#rect(width: 100%,fill: light_blue, radius: r, inset: 2.5mm)[
-  #rect(fill: white, radius: r, width: 100%)[
-    #table(
-      columns: (1fr, 1fr, 50%, 1fr),
-      stroke: none,
-      align: horizon,
-      [],
-      [{{m.pid}} \ 5/12 \ 5/12],
-      [#maybe_image("DM2_2_histogram.png", 100%, 65mm)],
-      [10x GCA[10] \ 7x GCA[4]]
-    )
-  ]
-]
+{% endfor %}
 {% endfor %}

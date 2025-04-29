@@ -133,6 +133,14 @@ impl Data {
         samplepath.set_extension("");
         return samplepath.file_name().expect("No filename.").to_string_lossy().to_string();
     }
+
+    fn get_dante_json(&self) -> PathBuf {
+        let sample = self.get_sample();
+        let mut json = self.get_source();
+        json.push(&sample);
+        json.push("data_v2.json");
+        return json;
+    }
 }
 
 fn toggle_group(data: &mut Data, idx: usize, checked: bool) {
@@ -502,10 +510,11 @@ mod reporting {
     use minijinja::{Environment, context, Value};
     use native_dialog::FileDialog;
     use std::collections::HashMap;
+    use serde_json::Value as JsonValue;
 
-    use typst_as_lib::package_resolver::FileSystemCache;
-    use typst_as_lib::package_resolver::PackageResolver;
-    use typst_as_lib::typst_kit_options::TypstKitFontOptions;
+    // use typst_as_lib::package_resolver::FileSystemCache;
+    // use typst_as_lib::package_resolver::PackageResolver;
+    // use typst_as_lib::typst_kit_options::TypstKitFontOptions;
     use typst_as_lib::TypstEngine;
 
     #[test]
@@ -520,6 +529,7 @@ mod reporting {
                 ( true, "ALS".into(), vec![], "".into()),
                 ( true, "DM1".into(), vec![], "".into()),
                 ( true, "DM2".into(), vec![], "".into()),
+                ( false, "FAME1".into(), vec![], "".into()),
             ],
             ..Data::default()
         };
@@ -548,16 +558,16 @@ mod reporting {
 
     fn typst_compile(typst_template: String) -> Vec<u8> {
 
-        let typst_cache = App::DATA_DIR.to_string() + "/typst_cache";
-        let pkg_resolver = PackageResolver::builder().cache(FileSystemCache(PathBuf::from(typst_cache))).build();
+        // let typst_cache = App::DATA_DIR.to_string() + "/typst_cache";
+        // let pkg_resolver = PackageResolver::builder().cache(FileSystemCache(PathBuf::from(typst_cache))).build();
 
         static FONT1: &[u8] = include_bytes!("../assets/fonts/Fira_Sans_Extra_Condensed/FiraSansExtraCondensed-Regular.ttf");
         static FONT2: &[u8] = include_bytes!("../assets/fonts/Fira_Sans_Extra_Condensed/FiraSansExtraCondensed-Bold.ttf");
         let template = TypstEngine::builder()
             .main_file(typst_template)
             .fonts([FONT1, FONT2])
-            .search_fonts_with(TypstKitFontOptions::default())
-            .add_file_resolver(pkg_resolver)
+            // .search_fonts_with(TypstKitFontOptions::default())
+            // .add_file_resolver(pkg_resolver)
             .with_file_system_resolver(App::DATA_DIR)
             .build();
 
@@ -578,22 +588,17 @@ mod reporting {
         let meta_file = get_meta_file(data.bam_file.as_ref().unwrap());
         let meta_context: Value = get_meta_context(&meta_file);
 
-        let hgvs_db = data.selected_file.as_ref().unwrap();
-        let motif: &str = data.motifs[0].1.as_ref();
-        let v1: Value = get_hgvs_context(hgvs_db, motif);
-        let motif: &str = data.motifs[1].1.as_ref();
-        let v2: Value = get_hgvs_context(hgvs_db, motif);
-        let motif: &str = data.motifs[2].1.as_ref();
-        let v3: Value = get_hgvs_context(hgvs_db, motif);
-        let hgvs_context = vec![v1, v2, v3];
-
         let generated_context: Value = context!(
             report_id => "20250422",
         );
 
-        let dante_out: Value = context!(
-            a1 => 5,
-        );
+        let motifs = data.motifs.iter().filter(|x| x.0).map(|x| x.1.to_string()).collect::<Vec<_>>();
+
+        let hgvs_db = data.selected_file.as_ref().unwrap();
+        let hgvs_context: Vec<Value> = motifs.iter().map(|x| get_hgvs_context(hgvs_db, x)).collect();
+
+        let json = data.get_dante_json();
+        let dante_out = get_dante_results(&json, &motifs);
 
         let revision_context: Value = context!(
             tmp => 1,
@@ -607,21 +612,92 @@ mod reporting {
             r => revision_context,
         );
 
+        println!("{:#?}", ctx); // TODO: if I select all motifs next lines crash. Maybe something
+                                // to do with / in name?
         let template = env.get_template(template_id).unwrap();
         let result = template.render(ctx).unwrap();
 
         return result;
     }
 
+    fn get_dante_results(json: &Path, motifs: &[String]) -> Vec<Value> {
+        let mut result: Vec<Value> = vec![Value::default(); motifs.len()];
+
+        let plot_dir = PathBuf::from("analyses/2025-04-09-19-11-09_analysis1_single/vpuk-23-001504-A/plots");
+
+        let json: String = std::fs::read_to_string(json).expect("Cannot read file.");
+        let json: JsonValue = serde_json::from_str(&json).expect("JSON was not well-formatted");
+
+        for motif in json["motifs"].as_array().unwrap() {
+            let motif_id = motif["motif_id"].as_str().unwrap().to_string();
+            let pos = motifs.iter().position(|x| { x == &motif_id });
+            match pos {
+                Some(i) => {
+                    let v1 = parse_motif_from_dante(motif, &plot_dir);
+                    result[i] = v1;
+                },
+                None => { /* neutral jing - do nothing */ }
+            }
+        }
+        return result;
+    }
+
+    fn parse_motif_from_dante(motif: &JsonValue, plot_dir: &Path) -> Value {
+        let mut module_info = Vec::new();
+        let motif_id = motif["motif_id"].as_str().unwrap();
+        for (i, module) in motif["modules"].as_array().unwrap().iter().enumerate() {
+            let mut histogram = plot_dir.to_path_buf();
+            histogram.push(format!("{motif_id}_{i}_histogram.png"));
+
+            let nomenclatures = format_nomenclatures(&module["nomenclatures"]);
+
+            module_info.push(context!(
+                a1_pred   => module["allele_1"][0],
+                a1_type   => "#unknown",
+                a1_conf   => module["allele_1"][1],
+                a1_indels => module["allele_1"][2],
+                a1_misses => module["allele_1"][3],
+                a1_reads  => module["allele_1"][4],
+
+                a2_pred   => module["allele_2"][0],
+                a2_type   => "#unknown",
+                a2_conf   => module["allele_2"][1],
+                a2_indels => module["allele_2"][2],
+                a2_misses => module["allele_2"][3],
+                a2_reads  => module["allele_2"][4],
+
+                conf => module["stats"][0],
+                reads_used => "-",
+                reads_total => "-",
+                reads_span => module["reads_spanning"],
+                reads_flank => module["reads_flanking"],
+                indels => module["stats"][1],
+                misses => module["stats"][2],
+
+                histogram => histogram,
+                nomenclatures => nomenclatures,
+            ))
+        }
+        context!(m => module_info)
+    }
+
+    fn format_nomenclatures(nomenclatures: &JsonValue) -> String {
+        let mut result = Vec::new();
+        for nomenclature in nomenclatures.as_array().unwrap() {
+            let c = &nomenclature["count"];
+            let n = nomenclature["noms"][0].as_str().unwrap();
+            let n = n.trim_matches('\"').replace(']', "] ");
+            result.push(format!("*{c}x* {n}"));
+        }
+        return result.join(" \\ ");
+    }
+
     fn get_hgvs_context(hgvs_file: &Path, motif_id: &str) -> Value {
-        println!("{:?} {:?}", hgvs_file, motif_id);
         let mut lines = BufReader::new(File::open(hgvs_file).expect("Cannot open HGVS db file.")).lines();
 
         let pattern = motif_id.to_string() + "\t"; // make sure that for SCA we don't match SCA1
         let first = lines.next().unwrap().unwrap();
         let relevant = lines.find(|x| x.as_ref().unwrap().starts_with(&pattern)).unwrap().unwrap();
-        println!("{:?}", first);
-        println!("{:?}", relevant);
 
         let header = first.split("\t").map(|x| x.to_string());
         let content = relevant.split("\t").map(|x| x.to_string());
@@ -653,7 +729,7 @@ mod reporting {
             unit_hist => "?CTG",
             motif_hgvs => "?GCA",
             motif_hist => "?CTG",
-            dist_image => "allele_dist_example.png",
+            dist_image => "STRSet_20250311/".to_string() + motif_id + ".png",
 
             ref_allele_hgvs => get("HGVS nomenclature (GRCh38 reference)"),
             ref_allele_vis => get("GRCh38 reference allele - Visualisation"),
