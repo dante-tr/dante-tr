@@ -371,12 +371,10 @@ impl std::fmt::Display for Status {
     }
 }
 
-// {"ALS": [[("E", Benign), ("4", Toxic)]], 
-//  "DM2": [[("5", Benign), ("7", Toxic)], [("2", Benign), ("B", Toxic)]]}
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-struct Revision {
-    motif_id: String,
-    modules: Vec<[(String, Option<Status>); 2]>
+pub(crate) struct Revision {
+    pub(crate) motif_id: String,
+    pub(crate) modules: Vec<[(String, Option<Status>); 2]>
 }
 
 impl Revision {

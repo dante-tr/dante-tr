@@ -597,11 +597,9 @@ mod reporting {
         let hgvs_context: Vec<Value> = motifs.iter().map(|x| get_hgvs_context(hgvs_db, x)).collect();
 
         let json = data.get_dante_json();
-        let dante_out = get_dante_results(&json, &motifs);
+        let dante_out: Vec<Value> = get_dante_results(&json, &motifs);
 
-        let revision_context: Value = context!(
-            tmp => 1,
-        );
+        let revision_context: Vec<Value> = get_revisions(&json, &motifs);
 
         let ctx = context!(
             g => generated_context,
@@ -611,6 +609,7 @@ mod reporting {
             r => revision_context,
         );
 
+        // println!("{:#?}", ctx);
         let template = env.get_template(template_id).unwrap();
         let result = template.render(ctx).unwrap();
 
@@ -619,19 +618,22 @@ mod reporting {
 
     fn get_dante_results(json: &Path, motifs: &[String]) -> Vec<Value> {
         let mut result: Vec<Value> = vec![Value::default(); motifs.len()];
-
-        let plot_dir = PathBuf::from("analyses/2025-04-09-19-11-09_analysis1_single/vpuk-23-001504-A/plots");
-
         let json: String = std::fs::read_to_string(json).expect("Cannot read file.");
         let json: JsonValue = serde_json::from_str(&json).expect("JSON was not well-formatted");
 
+        let plot_dir = PathBuf::from("analyses/2025-04-09-19-11-09_analysis1_single/vpuk-23-001504-A/plots");
         for motif in json["motifs"].as_array().unwrap() {
             let motif_id = motif["motif_id"].as_str().unwrap().to_string();
             let pos = motifs.iter().position(|x| { x == &motif_id });
             match pos {
                 Some(i) => {
-                    let v1 = parse_motif_from_dante(motif, &plot_dir);
-                    result[i] = v1;
+                    let mut module_info = Vec::new();
+                    let motif_id = motif["motif_id"].as_str().unwrap();
+                    for (j, module) in motif["modules"].as_array().unwrap().iter().enumerate() {
+                        let ctx = parse_motif(module, &plot_dir, motif_id, j);
+                        module_info.push(ctx);
+                    }
+                    result[i] = context!(m => module_info);
                 },
                 None => { /* neutral jing - do nothing */ }
             }
@@ -639,43 +641,120 @@ mod reporting {
         return result;
     }
 
-    fn parse_motif_from_dante(motif: &JsonValue, plot_dir: &Path) -> Value {
-        let mut module_info = Vec::new();
-        let motif_id = motif["motif_id"].as_str().unwrap();
-        for (i, module) in motif["modules"].as_array().unwrap().iter().enumerate() {
-            let mut histogram = plot_dir.to_path_buf();
-            histogram.push(format!("{motif_id}_{i}_histogram.png"));
+    fn get_revisions(json: &Path, motifs: &[String]) -> Vec<Value>{
+        let mut result = vec![Value::default(); motifs.len()];
+        let json: String = std::fs::read_to_string(json).expect("Cannot read file.");
+        let json: JsonValue = serde_json::from_str(&json).expect("JSON was not well-formatted");
 
-            let nomenclatures = format_nomenclatures(&module["nomenclatures"]).replace("_", "\\_");
-
-            module_info.push(context!(
-                a1_pred   => module["allele_1"][0],
-                a1_type   => "#unknown",
-                a1_conf   => module["allele_1"][1],
-                a1_indels => module["allele_1"][2],
-                a1_misses => module["allele_1"][3],
-                a1_reads  => module["allele_1"][4],
-
-                a2_pred   => module["allele_2"][0],
-                a2_type   => "#unknown",
-                a2_conf   => module["allele_2"][1],
-                a2_indels => module["allele_2"][2],
-                a2_misses => module["allele_2"][3],
-                a2_reads  => module["allele_2"][4],
-
-                conf => module["stats"][0],
-                reads_used => "-",
-                reads_total => "-",
-                reads_span => module["reads_spanning"],
-                reads_flank => module["reads_flanking"],
-                indels => module["stats"][1],
-                misses => module["stats"][2],
-
-                histogram => histogram,
-                nomenclatures => nomenclatures,
-            ))
+        let rev_dir = PathBuf::from("dante_data/analyses/2025-04-09-19-11-09_analysis1_single/revisions"); // TODO:
+        for motif in json["motifs"].as_array().unwrap() {
+            let motif_id = motif["motif_id"].as_str().unwrap().to_string();
+            let pos = motifs.iter().position(|x| { x == &motif_id });
+            if pos.is_none() {  continue; }
+            else {
+                let pos = pos.unwrap();
+                let motif_id = motif["motif_id"].as_str().unwrap();
+                let mut module_info = Vec::new();
+                for (j, module) in motif["modules"].as_array().unwrap().iter().enumerate() {
+                    let ctx2 = parse_motif_rev(module, &rev_dir, motif_id, j);
+                    module_info.push(ctx2);
+                }
+                result[pos] = context!(
+                    m => module_info,
+                    qc_result => "positive[Passed]",
+                    inc_one_page => "negative[No]",
+                    f_reason => "Low read number and some veeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeery long reason."
+                );
+            }
         }
-        context!(m => module_info)
+        return result;
+    }
+
+    fn parse_motif_rev(
+        module: &JsonValue, rev_dir: &Path, motif_id: &str, i: usize
+    ) -> Value {
+        use crate::editor_results::Revision;
+
+        let mut revision = rev_dir.to_path_buf(); revision.push(format!("{}.json", motif_id));
+        println!("{:?}", revision);
+        let (a1_pred, a1_type, a2_pred, a2_type) = if revision.exists() {
+            let rev_json: String = std::fs::read_to_string(revision).expect("Cannot read file.");
+            let rev: Revision = serde_json::from_str(&rev_json).expect("Cannot parse json.");
+            let module = &rev.modules[i];
+
+            let a1_pred = module[0].0.clone();
+            let a1_type = module[0].1;
+            let a2_pred = module[1].0.clone();
+            let a2_type = module[1].1;
+            (Some(a1_pred), a1_type, Some(a2_pred), a2_type)
+        } else {
+            (None, None, None, None)
+        };
+
+        context!(
+            a1_pred => a1_pred.unwrap_or(module["allele_1"][0].to_string()),
+            a1_nom => "chr19:g.45770207_45770266GCA[5]",
+            a1_type => "benign",  // TODO
+            a1_conf   => module["allele_1"][1],
+            a1_indels => module["allele_1"][2],
+            a1_misses => module["allele_1"][3],
+            a1_reads  => module["allele_1"][4],
+
+            a2_pred => a2_pred.unwrap_or(module["allele_2"][0].to_string()),
+            a2_nom => "chr19:g.45770207_45770266GCA[12]",
+            a2_type => "likely_benign",  // TODO
+            a2_conf   => module["allele_2"][1],
+            a2_indels => module["allele_2"][2],
+            a2_misses => module["allele_2"][3],
+            a2_reads  => module["allele_2"][4],
+
+            conf => module["stats"][0],
+            reads_used => "-",
+            reads_total => "-",
+            reads_span => module["reads_spanning"],
+            reads_flank => module["reads_flanking"],
+            indels => module["stats"][1],
+            misses => module["stats"][2],
+
+            histogram => "",
+            nomenclatures => "",
+        )
+    }
+
+    fn parse_motif(
+        module: &JsonValue, plot_dir: &Path, motif_id: &str, i: usize
+    ) -> Value {
+        let mut histogram = plot_dir.to_path_buf();
+        histogram.push(format!("{motif_id}_{i}_histogram.png"));
+        let nomenclatures = format_nomenclatures(&module["nomenclatures"]).replace("_", "\\_");
+        context!(
+            a1_pred   => module["allele_1"][0],
+            a1_nom    => "-",
+            a1_type   => "unknown",
+            a1_conf   => module["allele_1"][1],
+            a1_indels => module["allele_1"][2],
+            a1_misses => module["allele_1"][3],
+            a1_reads  => module["allele_1"][4],
+
+            a2_pred   => module["allele_2"][0],
+            a2_nom    => "-",
+            a2_type   => "unknown",
+            a2_conf   => module["allele_2"][1],
+            a2_indels => module["allele_2"][2],
+            a2_misses => module["allele_2"][3],
+            a2_reads  => module["allele_2"][4],
+
+            conf => module["stats"][0],
+            reads_used => "-",
+            reads_total => "-",
+            reads_span => module["reads_spanning"],
+            reads_flank => module["reads_flanking"],
+            indels => module["stats"][1],
+            misses => module["stats"][2],
+
+            histogram => histogram,
+            nomenclatures => nomenclatures,
+        )
     }
 
     fn format_nomenclatures(nomenclatures: &JsonValue) -> String {

@@ -161,10 +161,14 @@
         text(blue)[*HGVS nomenclature \ (revision)*],
         text(blue)[*Pathogenicity \ (revision)*],
       ),
-      // {% for _ in d[i].m %}
+      // {% for _ in r[i].m %}
       // {% set j = loop.index0 %}
-      [{{j}}], [{G-DM2-0}], [{{m.pid}}], [{{m.sid}}], [Allele 1], [{R-5}],  [{R-chr19:g.45770207_45770266GCA[5]}], benign,
-      [],       [],          [],           [],        [Allele 2], [{R-12}], [{R-chr19:g.45770207_45770266GCA[12]}], likely_benign,
+      // {% set mod_id = h[i].abbr ~ "-" ~ j %}
+      // {% set mod = r[i].m[j] %}
+      [{{j + 1}}], [{{mod_id}}], [{{m.pid}}], [{{m.sid}}],
+      [Allele 1], [{{mod.a1_pred}}], [{{mod.a1_nom}}], {{mod.a1_type}},
+      [], [], [], [],
+      [Allele 2], [{{mod.a2_pred}}], [{{mod.a2_nom}}], {{mod.a2_type}},
       // {% endfor %}
     )
   ]
@@ -174,14 +178,12 @@
       stroke: none,
       align: horizon,
       inset: (x: 2mm, y: 0.5mm),
-      [#text(blue)[*Results QC*]], [#positive[Passed]],
-      [#text(blue)[*Included in One-page report?*]], [#negative[No]],
+      [#text(blue)[*Results QC*]], {{r[i].qc_result}},
+      [#text(blue)[*Included in One-page report?*]], {{r[i].inc_one_page}},
     )
     #v(-2mm)
     #box(width: 20mm, inset: (x: 2mm, y: 0mm))[#text(blue)[*Failure reason*]]
-    #box(inset: (x: 2mm, y: 0mm))[
-      {R-Low read number and some veeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeery long reason.}
-    ]
+    #box(inset: (x: 2mm, y: 0mm))[{{r[i].f_reason}}]
   ]
 ]
 
@@ -245,10 +247,10 @@
       table.hline(y: {{2 + 2 * j}}, stroke: 0.1mm),
       mc[{{j + 1}}], mc[{{mod_id}}], mc[{{m.pid}}], mc[{{m.sid}}],
       mc[],
-      [Allele 1], [{{d[i].m[j].a1_pred}}], [{{d[i].m[j].a1_type}}], [{{d[i].m[j].a1_reads}}], [{{d[i].m[j].a1_indels}}], [{{d[i].m[j].a1_misses}}],
+      [Allele 1], [{{d[i].m[j].a1_pred}}], {{d[i].m[j].a1_type}}, [{{d[i].m[j].a1_reads}}], [{{d[i].m[j].a1_indels}}], [{{d[i].m[j].a1_misses}}],
       mc[], mc[{{d[i].m[j].conf}}], mc[{{d[i].m[j].reads_used}}], mc[{{d[i].m[j].reads_total}}], mc[{{d[i].m[j].reads_span}}], mc[{{d[i].m[j].reads_flank}}], mc[{{d[i].m[j].indels}}], mc[{{d[i].m[j].misses}}],
-      mc[], mc[{R-!}], mc[{R-OK}],
-      [Allele 2], [{{d[i].m[j].a2_pred}}], [{{d[i].m[j].a2_type}}], [{{d[i].m[j].a2_reads}}], [{{d[i].m[j].a2_indels}}], [{{d[i].m[j].a2_misses}}],
+      mc[], mc[], mc[],
+      [Allele 2], [{{d[i].m[j].a2_pred}}], {{d[i].m[j].a2_type}}, [{{d[i].m[j].a2_reads}}], [{{d[i].m[j].a2_indels}}], [{{d[i].m[j].a2_misses}}],
       // {% endfor %}
 
       // {% set j = d[i].m|length %}
@@ -301,13 +303,21 @@
       h1[*Alert of edited results*],
       h1[*Results QC*],
 
-      table.hline(y: 2, stroke: 0.1mm),
-      mc[1.], mc[DM2-0], mc[{{m.pid}}], mc[{{m.sid}}], mc[],
-      [Allele 1], [5],  [#benign],        [10], [2], [1],
-      mc[], mc[90%], mc[10], mc[10], mc[7], mc[3], mc[0.3], mc[0.5], mc[], mc[!], mc[OK],
-      [Allele 2], [12], [#likely_benign], [2],  [2], [1],
+      // {% for _ in r[i].m %}
+      // {% set j = loop.index0 %}
+      // {% set mod_id = h[i].abbr ~ "-" ~ j %}
+      table.hline(y: {{2 + 2 * j}}, stroke: 0.1mm),
+      mc[{{j + 1}}], mc[{{mod_id}}], mc[{{m.pid}}], mc[{{m.sid}}],
+      mc[],
+      [Allele 1], [{{r[i].m[j].a1_pred}}], {{r[i].m[j].a1_type}}, [{{r[i].m[j].a1_reads}}], [{{r[i].m[j].a1_indels}}], [{{r[i].m[j].a1_misses}}],
+      mc[], mc[{{r[i].m[j].conf}}], mc[{{r[i].m[j].reads_used}}], mc[{{r[i].m[j].reads_total}}], mc[{{r[i].m[j].reads_span}}], mc[{{r[i].m[j].reads_flank}}], mc[{{r[i].m[j].indels}}], mc[{{r[i].m[j].misses}}],
+      mc[], mc[], mc[],
+      [Allele 2], [{{r[i].m[j].a2_pred}}], {{r[i].m[j].a2_type}}, [{{r[i].m[j].a2_reads}}], [{{r[i].m[j].a2_indels}}], [{{r[i].m[j].a2_misses}}],
+      // {% endfor %}
 
-      table.hline(y: 4, stroke: 0.1mm), 
+      // {% set j = d[i].m|length %}
+      table.hline(y: {{2 + 2 * j}}, stroke: 0.1mm),
+
     )
   ]
 ]
@@ -336,7 +346,7 @@
       stroke: none,
       align: horizon,
       [],
-      [{{m.pid}} \ {{d[i].m[j].a1_pred}}/{{d[i].m[j].a2_pred}} \ 5/12],
+      [{{m.pid}} \ {{d[i].m[j].a1_pred}}/{{d[i].m[j].a2_pred}} \ {{r[i].m[j].a1_pred}}/{{r[i].m[j].a2_pred}}],
       [#maybe_image("{{d[i].m[j].histogram}}", 100%, 65mm)],
       [{{d[i].m[j].nomenclatures}}]
     )
