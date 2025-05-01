@@ -426,7 +426,12 @@ fn view_report<'a>(mut content: Column<'a, Message>, data: &'a Data, size: Size)
 
     const PAD2: Padding = Padding { bottom: 0.0, top: 10.0, right: 25.0, left: 0.0 };
     const PAD3: Padding = Padding { bottom: 0.0, top: 10.0, right: 5.0, left: 0.0 };
-    let report_types = [ReportType::OnePage, ReportType::Summary, ReportType::Result, ReportType::Technical];
+    let report_types = [
+        // ReportType::OnePage,
+        // ReportType::Summary,
+        ReportType::Result,
+        // ReportType::Technical
+    ];
 
     let r = row![
         container(text("")).width(160),
@@ -502,6 +507,9 @@ impl std::fmt::Display for ReportType {
         })
     }
 }
+
+mod view {}
+mod update {}
 
 mod reporting {
     use super::{Data, ReportType, get_meta_file, read_meta_file};
