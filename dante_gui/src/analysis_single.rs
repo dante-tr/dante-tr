@@ -469,9 +469,8 @@ fn make_group_row<'a>(groups: &'a[(bool, String)], available_width: usize, i: &m
 }
 
 fn make_checkbox_row<'a>(motifs: &'a[(bool, String, Vec<String>, String)], available_width: usize, i: &mut usize) -> Vec<Element<'a, Message>> {
-    // TODO: are the lifetimes correct?
     const PAD: Padding = Padding { bottom: 0.0, top: 0.0, right: 15.0, left: 0.0 };
-    let spacing = 15 /*checkbox*/ + 10 /*between checkbox and label*/ + 15 /*right padding*/;
+    let spacing = 15 /* checkbox */ + 10 /* between checkbox and label */ + 15 /* right padding */;
     let letter_width = 11;
 
     let mut v = Vec::new();
@@ -512,12 +511,12 @@ impl std::fmt::Display for ReportType {
     }
 }
 
-mod view {}
 mod update {}
+mod view {}
 
 mod reporting {
     use super::{Data, ReportType, get_meta_file, read_meta_file};
-    use crate::App;
+    use crate::{editor_results::Status, App};
     use std::{fs::File, io::{BufRead, BufReader}, iter::zip, path::{Path, PathBuf}};
     use minijinja::{Environment, context, Value};
     use native_dialog::FileDialog;
@@ -529,27 +528,27 @@ mod reporting {
     // use typst_as_lib::typst_kit_options::TypstKitFontOptions;
     use typst_as_lib::TypstEngine;
 
-    #[test]
-    fn tmp_test() {
-        let data = Data {
-            analysis_path: "dante_data/analyses/2025-04-09-19-11-09_analysis1_single".into(),
-            analysis_name: "analysis1".into(),
-            selected_file: Some("dante_data/STRSet_20250311.tsv".into()),
-            bam_file: Some("/home/balaz/projects/STRs2/tools/remaSTR/dante_gui/example_data/vpuk-23-001504-A.bam".into()),
-            selected_report: Some(ReportType::Result),
-            motifs: vec![
-                ( true, "ALS".into(), vec![], "".into()),
-                ( true, "DM1".into(), vec![], "".into()),
-                ( true, "DM2".into(), vec![], "".into()),
-                ( false, "FAME1".into(), vec![], "".into()),
-            ],
-            ..Data::default()
-        };
-        let typ = construct_report_results(&data);
-        std::fs::write("tmp.typ", &typ).expect("Unable to write file");
-        let pdf = typst_compile(typ);
-        std::fs::write("tmp.pdf", &pdf).expect("Unable to write file");
-    }
+    // #[test]
+    // fn tmp_test() {
+    //     let data = Data {
+    //         analysis_path: "dante_data/analyses/2025-04-09-19-11-09_analysis1_single".into(),
+    //         analysis_name: "analysis1".into(),
+    //         selected_file: Some("dante_data/STRSet_20250311.tsv".into()),
+    //         bam_file: Some("/home/balaz/projects/STRs2/tools/remaSTR/dante_gui/example_data/vpuk-23-001504-A.bam".into()),
+    //         selected_report: Some(ReportType::Result),
+    //         motifs: vec![
+    //             ( true, "ALS".into(), vec![], "".into()),
+    //             ( true, "DM1".into(), vec![], "".into()),
+    //             ( true, "DM2".into(), vec![], "".into()),
+    //             ( false, "FAME1".into(), vec![], "".into()),
+    //         ],
+    //         ..Data::default()
+    //     };
+    //     let typ = construct_report_results(&data);
+    //     std::fs::write("tmp.typ", &typ).expect("Unable to write file");
+    //     let pdf = typst_compile(typ);
+    //     std::fs::write("tmp.pdf", &pdf).expect("Unable to write file");
+    // }
 
     pub(super) fn print_report(data: &mut Data) {
         let Ok(Some(output_pdf)) = FileDialog::new().show_save_single_file() else { return; };
@@ -633,7 +632,7 @@ mod reporting {
         let json: String = std::fs::read_to_string(json).expect("Cannot read file.");
         let json: JsonValue = serde_json::from_str(&json).expect("JSON was not well-formatted");
 
-        let plot_dir = PathBuf::from("analyses/2025-04-09-19-11-09_analysis1_single/vpuk-23-001504-A/plots");
+        let plot_dir = PathBuf::from("analyses/2025-04-09-19-11-09_analysis1_single/vpuk-23-001504-A/plots"); // TODO:
         for motif in json["motifs"].as_array().unwrap() {
             let motif_id = motif["motif_id"].as_str().unwrap().to_string();
             let pos = motifs.iter().position(|x| { x == &motif_id });
@@ -705,24 +704,24 @@ mod reporting {
 
         context!(
             a1_pred => a1_pred.unwrap_or(module["allele_1"][0].to_string()),
-            a1_nom => "chr19:g.45770207_45770266GCA[5]",
-            a1_type => "benign",  // TODO
+            a1_nom => "-", // TODO: "chr19:g.45770207_45770266GCA[5]"
+            a1_type => a1_type.unwrap_or(Status::Unknown).to_typst(),
             a1_conf   => module["allele_1"][1],
             a1_indels => module["allele_1"][2],
             a1_misses => module["allele_1"][3],
             a1_reads  => module["allele_1"][4],
 
             a2_pred => a2_pred.unwrap_or(module["allele_2"][0].to_string()),
-            a2_nom => "chr19:g.45770207_45770266GCA[12]",
-            a2_type => "likely_benign",  // TODO
+            a2_nom => "-", // TODO: "chr19:g.45770207_45770266GCA[12]",
+            a2_type => a2_type.unwrap_or(Status::Unknown).to_typst(),
             a2_conf   => module["allele_2"][1],
             a2_indels => module["allele_2"][2],
             a2_misses => module["allele_2"][3],
             a2_reads  => module["allele_2"][4],
 
             conf => module["stats"][0],
-            reads_used => "-",
-            reads_total => "-",
+            reads_used => "-", // TODO
+            reads_total => "-", // TODO
             reads_span => module["reads_spanning"],
             reads_flank => module["reads_flanking"],
             indels => module["stats"][1],
@@ -806,17 +805,17 @@ mod reporting {
             omim_id => get("OMIM ID"),
             inheritance => get("Inheritance"),
             prot_ctx => get("Protein context"),
-            chr => "?19",
+            chr => "-", // TODO
             motif_cpx => get("Motif complexity"),
 
-            module => "?ALS-0",
+            module => "-", // TODO
             physiological => get("Physiological range"),
             premutation => get("Premutation range"),
             pathogenic => get("Pathogenic range"),
-            unit_hgvs => "?GCA",
-            unit_hist => "?CTG",
-            motif_hgvs => "?GCA",
-            motif_hist => "?CTG",
+            unit_hgvs => "-", // TODO
+            unit_hist => "-", // TODO
+            motif_hgvs => "-", // TODO
+            motif_hist => "-", // TODO
             dist_image => "STRSet_20250311/".to_string() + motif_id + ".png",
 
             ref_allele_hgvs => get("HGVS nomenclature (GRCh38 reference)"),

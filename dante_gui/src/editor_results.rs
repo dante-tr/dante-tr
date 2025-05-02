@@ -487,6 +487,19 @@ impl std::fmt::Display for Status {
     }
 }
 
+impl Status {
+    pub(super) fn to_typst(self) -> String {
+        match self {
+            Self::Benign => "benign".to_string(),
+            Self::Premutation => "premutation".to_string(),
+            Self::Pathogenic => "pathogenic".to_string(),
+            Self::Unknown => "unknown".to_string(),
+            Self::LikelyPathogenic => "likely_pathogenic".to_string(),
+            Self::LikelyBenign => "likely_benign".to_string()
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub(crate) struct Revision {
     pub(crate) motif_id: String,
