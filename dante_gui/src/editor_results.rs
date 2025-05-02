@@ -1,8 +1,9 @@
 use iced::widget::{column, scrollable};
+use iced::widget::text_editor;
 use iced::{Element, Size};
 
 use std::fs::File;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
@@ -15,11 +16,18 @@ pub(super) enum Message {
     RevisionChanged(String, usize, usize, usize),   // text, motif_pos, module_idx, allele
     PatChanged(Status, usize, usize, usize),        // ^-
     Save(usize),
+    SaveAll,
 
+    ActionPerformed(text_editor::Action),
+
+    // motif specific actions
+    QCToggle(usize, bool),
+    QCEdit(usize, String),
+    InterpretationEdit(usize, String),
     ShowAlignments(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Default)]
 pub(super) struct Data {
     source: PathBuf,
     json: PathBuf,
@@ -28,7 +36,7 @@ pub(super) struct Data {
     motif_ids: Vec<String>,
     revisions: Vec<Revision>,
 
-    gen_info: String,
+    interpretation: text_editor::Content,
 }
 
 impl Data {
@@ -47,15 +55,8 @@ impl Data {
     pub(super) fn update(&mut self, m: Message) {
         match m {
             Message::Exit(_) => { unreachable!("Implemented in App::update."); }
-            Message::Save(motif_idx) => {
-                let json = serde_json::to_string(&self.revisions[motif_idx]).unwrap();
-                let mut output = self.source.clone(); output.push("revisions");
-                let _ = std::fs::create_dir(&output); /* ignoring error when dir already exists */
-                output.push(format!("{}.json", self.motif_ids[motif_idx]));
-
-                let mut out = File::create(&output).expect("Cannot open file for writing.");
-                out.write_all(json.as_bytes()).expect("Cannot write to output file.");
-            }
+            Message::SaveAll => { self.save_all(); }
+            Message::Save(motif_idx) => { self.save_motif(motif_idx); }
             Message::PatChanged(status, motif_idx, module_idx, allele_idx) => {
                 self.revisions[motif_idx].modules[module_idx][allele_idx].1 = Some(status);
             }
@@ -63,10 +64,22 @@ impl Data {
                 self.revisions[motif_idx].modules[module_idx][allele_idx].0 = text;
             }
             Message::ShowAlignments(x) => {
-                // TODO:
+                // TODO:  
                 let x = format!("dante_data/analyses/2025-04-09-19-11-09_analysis1_single/vpuk-23-001504-A/alignments/{}.html", x);
                 println!("{}", x);
                 opener::open(x).unwrap();
+            }
+            Message::ActionPerformed(x) => {
+                self.interpretation.perform(x);
+            }
+            Message::QCToggle(idx, value) => {
+                self.revisions[idx].qc_passed = value;
+            }
+            Message::QCEdit(idx, value) => {
+                self.revisions[idx].qc_notes = value;
+            }
+            Message::InterpretationEdit(idx, value) => {
+                self.revisions[idx].locus_interpretation = value;
             }
         }
     }
@@ -87,6 +100,20 @@ impl Data {
             }
         }
 
+        let mut interpretation_path = source.clone();
+        interpretation_path.push("revisions");
+        interpretation_path.push("interpretation.txt");
+
+        let interpretation = match interpretation_path.exists() {
+            false => { text_editor::Content::new() }
+            true => {
+                let mut f = File::open(interpretation_path).expect("Cannot open interpretation");
+                let mut buf = String::new();
+                f.read_to_string(&mut buf).expect("Cannot read interpretation");
+                text_editor::Content::with_text(&buf)
+            },
+        };
+
         let data = Data {
             source,
             json,
@@ -94,9 +121,31 @@ impl Data {
 
             motif_ids,
             revisions,
-            ..Default::default()
+
+            interpretation,
         };
         return ContentPage::SingleResults(data);
+    }
+
+    fn save_motif(&self, idx: usize) {
+        let mut output = self.source.clone(); output.push("revisions");
+        let _ = std::fs::create_dir(&output); /* ignoring error when dir already exists */
+        output.push(format!("{}.json", self.motif_ids[idx]));
+
+        let mut out = File::create(&output).expect("Cannot open file for writing.");
+        let json = serde_json::to_string(&self.revisions[idx]).unwrap();
+        out.write_all(json.as_bytes()).expect("Cannot write to output file.");
+    }
+
+    fn save_all(&self) {
+        for idx in 0..self.motif_ids.len() { self.save_motif(idx); }
+
+        let mut output = self.source.clone(); output.push("revisions");
+        let _ = std::fs::create_dir(&output); /* ignoring error when dir already exists */
+        output.push("interpretation.txt");
+
+        let mut out = File::create(&output).expect("Cannot open file for writing.");
+        out.write_all(self.interpretation.text().as_bytes()).expect("Cannot write to output file.");
     }
 }
 
@@ -106,7 +155,7 @@ mod view {
     use iced::alignment::{Horizontal, Vertical};
     use iced::widget::{
         button, checkbox, column, container, horizontal_rule, horizontal_space,
-        image, pick_list, row, text, text_input, tooltip, vertical_space
+        image, pick_list, row, text, text_editor, text_input, tooltip, vertical_space
     };
     use iced::widget::{Column, Row, Tooltip};
     use iced::{Element, Length, Padding, Size};
@@ -122,16 +171,21 @@ mod view {
         row![
             container(button("Back").on_press(Message::Exit(source))).width(100),
             container(text("Result editor").size(App::H1_SIZE)).align_x(Horizontal::Center).width(Length::Fill),
-            container("").width(100).align_x(Horizontal::Right),
+            container(button("Save all").on_press(Message::SaveAll)).width(100).align_x(Horizontal::Right),
         ].padding(25).align_y(Vertical::Center)
     }
 
     pub(super) fn general_data(data: &Data) -> Element<Message> {
+
+
         let mut general_data = column![].padding(PADLR25);
         general_data = general_data.push(horizontal_rule(0));
         general_data = general_data.push(vertical_space().height(25));
         general_data = general_data.push(container(text("<sample id>").size(App::H1_SIZE)).padding(PADLR25));
-        general_data = general_data.push(container(text_input("interpretation", &data.gen_info)).padding(25));
+
+        general_data = general_data.push(container(
+            text_editor(&data.interpretation).placeholder("Interpretation of results").on_action(Message::ActionPerformed)
+        ).padding(25));
         general_data.into()
     }
 
@@ -170,7 +224,7 @@ mod view {
                     horizontal_space(),
                     image(format!("{plot_dir}/{motif_id}_{module_pos}_histogram.png")),
                     Space::with_width(50),
-                    right_panel(&motif["modules"][module_pos], size),
+                    right_panel(data, motif_idx, &motif["modules"][module_pos], size),
                     horizontal_space()
                 ].align_y(Vertical::Center));
                 motif_section = motif_section.push(vertical_space().height(25));
@@ -180,7 +234,7 @@ mod view {
         return motif_section;
     }
 
-    fn right_panel<'a>(module: &Value, size: Size) -> Column<'a, Message> {
+    fn right_panel<'a>(data: &Data, motif_idx: usize, module: &Value, size: Size) -> Column<'a, Message> {
         let pat: &[_] = &['"', ' '];
         let mut res: Vec<Element<'a, Message>> = Vec::new();
         res.push(text("Nomenclature counts (5 most common):").into());
@@ -190,9 +244,14 @@ mod view {
                 nomenclature["noms"][0].to_string().trim_matches(pat).replace("]", "] ")
             )).into());
         }
-        res.push(container(checkbox("QC passed", false)).padding(PADTB5).into());
-        res.push(container(text_input("QC reason", "")).padding(PADTB5).into());
-        res.push(container(text_input("locus interpretation", "")).padding(PADTB5).into());
+
+        let tmp = &data.revisions[motif_idx];
+        let toggle_message = move |x| { Message::QCToggle(motif_idx, x) };
+        res.push(container(checkbox("QC passed", tmp.qc_passed).on_toggle(toggle_message)).padding(PADTB5).into());
+        let input_message = move |x| { Message::QCEdit(motif_idx, x) };
+        res.push(container(text_input("QC reason", &tmp.qc_notes).on_input(input_message)).padding(PADTB5).into());
+        let input_message2 = move |x| { Message::InterpretationEdit(motif_idx, x) };
+        res.push(container(text_input("locus interpretation", &tmp.locus_interpretation).on_input(input_message2)).padding(PADTB5).into());
 
         let m = Message::ShowAlignments("ALS".to_string());
         res.push(container(button("View alignments").on_press(m)).padding(PADTB5).into());
@@ -425,7 +484,10 @@ impl std::fmt::Display for Status {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub(crate) struct Revision {
     pub(crate) motif_id: String,
-    pub(crate) modules: Vec<[(String, Option<Status>); 2]>
+    pub(crate) modules: Vec<[(String /* prediction */, Option<Status> /* pathogenicity */); 2]>,
+    pub(crate) qc_passed: bool,
+    pub(crate) qc_notes: String,
+    pub(crate) locus_interpretation: String
 }
 
 impl Revision {
@@ -437,7 +499,8 @@ impl Revision {
 
         return Self {
             motif_id: motif_id.to_string(),
-            modules: vec![[("".to_string(), None), ("".to_string(), None)]; n]
+            modules: vec![[("".to_string(), None), ("".to_string(), None)]; n],
+            ..Default::default()
         };
     }
 }

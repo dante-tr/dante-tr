@@ -8,6 +8,7 @@ remastr = { path = "../"}
 
 iced = { version = "0.13.1", features = ["image"] }
 native-dialog = "0.7.0"
+# rfd = "0.15.3" # use this instead of native-dialog?
 opener = "0.7.2"
 iced_aw = "0.12.0"
 chrono = "0.4.40"

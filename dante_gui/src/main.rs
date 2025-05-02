@@ -40,7 +40,7 @@ enum Message {
     Resize(Size),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 enum ContentPage {
     WelcomeScreen(welcome_screen::Data),
     AnalysisSingle(analysis_single::Data),
