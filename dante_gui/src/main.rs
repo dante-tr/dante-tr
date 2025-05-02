@@ -120,7 +120,10 @@ impl App {
             Message::AnalysisSingle(analysis_single::Message::EditResults(data)) => {
                 data.save();
                 self.content_page = editor_results::Data::open(
-                    data.get_checked_motif_ids(), data.get_source(), data.get_sample()
+                    data.get_checked_motif_ids(),
+                    data.get_checked_motif_names(),
+                    data.get_source(),
+                    data.get_sample()
                 );
                 Task::none()
             }

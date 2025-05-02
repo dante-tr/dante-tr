@@ -30,10 +30,12 @@ pub(super) enum Message {
 #[derive(Debug, Default)]
 pub(super) struct Data {
     source: PathBuf,
+    sample: String,
     json: PathBuf,
     plots: PathBuf,
 
     motif_ids: Vec<String>,
+    motif_names: Vec<String>,
     revisions: Vec<Revision>,
 
     interpretation: text_editor::Content,
@@ -63,11 +65,12 @@ impl Data {
             Message::RevisionChanged(text, motif_idx, module_idx, allele_idx) => {
                 self.revisions[motif_idx].modules[module_idx][allele_idx].0 = text;
             }
-            Message::ShowAlignments(x) => {
-                // TODO:  
-                let x = format!("dante_data/analyses/2025-04-09-19-11-09_analysis1_single/vpuk-23-001504-A/alignments/{}.html", x);
-                println!("{}", x);
-                opener::open(x).unwrap();
+            Message::ShowAlignments(motif_id) => {
+                let mut alignment = self.source.clone();
+                alignment.push(&self.sample);
+                alignment.push("alignments");
+                alignment.push(format!("{}.html", motif_id));
+                opener::open(alignment).unwrap();
             }
             Message::ActionPerformed(x) => {
                 self.interpretation.perform(x);
@@ -84,7 +87,9 @@ impl Data {
         }
     }
 
-    pub(super) fn open(motif_ids: Vec<String>, source: PathBuf, sample: String) -> ContentPage {
+    pub(super) fn open(
+        motif_ids: Vec<String>, motif_names: Vec<String>, source: PathBuf, sample: String
+    ) -> ContentPage {
         let mut json = source.clone(); json.push(&sample); json.push("data_v2.json");
         let mut plots: PathBuf = source.clone(); plots.push(&sample); plots.push("plots");
 
@@ -116,10 +121,12 @@ impl Data {
 
         let data = Data {
             source,
+            sample,
             json,
             plots,
 
             motif_ids,
+            motif_names,
             revisions,
 
             interpretation,
@@ -157,7 +164,7 @@ mod view {
         button, checkbox, column, container, horizontal_rule, horizontal_space,
         image, pick_list, row, text, text_editor, text_input, tooltip, vertical_space
     };
-    use iced::widget::{Column, Row, Tooltip};
+    use iced::widget::{Column, Row, Tooltip, Space};
     use iced::{Element, Length, Padding, Size};
     use std::path::PathBuf;
     use serde_json::Value;
@@ -176,12 +183,12 @@ mod view {
     }
 
     pub(super) fn general_data(data: &Data) -> Element<Message> {
-
+        let bam_line = format!("BAM ID: {}", data.sample);
 
         let mut general_data = column![].padding(PADLR25);
         general_data = general_data.push(horizontal_rule(0));
         general_data = general_data.push(vertical_space().height(25));
-        general_data = general_data.push(container(text("<sample id>").size(App::H1_SIZE)).padding(PADLR25));
+        general_data = general_data.push(container(text(bam_line).size(App::H1_SIZE)).padding(PADLR25));
 
         general_data = general_data.push(container(
             text_editor(&data.interpretation).placeholder("Interpretation of results").on_action(Message::ActionPerformed)
@@ -194,9 +201,9 @@ mod view {
 
         motif_section = motif_section.push(horizontal_rule(0));
         motif_section = motif_section.push(vertical_space().height(25));
+        let motif_text = data.motif_ids[motif_idx].to_string() + " - " + &data.motif_names[motif_idx];
         motif_section = motif_section.push(row![
-            container(text(data.motif_ids[motif_idx].to_string()).size(App::H1_SIZE)).padding(PADLR25),
-            container(text("<full name>").size(App::H1_SIZE)),
+            container(text(motif_text).size(App::H1_SIZE)).padding(PADLR25),
             horizontal_space(),
             container(button("Save").on_press(Message::Save(motif_idx))).width(100).align_x(Horizontal::Right),
             horizontal_space().width(25)
@@ -218,7 +225,6 @@ mod view {
 
             let motif = json["motifs"].as_array().unwrap().iter().find(|x| x["motif_id"] == *motif_id).unwrap();
 
-            use iced::widget::Space;
             for module_pos in 0..motif["modules"].as_array().unwrap().len() {
                 motif_section = motif_section.push(row![
                     horizontal_space(),
@@ -253,7 +259,7 @@ mod view {
         let input_message2 = move |x| { Message::InterpretationEdit(motif_idx, x) };
         res.push(container(text_input("locus interpretation", &tmp.locus_interpretation).on_input(input_message2)).padding(PADTB5).into());
 
-        let m = Message::ShowAlignments("ALS".to_string());
+        let m = Message::ShowAlignments(data.motif_ids[motif_idx].to_string());
         res.push(container(button("View alignments").on_press(m)).padding(PADTB5).into());
         let w = size.width - 640.0 /* plot */ - 4.0 * 25.0 /* margins */ - 50.0 /* mid sep */;
         return column![].extend(res).width(w).max_width(800);

@@ -123,6 +123,10 @@ impl Data {
         return self.motifs.iter().filter(|x| x.0).map(|x| x.1.replace("/", "_")).collect();
     }
 
+    pub(super) fn get_checked_motif_names(&self) -> Vec<String> {
+        return self.motifs.iter().filter(|x| x.0).map(|x| x.3.to_string()).collect();
+    }
+
     pub(crate) fn get_source(&self) -> PathBuf {
         return self.analysis_path.clone();
     }
