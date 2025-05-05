@@ -551,10 +551,7 @@ mod reporting {
     // }
 
     pub(super) fn print_report(data: &mut Data) {
-        let Ok(Some(output_pdf)) = FileDialog::new().show_save_single_file() else { return; };
-        data.message_line2 = format!(
-            "{} report saved to {}", data.selected_report.unwrap(), output_pdf.to_string_lossy()
-        );
+        let Ok(Some(output)) = FileDialog::new().show_save_single_file() else { return; };
 
         let typst_template = match data.selected_report {
             None => { println!("First select report."); return; }
@@ -562,9 +559,21 @@ mod reporting {
             Some(ReportType::OnePage) => { construct_report_onepage(data) },
             Some(x) => { println!("{x} not yet implemented."); return; }
         };
-        std::fs::write("tmp.typ", &typst_template).expect("Unable to write file");
+
+        let mut output_typ = output.clone();
+        output_typ.set_extension("typ");
+
+        std::fs::write(output_typ, &typst_template).expect("Unable to write typ file");
+
+        let mut output_pdf = output.clone();
+        output_pdf.set_extension("pdf");
+
         let pdf = typst_compile(typst_template);
-        std::fs::write(output_pdf, pdf).expect("Could not write pdf.");
+        data.message_line2 = format!(
+            "{} report saved to {}", data.selected_report.unwrap(), output_pdf.to_string_lossy()
+        );
+
+        std::fs::write(output_pdf, pdf).expect("Could not write pdf file");
     }
 
     fn typst_compile(typst_template: String) -> Vec<u8> {
