@@ -628,11 +628,14 @@ mod reporting {
     }
 
     fn get_dante_results(json: &Path, motifs: &[String]) -> Vec<Value> {
+        let mut plot_dir = json.strip_prefix("dante_data").unwrap().to_path_buf();
+        plot_dir.pop();
+        plot_dir.push("plots");
+
         let mut result: Vec<Value> = vec![Value::default(); motifs.len()];
         let json: String = std::fs::read_to_string(json).expect("Cannot read file.");
         let json: JsonValue = serde_json::from_str(&json).expect("JSON was not well-formatted");
 
-        let plot_dir = PathBuf::from("analyses/2025-04-09-19-11-09_analysis1_single/vpuk-23-001504-A/plots"); // TODO:
         for motif in json["motifs"].as_array().unwrap() {
             let motif_id = motif["motif_id"].as_str().unwrap().to_string();
             let pos = motifs.iter().position(|x| { x == &motif_id });
@@ -653,11 +656,15 @@ mod reporting {
     }
 
     fn get_revisions(json: &Path, motifs: &[String]) -> Vec<Value>{
+        let mut rev_dir = json.to_path_buf();
+        rev_dir.pop();
+        rev_dir.pop();
+        rev_dir.push("revisions");
+
         let mut result = vec![Value::default(); motifs.len()];
         let json: String = std::fs::read_to_string(json).expect("Cannot read file.");
         let json: JsonValue = serde_json::from_str(&json).expect("JSON was not well-formatted");
 
-        let rev_dir = PathBuf::from("dante_data/analyses/2025-04-09-19-11-09_analysis1_single/revisions"); // TODO:
         for motif in json["motifs"].as_array().unwrap() {
             let motif_id = motif["motif_id"].as_str().unwrap().to_string();
             let pos = motifs.iter().position(|x| { x == &motif_id });
@@ -672,8 +679,8 @@ mod reporting {
                 }
                 result[pos] = context!(
                     m => module_info,
-                    qc_result => "positive[Passed]",
-                    inc_one_page => "negative[No]",
+                    qc_result => "positive[Passed]", // TODO
+                    inc_one_page => "negative[No]", // TODO
                     f_reason => "Low read number and some veeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeery long reason."
                 );
             }
