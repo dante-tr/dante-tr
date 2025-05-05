@@ -86,11 +86,11 @@ impl Data {
             Message::MotifCheckbox(idx, checked) => { self.motifs[idx].0 = checked; Task::none() },
             Message::AnalysisProgress(msg) => { self.message_line = msg; Task::none() }
             Message::SetReport(report) => { self.selected_report = Some(report); Task::none() }
-            Message::Print => { reporting::print_report(self); Task::none() }
+            Message::Print => { reporting::print_report(self); self.save(); Task::none() }
 
-            Message::Back => { unreachable!("Implemented in App::update."); },
             Message::EditMetadata(_, _) => { unreachable!("Implemented in App::update."); }
             Message::EditResults(_) => { unreachable!("Implemented in App::update.") }
+            Message::Back => { unreachable!("Implemented in App::update."); },
         }
     }
 
@@ -516,8 +516,8 @@ mod view {}
 
 mod reporting {
     use super::{Data, ReportType, get_meta_file, read_meta_file};
-    use crate::{editor_results::Status, App};
-    use std::{fs::File, io::{BufRead, BufReader}, iter::zip, path::{Path, PathBuf}};
+    use crate::{editor_results::{Revision, Status}, App};
+    use std::{fs::File, io::{BufRead, BufReader}, iter::zip, path::Path};
     use minijinja::{Environment, context, Value};
     use native_dialog::FileDialog;
     use std::collections::HashMap;
@@ -672,71 +672,87 @@ mod reporting {
             else {
                 let pos = pos.unwrap();
                 let motif_id = motif["motif_id"].as_str().unwrap();
-                let mut module_info = Vec::new();
-                for (j, module) in motif["modules"].as_array().unwrap().iter().enumerate() {
-                    let ctx2 = parse_motif_rev(module, &rev_dir, motif_id, j);
-                    module_info.push(ctx2);
-                }
+
+                let rev_dir: &Path = &rev_dir;
+                use crate::editor_results::Revision;
+                let mut revision = rev_dir.to_path_buf(); revision.push(format!("{}.json", motif_id));
+                println!("{:?}", revision);
+
+                let rev_option = if revision.exists() {
+                    let rev_json: String = std::fs::read_to_string(revision).expect("Cannot read file.");
+                    let rev: Revision = serde_json::from_str(&rev_json).expect("Cannot parse json.");
+                    Some(rev)
+                } else {
+                    None
+                };
+
+                let qc_result = if let Some(ref rev) = rev_option { 
+                    match rev.qc_passed {
+                        true => { "positive[Pass]" },
+                        false => { "negative[Fail]" },
+                    }
+                } else { "negative[Not assigned]" };
+                let f_reason = if let Some(ref rev) = rev_option { &rev.qc_notes } else { "-" };
+                let module_info = construct_module_info(motif, &rev_option);
+
                 result[pos] = context!(
                     m => module_info,
-                    qc_result => "positive[Passed]", // TODO
+                    qc_result => qc_result,
                     inc_one_page => "negative[No]", // TODO
-                    f_reason => "Low read number and some veeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeery long reason."
+                    f_reason => f_reason,
                 );
             }
         }
         return result;
     }
 
-    fn parse_motif_rev(
-        module: &JsonValue, rev_dir: &Path, motif_id: &str, i: usize
-    ) -> Value {
-        use crate::editor_results::Revision;
+    fn construct_module_info(motif: &JsonValue, rev_option: &Option<Revision>) -> Vec<Value> {
+        let mut module_info = Vec::new();
+        for (j, module) in motif["modules"].as_array().unwrap().iter().enumerate() {
+            let (a1_pred, a1_type, a2_pred, a2_type) = if rev_option.is_some() {
+                let rev = rev_option.as_ref().unwrap();
+                let module = &rev.modules[j];
 
-        let mut revision = rev_dir.to_path_buf(); revision.push(format!("{}.json", motif_id));
-        println!("{:?}", revision);
-        let (a1_pred, a1_type, a2_pred, a2_type) = if revision.exists() {
-            let rev_json: String = std::fs::read_to_string(revision).expect("Cannot read file.");
-            let rev: Revision = serde_json::from_str(&rev_json).expect("Cannot parse json.");
-            let module = &rev.modules[i];
+                let a1_pred = module[0].0.clone();
+                let a1_type = module[0].1;
+                let a2_pred = module[1].0.clone();
+                let a2_type = module[1].1;
+                (Some(a1_pred), a1_type, Some(a2_pred), a2_type)
+            } else {
+                (None, None, None, None)
+            };
 
-            let a1_pred = module[0].0.clone();
-            let a1_type = module[0].1;
-            let a2_pred = module[1].0.clone();
-            let a2_type = module[1].1;
-            (Some(a1_pred), a1_type, Some(a2_pred), a2_type)
-        } else {
-            (None, None, None, None)
-        };
+            let ctx2 = context!(
+                a1_pred => a1_pred.unwrap_or(module["allele_1"][0].to_string()),
+                a1_nom => "-", // TODO: "chr19:g.45770207_45770266GCA[5]"
+                a1_type => a1_type.unwrap_or(Status::Unknown).to_typst(),
+                a1_conf   => module["allele_1"][1],
+                a1_indels => module["allele_1"][2],
+                a1_misses => module["allele_1"][3],
+                a1_reads  => module["allele_1"][4],
 
-        context!(
-            a1_pred => a1_pred.unwrap_or(module["allele_1"][0].to_string()),
-            a1_nom => "-", // TODO: "chr19:g.45770207_45770266GCA[5]"
-            a1_type => a1_type.unwrap_or(Status::Unknown).to_typst(),
-            a1_conf   => module["allele_1"][1],
-            a1_indels => module["allele_1"][2],
-            a1_misses => module["allele_1"][3],
-            a1_reads  => module["allele_1"][4],
+                a2_pred => a2_pred.unwrap_or(module["allele_2"][0].to_string()),
+                a2_nom => "-", // TODO: "chr19:g.45770207_45770266GCA[12]",
+                a2_type => a2_type.unwrap_or(Status::Unknown).to_typst(),
+                a2_conf   => module["allele_2"][1],
+                a2_indels => module["allele_2"][2],
+                a2_misses => module["allele_2"][3],
+                a2_reads  => module["allele_2"][4],
 
-            a2_pred => a2_pred.unwrap_or(module["allele_2"][0].to_string()),
-            a2_nom => "-", // TODO: "chr19:g.45770207_45770266GCA[12]",
-            a2_type => a2_type.unwrap_or(Status::Unknown).to_typst(),
-            a2_conf   => module["allele_2"][1],
-            a2_indels => module["allele_2"][2],
-            a2_misses => module["allele_2"][3],
-            a2_reads  => module["allele_2"][4],
+                conf => module["stats"][0],
+                reads_used => "-", // TODO
+                reads_total => "-", // TODO
+                reads_span => module["reads_spanning"],
+                reads_flank => module["reads_flanking"],
+                indels => module["stats"][1],
+                misses => module["stats"][2],
 
-            conf => module["stats"][0],
-            reads_used => "-", // TODO
-            reads_total => "-", // TODO
-            reads_span => module["reads_spanning"],
-            reads_flank => module["reads_flanking"],
-            indels => module["stats"][1],
-            misses => module["stats"][2],
-
-            histogram => "",
-            nomenclatures => "",
-        )
+                histogram => "",
+                nomenclatures => "",
+            );
+            module_info.push(ctx2);
+        }
+        return module_info;
     }
 
     fn parse_motif(
