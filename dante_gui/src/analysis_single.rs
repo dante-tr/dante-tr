@@ -676,7 +676,6 @@ mod reporting {
                 let rev_dir: &Path = &rev_dir;
                 use crate::editor_results::Revision;
                 let mut revision = rev_dir.to_path_buf(); revision.push(format!("{}.json", motif_id));
-                println!("{:?}", revision);
 
                 let rev_option = if revision.exists() {
                     let rev_json: String = std::fs::read_to_string(revision).expect("Cannot read file.");

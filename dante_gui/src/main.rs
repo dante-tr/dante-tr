@@ -188,6 +188,7 @@ where
 {
     let filenames = [
         "logo.png",
+        "template.meta.tsv",
         "STRSet_20220902.tsv",
         "STRSet_20250311.tsv",
         "templates/alignments_template.html",
@@ -203,6 +204,7 @@ where
 
     let contents = [
         include_bytes!("../assets/logo.png").to_vec(),
+        include_bytes!("../assets/template.meta.tsv").to_vec(),
         include_bytes!("../assets/STRSet_20220902.tsv").to_vec(),
         include_bytes!("../assets/STRSet_20250311.tsv").to_vec(),
         include_bytes!("../assets/templates/alignments_template.html").to_vec(),

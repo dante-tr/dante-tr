@@ -57,7 +57,7 @@ impl Data {
 
     pub(super) fn open(source: PathBuf, meta_file: PathBuf) -> ContentPage {
         if !meta_file.exists() {
-            std::fs::copy("./assets/template.meta.tsv", &meta_file).unwrap();
+            std::fs::copy(format!("{}/template.meta.tsv", App::DATA_DIR), &meta_file).unwrap();
         }
 
         let mut lines = BufReader::new(File::open(&meta_file).expect("Cannot open metadata file.")).lines();
