@@ -1,11 +1,5 @@
-target/
 Cargo.lock
+target/
 data/
-.dante_cache/
-dante_data/
-example_data/
 example_giab/
-TODO.md
 expected_results/
-results/
-fonts/
