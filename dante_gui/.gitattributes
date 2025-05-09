@@ -1,2 +1,4 @@
 assets/dante_remastr_standalone filter=lfs diff=lfs merge=lfs -text
 assets/dante_remastr_standalone.exe filter=lfs diff=lfs merge=lfs -text
+example_data/HG002.GRCh38.selected_w_pairs.bam filter=lfs diff=lfs merge=lfs -text
+example_data/HG002.GRCh38.selected_w_pairs.bam.bai filter=lfs diff=lfs merge=lfs -text
