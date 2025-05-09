@@ -1,5 +1,6 @@
 dante_data/
 assets/fonts/
+example_data/*.meta.tsv
 TODO.md
 tmp.pdf
 tmp.typ
