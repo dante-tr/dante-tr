@@ -18,8 +18,10 @@ use crate::{App, ContentPage, MotifFile};
 use crate::async_tasks;
 
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum Message {
     Back,
+    Save,
     SetMotifs(MotifFile),
     MotifCheckbox(usize, bool),
     MotifGroupbox(usize, bool),
@@ -50,6 +52,7 @@ pub(super) struct Data {
     output: Option<PathBuf>,
     out_bam: bool,
     message_line: String,
+    save_msg: String,
 
     selected_report: Option<ReportType>,
     message_line2: String,
@@ -62,7 +65,7 @@ impl Data {
     pub(super) fn view(&self, size: Size) -> Element<Message> {
         let mut content = column![].align_x(Horizontal::Center);
 
-        content = view_header(content);
+        content = view_header(content, self);
         content = view_form(content, self);
 
         content = content.push(container(horizontal_rule(2)).padding(25));
@@ -74,6 +77,7 @@ impl Data {
     }
 
     pub(super) fn update(&mut self, m: Message) -> Task<Message> {
+        self.save_msg = "".to_string();
         match m {
             Message::BamChanged(content) => { self.bam_file = Some(PathBuf::from(content)); Task::none() }
             Message::SelectBam => { load_file(&mut self.bam_file); Task::none() },
@@ -87,6 +91,7 @@ impl Data {
             Message::AnalysisProgress(msg) => { self.message_line = msg; Task::none() }
             Message::SetReport(report) => { self.selected_report = Some(report); Task::none() }
             Message::Print => { reporting::print_report(self); self.save(); Task::none() }
+            Message::Save => { self.save(); Task::none() }
 
             Message::EditMetadata(_, _) => { unreachable!("Implemented in App::update."); }
             Message::EditResults(_) => { unreachable!("Implemented in App::update.") }
@@ -95,12 +100,12 @@ impl Data {
     }
 
     pub(super) fn init(path: PathBuf, analysis_name: String) -> ContentPage {
-        let data = Data { analysis_path: path, analysis_name, ..Default::default() };
+        let mut data = Data { analysis_path: path, analysis_name, ..Default::default() };
         data.save();
         ContentPage::AnalysisSingle(data)
     }
 
-    pub(super) fn save(&self) -> PathBuf {
+    pub(super) fn save(&mut self) -> PathBuf {
         let json = serde_json::to_string(self).unwrap();
         let mut output = self.analysis_path.clone();
         output.push("params.json");
@@ -108,6 +113,7 @@ impl Data {
             .expect("Cannot open file for writing.");
         out.write_all(json.as_bytes())
             .expect("Cannot write to output file.");
+        self.save_msg = "Saved! ".to_string();
         return output;
     }
 
@@ -209,11 +215,13 @@ fn validate_STR_format(path: &Path) -> Result<(), Box<dyn Error>> {
     return Ok(());
 }
 
-fn view_header(mut content: Column<Message>) -> Column<Message> {
+fn view_header<'a>(mut content: Column<'a, Message>, data: &'a Data) -> Column<'a, Message> {
     content = content.push(row![
         container(button("Back").on_press(Message::Back)).width(100),
         container(text("Single analysis").size(App::H1_SIZE)).align_x(Horizontal::Center).width(Length::Fill),
-        container("").width(100),
+        container(text(&data.save_msg)).align_x(Horizontal::Right).width(100),
+        // This can leave data potentially inconsistent
+        container(button("Save").on_press(Message::Save)).align_x(Horizontal::Right),
     ].padding(25).align_y(Vertical::Center));
     return content;
 }

@@ -31,6 +31,7 @@ pub fn main() -> iced::Result {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 enum Message {
     WelcomeScreen(welcome_screen::Message),
     AnalysisSingle(analysis_single::Message),
@@ -113,11 +114,11 @@ impl App {
             }
 
             Message::AnalysisSingle(analysis_single::Message::EditMetadata(source, meta_file)) => {
-                let CP::AnalysisSingle(ref data) = self.content_page else { unreachable!() };
+                let CP::AnalysisSingle(ref mut data) = self.content_page else { unreachable!() };
                 data.save();
                 self.content_page = MetaEditor::open(source, meta_file); Task::none()
             }
-            Message::AnalysisSingle(analysis_single::Message::EditResults(data)) => {
+            Message::AnalysisSingle(analysis_single::Message::EditResults(mut data)) => {
                 data.save();
                 self.content_page = editor_results::Data::open(
                     data.get_checked_motif_ids(),
