@@ -16,6 +16,8 @@ use std::error::Error;
 
 use crate::{App, ContentPage, MotifFile};
 use crate::async_tasks;
+use crate::metadata_editor::read_meta_file;
+
 
 #[derive(Debug, Clone)]
 #[allow(clippy::large_enum_variant)]
@@ -274,15 +276,6 @@ fn get_meta_file(bam_file: &Path) -> PathBuf {
     let mut meta_file: PathBuf = bam_file.to_path_buf();
     meta_file.set_extension("meta.tsv");
     return meta_file;
-}
-
-fn read_meta_file(meta_file: &Path) -> (Vec<String>, Vec<String>) {
-    let mut lines = BufReader::new(File::open(meta_file).expect("Cannot open metadata file.")).lines();
-    let header = lines.next().unwrap().unwrap();
-    let header = header.split("\t").map(|x| x.to_string()).collect();
-    let content = lines.next().unwrap().unwrap();
-    let content = content.split("\t").map(|x| x.to_string()).collect();
-    return (header, content);
 }
 
 fn get_metadata(data: &Data) -> (String, Button<Message>) {
@@ -564,7 +557,7 @@ mod reporting {
         let typst_template = match data.selected_report {
             None => { println!("First select report."); return; }
             Some(ReportType::Result) => { construct_report_results(data) },
-            Some(ReportType::OnePage) => { construct_report_onepage(data) },
+            Some(ReportType::OnePage) => { /* construct_report_onepage(data) */ return; },
             Some(x) => { println!("{x} not yet implemented."); return; }
         };
 
@@ -875,80 +868,12 @@ mod reporting {
         let get = |id| { dict_tmp.get(id).unwrap_or(&"-".to_string()).to_string() };
 
         return context!(
-            pid => get("*Sample ID"), /* primary ID */
-            sid => get("*Sample SI (second identifier)"),
-            gender => get("Gender"),
-            status => get("*Affection status (primary cause of testing)"),
-            fid => get("*Family ID"),
+            pid     => get("*Patient information - Sample ID"),
+            sid     => get("*Patient information - Sample SI"),
+            gender  => get(" Patient information - Gender"),
+            status  => get("*Patient information - Affection status"),
+            fid     => get("*Patient information - Family ID"),
             /* more? */
         );
-    }
-
-    fn construct_report_onepage(data: &Data) -> String {
-        let mut env = Environment::new();
-
-        let template_id = "onepage";
-        let typst_template = include_str!("../assets/templates/report_onepage.typ");
-        env.add_template(template_id, typst_template).unwrap();
-
-        let meta_file = get_meta_file(data.bam_file.as_ref().unwrap());
-        println!("{:?}", meta_file);
-        let dict_tmp: HashMap<String, String> = if meta_file.exists() {
-            let (header, content) = read_meta_file(&meta_file);
-            HashMap::from_iter(zip(header, content).filter(|x| !x.1.is_empty()))
-        } else {
-            HashMap::new()
-        };
-
-        let get = |id| { dict_tmp.get(id).unwrap_or(&"-".to_string()).to_string() };
-
-        let ctx = context!(
-            report_id => "2025022 ???",
-            proband_id => get("*Sample ID"),
-            family_id => get("*Family ID"),
-            row => vec![
-                "1".to_string(),
-                get("*Sample ID"),
-                get("*Sample SI (second identifier)"),
-                get("Gender"),
-                "Proband".to_string(),
-                get("*Affection status (primary cause of testing)"),
-                get("Date of birth")
-            ],
-            a1_repnum => 5,
-            a1_status => "#benign",
-            a1_nom => "chr19:g.45770207_45770266GCA[5]",
-            a2_repnum => "E",
-            a2_status => "#pathogenic",
-            a2_nom => "GCA[12]",
-
-            sus_diag => get("Suspected diagnosis - Name"),
-            req_person => get("Requesting person"),
-            reason => get("Reason for testing"),
-            req_facility => get("Requesting facility"),
-            health_cond => get("Other health conditions"),
-            hpo_terms => get("Phenotype in HPO terms"),
-            req_targets => get("Requested target(s) of analysis"),
-            note => get("Patient notes"),
-
-            n_req_targets => 2,
-            n_loci_qc_pass => 2,
-            n_loci_qc_fail => 0,
-            fail_reason => "None",
-
-            interpretation => "Where should I get this?",
-            // "\
-            //     From the 2 analyzed target loci all 2 passed the QC \
-            //     filter and all 2 were interpretable. \
-            //     We identified no pathogenic repeat structures in these loci... \
-            //     However, the repeat structure in the DM1 (DMPK) CTG motif \
-            //     was found to be atypical...\
-            // ",
-        );
-
-        let template = env.get_template(template_id).unwrap();
-        let result = template.render(ctx).unwrap();
-
-        return result;
     }
 }

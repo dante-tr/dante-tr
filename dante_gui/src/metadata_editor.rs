@@ -1,5 +1,5 @@
 use iced::alignment::Horizontal;
-use iced::widget::{button, column, scrollable};
+use iced::widget::{button, column, horizontal_rule, scrollable};
 use iced::{Element, Size};
 use iced::widget::Column;
 use iced::widget::{row, container, text};
@@ -12,6 +12,7 @@ use serde::{Serialize, Deserialize};
 use std::io::{BufReader, BufRead};
 use std::fs::File;
 use std::iter::zip;
+use std::path::Path;
 
 use crate::ContentPage;
 use crate::App;
@@ -28,28 +29,31 @@ pub(super) struct Data {
     source: PathBuf,
     meta_file: PathBuf,
     header: Vec<String>,
-    content: Vec<String>
+    content: Vec<String>,
+    save_msg: String,
 }
 
 impl Data {
     pub(super) fn view(&self, _size: Size) -> Element<Message> {
         let mut content = column![].align_x(Horizontal::Center);
 
-        content = view_header(content, self.source.clone());
+        content = view_header(content, self.source.clone(), &self.save_msg);
         content = view_metadata(content, &self.header, &self.content);
         // let content = std::convert::Into::<Element<Message>>::into(content).explain(iced::Color::BLACK);
         return content.into();
     }
 
     pub(super) fn update(&mut self, m: Message) {
+        self.save_msg = "".to_string();
         use std::io::Write;
         match m {
             Message::Exit(_) => { unreachable!("Implemented in App::update."); }
             Message::Save => {
                 let mut f = File::create(&self.meta_file).unwrap();
-                writeln!(f, "{}", self.header.join("\t")).expect("Error writing.");
-                writeln!(f, "{}", self.content.join("\t")).expect("Error writing.");
-
+                for (h, c) in zip(&self.header, &self.content) {
+                    writeln!(f, "{h}\t{c}").expect("Error writing.");
+                }
+                self.save_msg = "Saved! ".to_string();
             }
             Message::Edit(idx, entry) => { self.content[idx] = entry; }
         }
@@ -60,29 +64,56 @@ impl Data {
             std::fs::copy(format!("{}/template.meta.tsv", App::DATA_DIR), &meta_file).unwrap();
         }
 
-        let mut lines = BufReader::new(File::open(&meta_file).expect("Cannot open metadata file.")).lines();
-        let header = lines.next().unwrap().unwrap();
-        let header: Vec<String> = header.split("\t").map(|x| x.to_string()).collect();
-        let content = lines.next().unwrap().unwrap();
-        let content: Vec<String> = content.split("\t").map(|x| x.to_string()).collect();
+        let (header, content) = read_meta_file(&meta_file);
+        let save_msg = "".to_string();
 
         let data = Data {
             source,
             meta_file,
             header,
-            content
+            content,
+            save_msg
         };
         return ContentPage::MetadataEditor(data);
     }
 }
 
+pub(crate) fn read_meta_file(meta_file: &Path) -> (Vec<String>, Vec<String>) {
+    let lines = BufReader::new(File::open(meta_file).expect("Cannot open metadata file.")).lines();
+    let mut header = Vec::new();
+    let mut content = Vec::new();
+    for line in lines {
+        let line = line.expect("Unable to read lines.");
+        // TODO: make next lines more efficient
+        let tmp: Vec<String> = line.split("\t").map(|x| x.to_string()).collect();
+        assert!(tmp.len() == 2);
+        header.push(tmp[0].clone());
+        content.push(tmp[1].clone());
+    }
+
+    return (header, content);
+}
+
 fn view_metadata<'a>(content: Column<'a, Message>, keys: &'a[String], values: &'a[String]) -> Column<'a, Message> {
     let mut col = column![];
 
+    let mut last_key_section = "";
     for (idx, (key, value)) in zip(keys, values).enumerate() {
+        let tmp: Vec<&str> = key[1..].split(" - ").collect();
+        let section = tmp[0];
+        let entry = tmp[1];
+        if last_key_section != section {
+            col = col.push(row![
+                container(horizontal_rule(1)),
+                container(text(section)),
+                container(horizontal_rule(1))
+            ].padding(10).align_y(Vertical::Center));
+            last_key_section = section;
+        }
+
         let msg = move |x| Message::Edit(idx, x);
         col = col.push(row![
-            container(text(key.clone())).width(350).align_x(Horizontal::Right).padding(App::PAD1),
+            container(text(entry)).width(200).align_x(Horizontal::Right).padding(App::PAD1),
             container(text_input("add value", value).on_input(msg)).padding(App::PAD1),
             container("").width(10)
         ].padding(10).align_y(Vertical::Center));
@@ -91,11 +122,12 @@ fn view_metadata<'a>(content: Column<'a, Message>, keys: &'a[String], values: &'
     return content.push(scrollable(col));
 }
 
-fn view_header(mut content: Column<Message>, source: PathBuf) -> Column<Message> {
+fn view_header<'a>(mut content: Column<'a, Message>, source: PathBuf, save_msg: &'a str) -> Column<'a, Message> {
     content = content.push(row![
         container(button("Back").on_press(Message::Exit(source))).width(100),
         container(text("Metadata editor").size(App::H1_SIZE)).align_x(Horizontal::Center).width(Length::Fill),
-        container(button("Save").on_press(Message::Save)).width(100).align_x(Horizontal::Right),
+        container(text(save_msg)).width(100).align_x(Horizontal::Right),
+        container(button("Save").on_press(Message::Save)).align_x(Horizontal::Right),
     ].padding(25).align_y(Vertical::Center));
     return content;
 }

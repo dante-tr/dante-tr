@@ -1,2 +1,83 @@
-*Patient name	Patient insurance number (rodné číslo)	Patient insurance company	*Sample ID	*Sample SI (second identifier)	Date of birth	Gender	*Family ID	*Affection status (primary cause of testing)	Suspected diagnosis - Name	Suspected diagnosis - Code	Reason for testing	Phenotype in HPO terms	Requested target(s) of analysis	Other health conditions	Requesting person	Requesting facility	Patient notes	Specimen receiving - Facility	Specimen received by	Specimen type	Specimen collection device	Date specimen collected	Date specimen received	Specimen QC	Specimen approved by	Specimen location	Specimen notes	DNA extraction - Facility	DNA extraction - Person	DNA extraction - Method	DNA extraction - Date	DNA extraction - Protocol ID	DNA extraction - QC	DNA extraction - Approved by	DNA location	DNA extraction notes	Sequencing library - Facility	Sequencing library - Person	Sequencing library - Method	Sequencing library - Date	Sequencing library - Protocol ID	Sequencing library - QC	Sequencing library - Approved by	Sequencing library - Limitations	Sequencing - Facility	Sequencing - Person	Sequencing - Platform	Sequencing - Technology	Sequencing - Protocol ID	Sequencing - QC	Sequencing - Approved by	Sequencing - Limitations	Sequencing - Notes	Primary data processing - Facility	Primary data processing - Person	Primary data processing - Tool	Primary data processing - Date	Primary data processing - Protocol ID	Primary data processing - QC	Primary data processing - Approved by	Primary data processing - Limitations	Secondary data processing - Facility	Secondary data processing - Person	Secondary data processing - Tool	Secondary data processing - Date	Secondary data processing - Protocol	Secondary data processing - QC	Secondary data processing - Approved by	Secondary data processing - Limitations	Tertiary SNV data processing - Facility	Tertiary SNV data processing - Person	Tertiary SNV data processing - Tool	Tertiary SNV data processing - Date	Tertiary SNV data processing - Protocol ID	Tertiary SNV data processing - QC	Tertiary SNV data processing - Approved by	Tertiary SNV data processing - Limitations	Tertiary CNV data processing - Facility	Tertiary CNV data processing - Person	Tertiary CNV data processing - Tool	Tertiary CNV data processing - Date	Tertiary CNV data processing - Protocol ID	Tertiary CNV data processing - QC	Tertiary CNV data processing - Approved by	Tertiary CNV data processing - Limitations	Tertiary TR data processing - Facility	Tertiary TR data processing - Tool	Tertiary TR data processing - Settings	Tertiary TR data processing - Date	Tertiary TR data processing - Protocol ID	Tertiary TR data processing - QC	Tertiary TR data processing - Person	Tertiary TR data processing - Approved by	Tertiary TR data processing - Limitations	BAM - Name	BAM - Location	BAM-Dante - Name	BAM-Dante - Location	VCF - Name	VCF - Location	gVCF - Name	gVCF - Location
-																																																																																																						
+*Patient information - Patient name	
+ Patient information - Insurance ID	
+ Patient information - Patient insurance	
+*Patient information - Sample ID	
+*Patient information - Sample SI	
+ Patient information - Date of birth	
+ Patient information - Gender	
+*Patient information - Family ID	
+*Patient information - Affection status	
+ Patient information - Suspected	
+ Patient information - Suspected-code	
+ Patient information - Test reason	
+ Patient information - HPO terms	
+ Patient information - Analysis target(s)	
+ Patient information - Additional Conditions	
+ Patient information - Requesting person	
+ Patient information - Requesting facility	
+ Patient information - Patient notes	
+ Specimen information - Facility	
+ Specimen information - Received by	
+ Specimen information - Type	
+ Specimen information - Collection device	
+ Specimen information - Date of collection	
+ Specimen information - Date of receiving	
+ Specimen information - QC	
+ Specimen information - Approved by	
+ Specimen information - Location	
+ Specimen information - Notes	
+ DNA extraction - Facility	
+ DNA extraction - Person	
+ DNA extraction - Method	
+ DNA extraction - Date	
+ DNA extraction - Protocol ID	
+ DNA extraction - QC	
+ DNA extraction - Approved by	
+ DNA extraction - DNA location	
+ DNA extraction - DNA extraction notes	
+ Sequencing library - Facility	
+ Sequencing library - Person	
+ Sequencing library - Method	
+ Sequencing library - Date	
+ Sequencing library - Protocol ID	
+ Sequencing library - QC	
+ Sequencing library - Approved by	
+ Sequencing library - Limitations	
+ Sequencing - Facility	
+ Sequencing - Person	
+ Sequencing - Platform	
+ Sequencing - Technology	
+ Sequencing - Protocol ID	
+ Sequencing - QC	
+ Sequencing - Approved by	
+ Sequencing - Limitations	
+ Sequencing - Notes	
+ Primary data processing - Facility	
+ Primary data processing - Person	
+ Primary data processing - Tool	
+ Primary data processing - Date	
+ Primary data processing - Protocol ID	
+ Primary data processing - QC	
+ Primary data processing - Approved by	
+ Primary data processing - Limitations	
+ Secondary data processing - Facility	
+ Secondary data processing - Person	
+ Secondary data processing - Tool	
+ Secondary data processing - Date	
+ Secondary data processing - Protocol	
+ Secondary data processing - QC	
+ Secondary data processing - Approved by	
+ Secondary data processing - Limitations	
+ Tertiary TR data processing - Facility	
+ Tertiary TR data processing - Tool	
+ Tertiary TR data processing - Settings	
+ Tertiary TR data processing - Date	
+ Tertiary TR data processing - Protocol ID	
+ Tertiary TR data processing - QC	
+ Tertiary TR data processing - Person	
+ Tertiary TR data processing - Approved by	
+ Tertiary TR data processing - Limitations	
+ Filepaths - BAM	
+ Filepaths - BAM Dante filtered	
+ Filepaths - VCF	
+ Filepaths - gVCF	
