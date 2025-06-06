@@ -4,7 +4,7 @@ use std::fmt::Display;
 use std::fs;
 use std::path::Path;
 
-use iced::widget::{column, container, horizontal_rule, image};
+use iced::widget::{column, container, horizontal_rule, image, row, text, vertical_space};
 use iced::{window, Task};
 use iced::window::Settings;
 use iced::{Element, Length, Theme, Size, Subscription};
@@ -71,6 +71,7 @@ impl App {
     const H1_SIZE: u16 = 26;
 
     fn view(&self) -> Element<Message> {
+        let header: Element<Message> = self.view_header();
         let content_area: Element<Message> = match &self.content_page {
             ContentPage::WelcomeScreen(data)  => data.view().map(Message::WelcomeScreen),
             ContentPage::AnalysisSingle(data) => data.view(self.window_size).map(Message::AnalysisSingle),
@@ -80,15 +81,26 @@ impl App {
         };
 
         // let content_area = std::convert::Into::<Element<Message>>::into(content_area).explain(iced::Color::BLACK);
+        column![
+            header,
+            horizontal_rule(1),
+            content_area,
+        ].into()
+    }
+
+    fn view_header(&self) -> Element<Message> {
         use iced::alignment::Horizontal;
         use iced::widget::container::background;
         use iced::Color;
+        let version = env!("CARGO_PKG_VERSION");
         column![
+            row![
+                container(text(format!("v{} ", version))).width(Length::Fill).align_x(Horizontal::Right)
+                    .style(|_| { background(Color { r: 0.77, g: 0.82, b: 0.84, a: 1.0 }) })
+            ],
             container(image(format!("{}/logo.png", Self::DATA_DIR)).width(900).height(125))
                 .width(Length::Fill).align_x(Horizontal::Center)
                 .style(|_| { background(Color { r: 0.77, g: 0.82, b: 0.84, a: 1.0 }) }),
-            horizontal_rule(1),
-            content_area
         ].align_x(Horizontal::Center).into()
     }
 
