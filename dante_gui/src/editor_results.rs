@@ -39,13 +39,14 @@ pub(super) struct Data {
     revisions: Vec<Revision>,
 
     interpretation: text_editor::Content,
+    save_msg: String,
 }
 
 impl Data {
     pub(super) fn view(&self, size: Size) -> Element<Message> {
         let mut content = column![];
 
-        content = content.push(view::header(self.source.clone()));
+        content = content.push(view::header(self.source.clone(), self));
         content = content.push(view::general_data(self));
         for motif_idx in 0..self.motif_ids.len() {
             content = content.push(view::motif_data(self, motif_idx, size));
@@ -55,12 +56,13 @@ impl Data {
     }
 
     pub(super) fn update(&mut self, m: Message) {
+        self.save_msg = "".to_string();
         match m {
             Message::Exit(_) => { unreachable!("Implemented in App::update."); }
-            Message::SaveAll => { self.save_all(); }
+            Message::SaveAll => { self.save_all(); self.save_msg = "Saved! ".to_string(); }
             Message::Save(motif_idx) => { self.save_motif(motif_idx); }
             Message::PatChanged(status, motif_idx, module_idx, allele_idx) => {
-                self.revisions[motif_idx].modules[module_idx][allele_idx].1 = Some(status);
+                self.revisions[motif_idx].modules[module_idx][allele_idx].2 = Some(status);
             }
             Message::RevisionChanged(text, motif_idx, module_idx, allele_idx) => {
                 self.revisions[motif_idx].modules[module_idx][allele_idx].0 = text;
@@ -118,6 +120,7 @@ impl Data {
                 text_editor::Content::with_text(&buf)
             },
         };
+        let save_msg = "Saved! ".to_string();
 
         let data = Data {
             source,
@@ -130,21 +133,23 @@ impl Data {
             revisions,
 
             interpretation,
+            save_msg,
         };
         return ContentPage::SingleResults(data);
     }
 
-    fn save_motif(&self, idx: usize) {
+    fn save_motif(&mut self, idx: usize) {
         let mut output = self.source.clone(); output.push("revisions");
         let _ = std::fs::create_dir(&output); /* ignoring error when dir already exists */
         output.push(format!("{}.json", self.motif_ids[idx]));
 
         let mut out = File::create(&output).expect("Cannot open file for writing.");
+        self.revisions[idx].inherit_defaults();
         let json = serde_json::to_string(&self.revisions[idx]).unwrap();
         out.write_all(json.as_bytes()).expect("Cannot write to output file.");
     }
 
-    fn save_all(&self) {
+    fn save_all(&mut self) {
         for idx in 0..self.motif_ids.len() { self.save_motif(idx); }
 
         let mut output = self.source.clone(); output.push("revisions");
@@ -172,13 +177,18 @@ mod view {
     use crate::App;
 
     const PADLR25: Padding = Padding { top: 0.0, right: 25.0, bottom: 0.0, left: 25.0 };
+    const PADLRB25: Padding = Padding { top: 0.0, right: 25.0, bottom: 25.0, left: 25.0 };
     const PADTB5: Padding = Padding { top: 5.0, right: 0.0, bottom: 5.0, left: 0.0 };
+    const PADT5: Padding = Padding { top: 5.0, right: 0.0, bottom: 0.0, left: 0.0 };
 
-    pub(super) fn header<'a>(source: PathBuf) -> Row<'a, Message> {
+    // this fn could be as follows, if I will have some problems with coupled lifetimes
+    // pub(super) fn header<'a, 'b: 'a>(source: PathBuf, data: &'b Data) -> Row<'a, Message>
+    pub(super) fn header(source: PathBuf, data: &Data) -> Row<Message> {
         row![
             container(button("Back").on_press(Message::Exit(source))).width(100),
             container(text("Result editor").size(App::H1_SIZE)).align_x(Horizontal::Center).width(Length::Fill),
-            container(button("Save all").on_press(Message::SaveAll)).width(100).align_x(Horizontal::Right),
+            container(text(&data.save_msg)).align_x(Horizontal::Right).width(100),
+            container(button("Save all").on_press(Message::SaveAll)).align_x(Horizontal::Right),
         ].padding(25).align_y(Vertical::Center)
     }
 
@@ -188,11 +198,12 @@ mod view {
         let mut general_data = column![].padding(PADLR25);
         general_data = general_data.push(horizontal_rule(0));
         general_data = general_data.push(vertical_space().height(25));
-        general_data = general_data.push(container(text(bam_line).size(App::H1_SIZE)).padding(PADLR25));
+        general_data = general_data.push(container(text(bam_line).size(App::H1_SIZE)).padding(PADLRB25));
 
+        general_data = general_data.push(container(text("Interpretation of results")).padding(PADLR25));
         general_data = general_data.push(container(
             text_editor(&data.interpretation).placeholder("Interpretation of results").on_action(Message::ActionPerformed)
-        ).padding(25));
+        ).padding(PADLRB25));
         general_data.into()
     }
 
@@ -255,8 +266,10 @@ mod view {
         let toggle_message = move |x| { Message::QCToggle(motif_idx, x) };
         res.push(container(checkbox("QC passed", tmp.qc_passed).on_toggle(toggle_message)).padding(PADTB5).into());
         let input_message = move |x| { Message::QCEdit(motif_idx, x) };
+        res.push(container(text("QC reason")).padding(PADT5).into());
         res.push(container(text_input("QC reason", &tmp.qc_notes).on_input(input_message)).padding(PADTB5).into());
         let input_message2 = move |x| { Message::InterpretationEdit(motif_idx, x) };
+        res.push(container(text("locus interpretation")).padding(PADT5).into());
         res.push(container(text_input("locus interpretation", &tmp.locus_interpretation).on_input(input_message2)).padding(PADTB5).into());
 
         let m = Message::ShowAlignments(data.motif_ids[motif_idx].to_string());
@@ -350,7 +363,7 @@ mod view {
             container(text(num.to_string()))           .width(Length::FillPortion(1)),
             container(text(pred)).width(Length::FillPortion(1)),
             container(text(conf)).width(Length::FillPortion(1)),
-            container(text("Benign"))                  .width(Length::FillPortion(1)),
+            container(text("unk"))                  .width(Length::FillPortion(1)),
             container(text(allele_data[4].to_string())).width(Length::FillPortion(1)),
             container(text(indels)).width(Length::FillPortion(1)),
             container(text(matches)).width(Length::FillPortion(1)),
@@ -380,7 +393,7 @@ mod view {
             Status::Pathogenic,
             Status::Unknown
         ];
-        let selected: Option<Status> = data.revisions[motif_pos].modules[module_idx][num-1].1;
+        let selected: Option<Status> = data.revisions[motif_pos].modules[module_idx][num-1].2;
         let on_pick_f = move |x| { Message::PatChanged(x, motif_pos, module_idx, num-1) };
         let pck_lst = pick_list(options, selected, on_pick_f);
 
@@ -503,7 +516,7 @@ impl Status {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub(crate) struct Revision {
     pub(crate) motif_id: String,
-    pub(crate) modules: Vec<[(String /* prediction */, Option<Status> /* pathogenicity */); 2]>,
+    pub(crate) modules: Vec<[(String /* rev_pred */, String /* raw_predict */, Option<Status> /* pathogenicity */); 2]>,
     pub(crate) qc_passed: bool,
     pub(crate) qc_notes: String,
     pub(crate) locus_interpretation: String
@@ -514,12 +527,33 @@ impl Revision {
         let json: String = std::fs::read_to_string(json_path).expect("Cannot read file.");
         let json: Value = serde_json::from_str(&json).expect("Cannot parse json.");
         let motif = json["motifs"].as_array().unwrap().iter().find(|x| x["motif_id"] == motif_id).unwrap();
-        let n = motif["modules"].as_array().unwrap().len();
+        let modules = motif["modules"].as_array().unwrap();
+
+        let mut v = Vec::new();
+
+        let get_allele = |x: &Value| {
+            if x.is_string() { x.as_str().unwrap().to_owned() }
+            else { x.to_string() }
+        };
+
+        for m in modules {
+            v.push([
+                ("".to_string(), get_allele(&m["allele_1"][0]), Some(Status::Unknown)),
+                ("".to_string(), get_allele(&m["allele_2"][0]), Some(Status::Unknown))
+            ]);
+        }
 
         return Self {
             motif_id: motif_id.to_string(),
-            modules: vec![[("".to_string(), None), ("".to_string(), None)]; n],
+            modules: v,
             ..Default::default()
         };
+    }
+
+    fn inherit_defaults(&mut self) {
+        for m in &mut self.modules {
+            if m[0].0.is_empty() { m[0].0 = m[0].1.clone() }
+            if m[1].0.is_empty() { m[1].0 = m[1].1.clone() }
+        }
     }
 }

@@ -4,7 +4,7 @@ use std::fmt::Display;
 use std::fs;
 use std::path::Path;
 
-use iced::widget::{column, container, horizontal_rule, image, row, text, vertical_space};
+use iced::widget::{column, container, horizontal_rule, image, row, text};
 use iced::{window, Task};
 use iced::window::Settings;
 use iced::{Element, Length, Theme, Size, Subscription};

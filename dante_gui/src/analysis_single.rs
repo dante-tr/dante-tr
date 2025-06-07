@@ -722,10 +722,11 @@ mod reporting {
                 let rev = rev_option.as_ref().unwrap();
                 let module = &rev.modules[j];
 
+                // TODO: Revision definiton changed
                 let a1_pred = module[0].0.clone();
-                let a1_type = module[0].1;
+                let a1_type = module[0].2;
                 let a2_pred = module[1].0.clone();
-                let a2_type = module[1].1;
+                let a2_type = module[1].2;
                 (Some(a1_pred), a1_type, Some(a2_pred), a2_type)
             } else {
                 (None, None, None, None)
