@@ -9,7 +9,8 @@ cargo build --target x86_64-pc-windows-gnu
 - compile python part:
     `cp ../../dante/dante_remastr_standalone.py ~/virtualization/shared/`
     from Windows:
-    `cp Z:/dante_remastr_standalone.py dante_v0.10.0`
+    `mkdir dante_v0.11.0`
+    `cp Z:/dante_remastr_standalone.py dante_v0.10.0/`
     `micromamba activate dante3`
     `cd dante_v0.10.0`
     `pyinstaller --onefile ./dante_remastr_standalone.py`
@@ -22,7 +23,7 @@ cargo build --target x86_64-pc-windows-gnu
 - test on Windows:
     `cp ../target/x86_64-pc-windows-gnu/release/dante_gui.exe ~/virtualization/shared/dante_gui.exe`
     from Windows:
-    `cp Z:/dante_gui.exe Desktop`
+    `cp Z:/dante_gui.exe ..\Desktop\`
     run
 
 # How to build for Linux

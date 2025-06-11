@@ -208,6 +208,11 @@ mod view {
     }
 
     pub(super) fn motif_data<'a>(data: &Data, motif_idx: usize, size: Size) -> Column<'a, Message> {
+        let json: String = std::fs::read_to_string(&data.json).expect("Cannot read file.");
+        let json: Value = serde_json::from_str(&json).expect("JSON was not well-formatted");
+        let motif_id: &str = &data.motif_ids[motif_idx];
+        let motif: &Value = json["motifs"].as_array().unwrap().iter().find(|x| x["motif_id"] == motif_id).unwrap();
+
         let mut motif_section = column![].padding(PADLR25);
 
         motif_section = motif_section.push(horizontal_rule(0));
@@ -219,22 +224,24 @@ mod view {
             container(button("Save").on_press(Message::Save(motif_idx))).width(100).align_x(Horizontal::Right),
             horizontal_space().width(25)
         ]);
+        let modules = view_modules(&motif["motif_stats"]["modules"]);
+        motif_section = motif_section.push(row![
+            container(text(format!("modules: {modules}"))).padding(PADLR25)
+        ]);
+
         motif_section = motif_section.push(vertical_space().height(25));
 
-        motif_section = motif_section.push(view_predicted_table(&data.motif_ids[motif_idx], data));
+        motif_section = motif_section.push(view_predicted_table(&data.motif_ids[motif_idx], data, motif));
         motif_section = motif_section.push(vertical_space().height(25));
 
-        motif_section = motif_section.push(view_revised_table(&data.motif_ids[motif_idx], data));
+        motif_section = motif_section.push(view_revised_table(&data.motif_ids[motif_idx], data, motif));
         motif_section = motif_section.push(vertical_space().height(25));
 
         {  // add_plots
             let plot_dir = data.plots.to_string_lossy().to_string();  // This is not correct.
-            let motif_id = &data.motif_ids[motif_idx];
+            // let motif_id = &data.motif_ids[motif_idx];
 
-            let json: String = std::fs::read_to_string(&data.json).expect("Cannot read file.");
-            let json: Value = serde_json::from_str(&json).expect("JSON was not well-formatted");
-
-            let motif = json["motifs"].as_array().unwrap().iter().find(|x| x["motif_id"] == *motif_id).unwrap();
+            // let motif = json["motifs"].as_array().unwrap().iter().find(|x| x["motif_id"] == *motif_id).unwrap();
 
             for module_pos in 0..motif["modules"].as_array().unwrap().len() {
                 motif_section = motif_section.push(row![
@@ -278,33 +285,41 @@ mod view {
         return column![].extend(res).width(w).max_width(800);
     }
 
-    fn view_predicted_table<'a>(motif_id: &str, data: &Data) -> Column<'a, Message> {
+    fn view_modules(modules: &Value) -> String {
+        let mods = modules.as_array().unwrap();
+        let result = mods.iter()
+            .skip(1).take(mods.len() - 2)  // skip flanks (first and last)
+            .map(|m| format!("{}[{}]", m[0].as_str().unwrap(), m[1].as_u64().unwrap()))
+            .collect::<Vec<String>>().join("  ");
+        return result;
+    }
+
+    fn view_predicted_table<'a>(_motif_id: &str, _data: &Data, motif: &Value) -> Column<'a, Message> {
+        // let json: String = std::fs::read_to_string(&data.json).expect("Cannot read file.");
+        // let json: &Value = &serde_json::from_str(&json).expect("JSON was not well-formatted");
+        // let motif_pos = data.motif_ids.iter().position(|x| x == motif_id).unwrap();
+        // let motif: &Value = json["motifs"].as_array().unwrap().iter().find(|x| x["motif_id"] == motif_id).unwrap();
+
         let mut predicted_table = column![].padding(PADLR25);
         predicted_table = predicted_table.extend(view_table_header("Predicted results".to_string()));
-        let json: String = std::fs::read_to_string(&data.json).expect("Cannot read file.");
-        let json: Value = serde_json::from_str(&json).expect("JSON was not well-formatted");
 
-        for motif in json["motifs"].as_array().unwrap() {
-            let motif_id2 = motif["motif_id"].as_str().unwrap().to_string();
-            if motif_id2 == motif_id {
-                for (i, module) in motif["modules"].as_array().unwrap().iter().enumerate() {
-                    predicted_table = predicted_table.push(horizontal_rule(0));
-                    predicted_table = predicted_table.push(view_motif_module(module, i));
-                }
-            }
+        for (i, module) in motif["modules"].as_array().unwrap().iter().enumerate() {
+            predicted_table = predicted_table.push(horizontal_rule(0));
+            predicted_table = predicted_table.push(view_motif_module(module, i));
         }
         predicted_table = predicted_table.push(horizontal_rule(0));
         return predicted_table;
     }
 
-    fn view_revised_table<'a>(motif_id: &str, data: &Data) -> Column<'a, Message> {
-        let mut predicted_table = column![].padding(PADLR25);
-        predicted_table = predicted_table.extend(view_table_header("Revised results".to_string()));
-        let json: String = std::fs::read_to_string(&data.json).expect("Cannot read file.");
-        let json: Value = serde_json::from_str(&json).expect("JSON was not well-formatted");
+    fn view_revised_table<'a>(motif_id: &str, data: &Data, motif: &Value) -> Column<'a, Message> {
+        // let json: String = std::fs::read_to_string(&data.json).expect("Cannot read file.");
+        // let json: &Value = &serde_json::from_str(&json).expect("JSON was not well-formatted");
+        // let motif: &Value = json["motifs"].as_array().unwrap().iter().find(|x| x["motif_id"] == motif_id).unwrap();
 
         let motif_pos = data.motif_ids.iter().position(|x| x == motif_id).unwrap();
-        let motif = json["motifs"].as_array().unwrap().iter().find(|x| x["motif_id"] == motif_id).unwrap();
+
+        let mut predicted_table = column![].padding(PADLR25);
+        predicted_table = predicted_table.extend(view_table_header("Revised results".to_string()));
 
         for module_pos in 0..motif["modules"].as_array().unwrap().len() {
             predicted_table = predicted_table.push(horizontal_rule(0));
