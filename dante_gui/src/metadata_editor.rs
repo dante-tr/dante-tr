@@ -61,7 +61,7 @@ impl Data {
 
     pub(super) fn open(source: PathBuf, meta_file: PathBuf) -> ContentPage {
         if !meta_file.exists() {
-            std::fs::copy(format!("{}/template.meta.tsv", App::DATA_DIR), &meta_file).unwrap();
+            std::fs::copy(App::get_filename("assets/includes/template.meta.tsv"), &meta_file).unwrap();
         }
 
         let (header, content) = read_meta_file(&meta_file);

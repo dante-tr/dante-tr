@@ -95,7 +95,7 @@ impl App {
         use iced::widget::container::background;
         use iced::Color;
         let version = format!("v{} ", env!("CARGO_PKG_VERSION"));
-        let logo = Self::get_filename("assets/logo.png");
+        let logo = Self::get_filename("assets/includes/logo.png");
         column![
             row![
                 container(text(version)).width(Length::Fill).align_x(Horizontal::Right)

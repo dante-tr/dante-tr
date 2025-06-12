@@ -183,7 +183,7 @@ fn update_motif_selection(data: &mut Data, motif_file: MotifFile) {
         },
         _ => {
             let motif_str = motif_file.to_string();
-            let path = PathBuf::from(App::DATA_DIR.to_string() + "/" + &motif_str + ".tsv");
+            let path = PathBuf::from(App::DATA_DIR.to_string() + "/includes/" + &motif_str + ".tsv");
             data.selected = Some(motif_file);
             data.selected_file = Some(path);
             data.motifs = parse_motifs(data.selected_file.as_ref().unwrap());
@@ -602,7 +602,7 @@ mod reporting {
         let mut env = Environment::new();
 
         let template_id = "result";
-        let typst_template = include_str!("../assets/templates/single-results-report.typ");
+        let typst_template = include_str!("../assets/reporting/typst/single-results-report.typ");
         env.add_template(template_id, typst_template).unwrap();
 
         let meta_file = get_meta_file(data.bam_file.as_ref().unwrap());
