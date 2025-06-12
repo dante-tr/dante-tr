@@ -1,13 +1,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::fmt::Display;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use iced::widget::{column, container, horizontal_rule, image, row, text};
 use iced::{window, Task};
 use iced::window::Settings;
 use iced::{Element, Length, Theme, Size, Subscription};
+use iced::Padding;
+use serde::{Deserialize, Serialize};
 
 mod welcome_screen;
 
@@ -20,8 +21,11 @@ mod metadata_editor;
 mod async_tasks;
 mod editor_results;
 
+// defines const EMBEDDED_FILES: [(&str, &[u8]); N];
+include!(concat!(env!("OUT_DIR"), "/embedded_assets.rs"));
+
 pub fn main() -> iced::Result {
-    if !Path::new(App::DATA_DIR).exists() { init_cache(App::DATA_DIR); }
+    if !Path::new(App::DATA_DIR).exists() { App::init_cache(); }
 
     iced::application("Dante", App::update, App::view)
         .window(Settings { size: Size { width: 960.0, height: 960.0 }, ..Default::default() })
@@ -62,8 +66,6 @@ struct App {
     content_page: ContentPage,
 }
 
-use iced::Padding;
-use serde::{Deserialize, Serialize};
 impl App {
     const PAD1: Padding = Padding { left: 0.0, right: 5.0, top: 0.0, bottom: 0.0 };
     const PAD2: Padding = Padding { left: 5.0, right: 0.0, top: 0.0, bottom: 0.0 };
@@ -92,13 +94,14 @@ impl App {
         use iced::alignment::Horizontal;
         use iced::widget::container::background;
         use iced::Color;
-        let version = env!("CARGO_PKG_VERSION");
+        let version = format!("v{} ", env!("CARGO_PKG_VERSION"));
+        let logo = Self::get_filename("assets/logo.png");
         column![
             row![
-                container(text(format!("v{} ", version))).width(Length::Fill).align_x(Horizontal::Right)
+                container(text(version)).width(Length::Fill).align_x(Horizontal::Right)
                     .style(|_| { background(Color { r: 0.77, g: 0.82, b: 0.84, a: 1.0 }) })
             ],
-            container(image(format!("{}/logo.png", Self::DATA_DIR)).width(900).height(125))
+            container(image(logo).width(900).height(125))
                 .width(Length::Fill).align_x(Horizontal::Center)
                 .style(|_| { background(Color { r: 0.77, g: 0.82, b: 0.84, a: 1.0 }) }),
         ].align_x(Horizontal::Center).into()
@@ -193,70 +196,38 @@ impl App {
             return Message::Resize(size);
         })
     }
-}
 
-fn init_cache<S>(path: &S)
-where
-    S: AsRef<Path> + Display + ?Sized,
-{
-    let filenames = [
-        "logo.png",
-        "template.meta.tsv",
-        "STRSet_20220902.tsv",
-        "STRSet_20250311.tsv",
-        "templates/alignments_template.html",
-        "templates/report_template.html",
-        "includes/datatables.min.js",
-        "includes/jquery-3.6.1.min.js",
-        "includes/jquery.dataTables.css",
-        "includes/msa.min.gz.js",
-        "includes/plotly-2.14.0.min.js",
-        "includes/styles.css",
-        "includes/w3.css",
-    ];
-
-    let contents = [
-        include_bytes!("../assets/logo.png").to_vec(),
-        include_bytes!("../assets/template.meta.tsv").to_vec(),
-        include_bytes!("../assets/STRSet_20220902.tsv").to_vec(),
-        include_bytes!("../assets/STRSet_20250311.tsv").to_vec(),
-        include_bytes!("../assets/templates/alignments_template.html").to_vec(),
-        include_bytes!("../assets/templates/report_template.html").to_vec(),
-        include_bytes!("../assets/includes/datatables.min.js").to_vec(),
-        include_bytes!("../assets/includes/jquery-3.6.1.min.js").to_vec(),
-        include_bytes!("../assets/includes/jquery.dataTables.css").to_vec(),
-        include_bytes!("../assets/includes/msa.min.gz.js").to_vec(),
-        include_bytes!("../assets/includes/plotly-2.14.0.min.js").to_vec(),
-        include_bytes!("../assets/includes/styles.css").to_vec(),
-        include_bytes!("../assets/includes/w3.css").to_vec(),
-    ];
-
-    fs::create_dir(path).expect("Cannot create directory.");
-    fs::create_dir(format!("{}/templates", path)).expect("Cannot create directory.");
-    fs::create_dir(format!("{}/includes", path)).expect("Cannot create directory.");
-
-    for (filename, content) in std::iter::zip(filenames, contents) {
-        fs::write(format!("{}/{}", path, filename), content).expect("Unable to write.");
+    fn get_filename(old_filename: &str) -> PathBuf {
+        let tmp = PathBuf::from(old_filename);
+        let new_filepath = PathBuf::from(
+            format!("{}/{}", Self::DATA_DIR, tmp.strip_prefix("assets").unwrap().display())
+        );
+        return new_filepath;
     }
 
-    #[cfg(target_os = "linux")]
-    {
-        use std::os::unix::fs::PermissionsExt;
+    fn init_cache() {
+        // set correct destinations
+        let mut table: Vec<(PathBuf, &[u8])> = Vec::new();
+        for (old_filename, content) in EMBEDDED_FILES {
+            let new_filepath = Self::get_filename(old_filename);
+            // println!("{} -> {}", old_filename, new_filepath.display());
+            table.push((new_filepath, content));
+        }
 
-        let ctx = include_bytes!("../assets/dante_remastr_standalone").to_vec();
-        let bin = format!("{}/dante_remastr_standalone", path);
-        fs::write(&bin, ctx).expect("Unable to write.");
+        // create directories
+        for (filepath, _) in &table {
+            let tmp = filepath.parent().unwrap();
+            match fs::create_dir_all(tmp) {  // This works, but strictly following the documentation shouldn't
+                Ok(_)  => { /* println!("Creating {}: Ok.", tmp.display()) */ },
+                Err(_) => { println!("Creating {}: Failed!", tmp.display()) }
+            }
+        }
 
-        let mut perms = fs::metadata(&bin).unwrap().permissions();
-        perms.set_mode(0o700);
-        fs::set_permissions(&bin, perms).unwrap();
-    }
+        for (filepath, content) in &table {
+            fs::write(filepath, content).expect("Unable to write.");
+        }
 
-    #[cfg(target_os = "windows")]
-    {
-        let ctx = include_bytes!("../assets/dante_remastr_standalone.exe").to_vec();
-        let bin = format!("{}/dante_remastr_standalone.exe", path);
-        fs::write(bin, ctx).expect("Unable to write.");
+        println!("Assets extracted to {}/", Self::DATA_DIR);
     }
 }
 
