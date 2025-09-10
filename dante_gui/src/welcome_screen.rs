@@ -28,7 +28,7 @@ pub(super) struct Data {
 }
 
 impl Data {
-    pub(super) fn view(&self) -> Element<Message> {
+    pub(super) fn view(&self) -> Element<'_, Message> {
         let mut content = column![].align_x(Horizontal::Center);
 
         let analyses = [
@@ -107,7 +107,7 @@ impl std::fmt::Display for Analysis {
     }
 }
 
-fn make_previous_list(_: &Data) -> Element<Message> {
+fn make_previous_list(_: &Data) -> Element<'_, Message> {
     let analyses_dir = PathBuf::from(App::DATA_DIR.to_string() + "/analyses/");
     let mut paths: Vec<PathBuf> = if analyses_dir.exists() {
         fs::read_dir(analyses_dir).unwrap().map(|x| x.unwrap().path()).collect()
@@ -165,7 +165,7 @@ fn make_previous_list(_: &Data) -> Element<Message> {
     return result;
 }
 
-fn make_button1(data: &Data) -> Element<Message> {
+fn make_button1(data: &Data) -> Element<'_, Message> {
     if data.name.is_empty() { return button("Create").into() }
     let msg = match (&data.name, data.selected) {
         (_, None) => { return button("Create").into(); },

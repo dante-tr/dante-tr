@@ -59,7 +59,7 @@ pub(super) struct Data {
 }
 
 impl Data {
-    pub(super) fn view(&self, size: Size) -> Element<Message> {
+    pub(super) fn view(&self, size: Size) -> Element<'_, Message> {
         let mut content = column![].align_x(Horizontal::Center);
 
         content = view_header(content, self);
@@ -200,7 +200,7 @@ fn view_header<'a>(mut content: Column<'a, Message>, data: &'a Data) -> Column<'
     return content;
 }
 
-fn make_proband_row(data: &Data) -> Row<Message> {
+fn make_proband_row(data: &Data) -> Row<'_, Message> {
     let proband = data.bam_file.clone().unwrap_or_default().to_string_lossy().to_string();
     let (metadata, edit_button) = get_metadata(data);
 
@@ -225,7 +225,7 @@ fn get_meta_file(bam_file: &Path) -> PathBuf {
     return meta_file;
 }
 
-fn get_metadata(data: &Data) -> (String, Button<Message>) {
+fn get_metadata(data: &Data) -> (String, Button<'_, Message>) {
     if data.bam_file.is_none()
         { return ("No BAM file found.".to_string(), button("Edit metadata")); }
     if !data.bam_file.as_ref().unwrap().exists()
@@ -504,9 +504,8 @@ mod reporting {
         for motif in json["motifs"].as_array().unwrap() {
             let motif_id = motif["motif_id"].as_str().unwrap().to_string();
             let pos = motifs.iter().position(|x| { x == &motif_id });
-            if pos.is_none() {  continue; }
-            else {
-                let pos = pos.unwrap();
+            if let Some(pos1) = pos {
+                let pos = pos1;
                 let motif_id = motif["motif_id"].as_str().unwrap();
 
                 let rev_dir: &Path = &rev_dir;

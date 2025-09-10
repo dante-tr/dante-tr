@@ -39,12 +39,12 @@ impl MotifSelection {
         }
     }
 
-    pub(crate) fn view(&self, size: Size) -> Element<Message> {
+    pub(crate) fn view(&self, size: Size) -> Element<'_, Message> {
         return motif_part(self, size);
     }
 }
 
-fn motif_part(data: &MotifSelection, size: Size) -> Element<Message>{
+fn motif_part(data: &MotifSelection, size: Size) -> Element<'_, Message>{
     let mut motif_part = column![].padding(5);
     let r0 = make_motif_selection(data.selected, &data.selected_file);
 
@@ -124,7 +124,7 @@ fn make_group_row<'a>(groups: &'a[(bool, String)], available_width: usize, i: &m
     return v;
 }
 
-fn make_motif_selection(selected: Option<MotifFile>, selected_file: &Option<PathBuf>) -> Row<Message> {
+fn make_motif_selection(selected: Option<MotifFile>, selected_file: &Option<PathBuf>) -> Row<'_, Message> {
     let motif_files = [MotifFile::STRSet_20250311, MotifFile::Custom];
 
     let content = match selected {

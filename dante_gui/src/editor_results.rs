@@ -43,7 +43,7 @@ pub(super) struct Data {
 }
 
 impl Data {
-    pub(super) fn view(&self, size: Size) -> Element<Message> {
+    pub(super) fn view(&self, size: Size) -> Element<'_, Message> {
         let mut content = column![];
 
         content = content.push(view::header(self.source.clone(), self));
@@ -183,7 +183,7 @@ mod view {
 
     // this fn could be as follows, if I will have some problems with coupled lifetimes
     // pub(super) fn header<'a, 'b: 'a>(source: PathBuf, data: &'b Data) -> Row<'a, Message>
-    pub(super) fn header(source: PathBuf, data: &Data) -> Row<Message> {
+    pub(super) fn header(source: PathBuf, data: &Data) -> Row<'_, Message> {
         row![
             container(button("Back").on_press(Message::Exit(source))).width(100),
             container(text("Result editor").size(App::H1_SIZE)).align_x(Horizontal::Center).width(Length::Fill),
@@ -192,7 +192,7 @@ mod view {
         ].padding(25).align_y(Vertical::Center)
     }
 
-    pub(super) fn general_data(data: &Data) -> Element<Message> {
+    pub(super) fn general_data(data: &Data) -> Element<'_, Message> {
         let bam_line = format!("BAM ID: {}", data.sample);
 
         let mut general_data = column![].padding(PADLR25);

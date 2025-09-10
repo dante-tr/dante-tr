@@ -60,7 +60,7 @@ pub(super) struct Data {
 }
 
 impl Data {
-    pub(super) fn view(&self, size: Size) -> Element<Message> {
+    pub(super) fn view(&self, size: Size) -> Element<'_, Message> {
         let mut content = column![].align_x(Horizontal::Center).width(Length::Fill).padding(App::PAD1);
 
         content = make_header(content);
@@ -178,7 +178,7 @@ fn make_form<'a>(mut content: Column<'a, Message>, data: &'a Data) -> Column<'a,
     return content;
 }
 
-fn make_analyze_button(data: &Data) -> Element<Message> {
+fn make_analyze_button(data: &Data) -> Element<'_, Message> {
     let inactive = row![
         container(text("")).width(160), container(button("Analyze")), horizontal_space(),
     ].padding(10).align_y(Vertical::Center).into();
@@ -242,7 +242,7 @@ fn make_relatives<'a>(mut content: Column<'a, Message>, data: &'a Data) -> Colum
     return content;
 }
 
-fn make_proband_row(data: &Data) -> Row<Message> {
+fn make_proband_row(data: &Data) -> Row<'_, Message> {
     let proband = data.proband_bam.clone().unwrap_or_default().to_string_lossy().to_string();
     let sex = [Sex::Male, Sex::Female, Sex::Unknown];
 
@@ -254,7 +254,7 @@ fn make_proband_row(data: &Data) -> Row<Message> {
     ].padding(10).align_y(Vertical::Center)
 }
 
-fn make_motif_selection(selected: Option<MotifFile>, selected_file: &Option<PathBuf>) -> Row<Message> {
+fn make_motif_selection(selected: Option<MotifFile>, selected_file: &Option<PathBuf>) -> Row<'_, Message> {
     let motif_files = [MotifFile::STRSet_20250311, MotifFile::Custom];
 
     let content = match selected {

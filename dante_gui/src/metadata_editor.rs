@@ -34,7 +34,7 @@ pub(super) struct Data {
 }
 
 impl Data {
-    pub(super) fn view(&self, _size: Size) -> Element<Message> {
+    pub(super) fn view(&self, _size: Size) -> Element<'_, Message> {
         let mut content = column![].align_x(Horizontal::Center);
 
         content = view_header(content, self.source.clone(), &self.save_msg);

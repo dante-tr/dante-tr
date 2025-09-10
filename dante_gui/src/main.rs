@@ -74,7 +74,7 @@ impl App {
     const DATA_DIR: &str = "dante_data";
     const H1_SIZE: u16 = 26;
 
-    fn view(&self) -> Element<Message> {
+    fn view(&self) -> Element<'_, Message> {
         let header: Element<Message> = self.view_header();
         let content_area: Element<Message> = match &self.content_page {
             ContentPage::WelcomeScreen(data)  => data.view().map(Message::WelcomeScreen),
@@ -92,7 +92,7 @@ impl App {
         ].into()
     }
 
-    fn view_header(&self) -> Element<Message> {
+    fn view_header(&self) -> Element<'_, Message> {
         use iced::alignment::Horizontal;
         use iced::widget::container::background;
         use iced::Color;
