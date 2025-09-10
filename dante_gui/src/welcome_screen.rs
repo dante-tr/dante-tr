@@ -33,7 +33,7 @@ impl Data {
 
         let analyses = [
             Analysis::Single,
-            Analysis::Family,
+            // Analysis::Family,
         ];
 
         let dropdown1 = pick_list(analyses, self.selected, Message::AnalysisSelected).placeholder("type");
@@ -91,6 +91,7 @@ pub(super) fn analysis_reopen(path: PathBuf) -> ContentPage {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Analysis {
     Single,
@@ -180,7 +181,6 @@ where
     let path = Path::new(&dir);
     let ancestors: Vec<_> = path.ancestors().collect();
     for anc in ancestors.iter().rev().skip(1) {
-        println!("{:?}", anc);
         if !anc.exists() {
             fs::create_dir(anc).expect("Cannot create directory.");
         }

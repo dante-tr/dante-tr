@@ -11,22 +11,20 @@ use std::path::{Path, PathBuf};
 use native_dialog::FileDialog;
 use serde::{Serialize, Deserialize};
 use std::fs::File;
-use std::io::{Write, BufReader, BufRead};
-use std::error::Error;
+use std::io::Write;
 
-use crate::{App, ContentPage, MotifFile};
+use crate::{App, ContentPage};
 use crate::async_tasks;
 use crate::metadata_editor::read_meta_file;
 
+use crate::components::motif_selection::MotifSelection;
+use crate::components::motif_selection::Message as MSelectionMessage;
 
 #[derive(Debug, Clone)]
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum Message {
     Back,
     Save,
-    SetMotifs(MotifFile),
-    MotifCheckbox(usize, bool),
-    MotifGroupbox(usize, bool),
 
     BamChanged(String),
     SelectBam,
@@ -39,6 +37,8 @@ pub(crate) enum Message {
     Print,
     SetReport(ReportType),
     CheckboxOutBAM(bool),
+
+    MSelection(MSelectionMessage)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -46,11 +46,9 @@ pub(super) struct Data {
     analysis_path: PathBuf,
     analysis_name: String,
 
-    selected: Option<MotifFile>,
-    selected_file: Option<PathBuf>,
+    m_selection: MotifSelection,
 
     bam_file: Option<PathBuf>,
-    motif_file: Option<PathBuf>,
     output: Option<PathBuf>,
     out_bam: bool,
     message_line: String,
@@ -58,9 +56,6 @@ pub(super) struct Data {
 
     selected_report: Option<ReportType>,
     message_line2: String,
-
-    motifs: Vec<(bool, String, Vec<String>, String)>,  // (checked, id, groups, description)
-    groups: Vec<(bool, String)>,
 }
 
 impl Data {
@@ -68,10 +63,51 @@ impl Data {
         let mut content = column![].align_x(Horizontal::Center);
 
         content = view_header(content, self);
-        content = view_form(content, self);
+        let r = row![
+            container(text("Analysis name: ")).width(160).align_x(Horizontal::Right).padding(App::PAD1),
+            container(text(self.analysis_name.clone())).width(Length::Fill).align_x(Horizontal::Left)
+        ].padding(10).align_y(Vertical::Center);
+        content = content.push(r);
+        content = content.push(make_proband_row(self));
+
+        content = content.push(self.m_selection.view(size).map(Message::MSelection));
 
         content = content.push(container(horizontal_rule(2)).padding(25));
-        content = view_report(content, self, size);
+
+        content = content.push(row![
+            container(text("")).width(160),
+            container(checkbox("Output filtered BAM", self.out_bam).on_toggle(Message::CheckboxOutBAM)),
+            horizontal_space(),
+        ].padding(10.0).align_y(Vertical::Center));
+
+        content = content.push(row![
+            container("").width(160),
+            button("Run").on_press(Message::RunDante),
+            container(text(self.message_line.clone()).align_x(Horizontal::Left)).padding(App::PAD2),
+            horizontal_space(),
+        ].padding(10.0).align_y(Vertical::Center));
+
+        const PAD2: Padding = Padding { bottom: 0.0, top: 10.0, right: 25.0, left: 0.0 };
+        const PAD3: Padding = Padding { bottom: 0.0, top: 10.0, right: 5.0, left: 0.0 };
+        let report_types = [
+            // ReportType::OnePage,
+            // ReportType::Summary,
+            ReportType::Result,
+            // ReportType::Technical
+        ];
+
+        let r = row![
+            container(text("")).width(160),
+            container(button("View").on_press(Message::EditResults(self.clone()))).padding(PAD2),
+            container(button("Print").on_press(Message::Print)).padding(PAD3),
+            container(pick_list(report_types, self.selected_report, Message::SetReport).placeholder("report type")).padding(PAD3),
+            container(text(self.message_line2.clone())).padding(PAD2),
+            horizontal_space(),
+        ].padding(10).align_y(Vertical::Center);
+        // let r = std::convert::Into::<Element<Message>>::into(r).explain(iced::Color::BLACK);
+        content = content.push(r);
+
+        // ---------------------------------------------------------------------
         content = content.push(draw_open_button(self));
 
         // let content = std::convert::Into::<Element<Message>>::into(content).explain(iced::Color::BLACK);
@@ -87,13 +123,11 @@ impl Data {
             Message::OpenResults => { open_results(self); Task::none() },
             Message::CheckboxOutBAM(is_checked) => { self.out_bam = is_checked; Task::none() },
 
-            Message::SetMotifs(motif_file) => { update_motif_selection(self, motif_file); Task::none() },
-            Message::MotifGroupbox(idx, checked) => { toggle_group(self, idx, checked); Task::none() },
-            Message::MotifCheckbox(idx, checked) => { self.motifs[idx].0 = checked; Task::none() },
             Message::AnalysisProgress(msg) => { self.message_line = msg; Task::none() }
             Message::SetReport(report) => { self.selected_report = Some(report); Task::none() }
             Message::Print => { reporting::print_report(self); self.save(); Task::none() }
             Message::Save => { self.save(); Task::none() }
+            Message::MSelection(x) => { self.m_selection.update(x); Task::none() }
 
             Message::EditMetadata(_, _) => { unreachable!("Implemented in App::update."); }
             Message::EditResults(_) => { unreachable!("Implemented in App::update.") }
@@ -128,11 +162,11 @@ impl Data {
     }
 
     pub(super) fn get_checked_motif_ids(&self) -> Vec<String> {
-        return self.motifs.iter().filter(|x| x.0).map(|x| x.1.replace("/", "_")).collect();
+        return self.m_selection.motifs.iter().filter(|x| x.0).map(|x| x.1.replace("/", "_")).collect();
     }
 
     pub(super) fn get_checked_motif_names(&self) -> Vec<String> {
-        return self.motifs.iter().filter(|x| x.0).map(|x| x.3.to_string()).collect();
+        return self.m_selection.motifs.iter().filter(|x| x.0).map(|x| x.3.to_string()).collect();
     }
 
     pub(crate) fn get_source(&self) -> PathBuf {
@@ -155,68 +189,6 @@ impl Data {
     }
 }
 
-fn toggle_group(data: &mut Data, idx: usize, checked: bool) {
-    data.groups[idx].0 = checked;
-    let group = data.groups[idx].1.clone();
-    for x in &mut data.motifs { if x.2.contains(&group) { x.0 = checked; } }
-}
-
-fn update_motif_selection(data: &mut Data, motif_file: MotifFile) {
-    use crate::analysis_common::{parse_motifs, get_groups};
-    match motif_file {
-        MotifFile::Custom => {
-            if let Ok(Some(path)) = FileDialog::new().show_open_single_file() {
-                data.selected = Some(motif_file);
-                data.selected_file = Some(path);
-
-                let format = validate_STR_format(data.selected_file.as_ref().unwrap());
-                if format.is_ok() {
-                    data.motifs = parse_motifs(data.selected_file.as_ref().unwrap());
-                    data.groups = get_groups(data.motifs.as_ref());
-                    data.message_line = "".to_string();
-                } else {
-                    data.motifs = Vec::new();
-                    data.groups = Vec::new();
-                    data.message_line = format.unwrap_err().to_string();
-                }
-            }
-        },
-        _ => {
-            let motif_str = motif_file.to_string();
-            let path = PathBuf::from(App::DATA_DIR.to_string() + "/includes/" + &motif_str + ".tsv");
-            data.selected = Some(motif_file);
-            data.selected_file = Some(path);
-            data.motifs = parse_motifs(data.selected_file.as_ref().unwrap());
-            data.groups = get_groups(data.motifs.as_ref());
-            data.message_line = "".to_string();
-        }
-    }
-}
-
-#[allow(non_snake_case)]
-fn validate_STR_format(path: &Path) -> Result<(), Box<dyn Error>> {
-    let file = File::open(path)?;
-    let reader = BufReader::new(file);
-
-    let header = reader.lines().next().ok_or("File does not contain any lines.")??;
-    let header: Vec<_> = header.split('\t').collect();
-
-    if header[0] != "Disease ID"
-        { return Err("1st column has incorrect name".into()); }
-    if header[1] != "HGVS nomenclature (GRCh38 reference)"
-        { return Err("2nd column has incorrect name".into()); }
-    if header[2] != "Left flank"
-        { return Err("3rd column has incorrect name".into()); }
-    if header[3] != "Right flank"
-        { return Err("4th column has incorrect name".into()); }
-    if header[4] != "Groups"
-        { return Err("5th column has incorrect name".into()); }
-    if header[5] != "Disease name"
-        { return Err("6th column has incorrect name".into()); }
-
-    return Ok(());
-}
-
 fn view_header<'a>(mut content: Column<'a, Message>, data: &'a Data) -> Column<'a, Message> {
     content = content.push(row![
         container(button("Back").on_press(Message::Back)).width(100),
@@ -225,31 +197,6 @@ fn view_header<'a>(mut content: Column<'a, Message>, data: &'a Data) -> Column<'
         // This can leave data potentially inconsistent
         container(button("Save").on_press(Message::Save)).align_x(Horizontal::Right),
     ].padding(25).align_y(Vertical::Center));
-    return content;
-}
-
-fn view_form<'a>(mut content: Column<'a, Message>, data: &'a Data) -> Column<'a, Message> {
-    content = content.push(row![
-        container(text("Analysis name: ")).width(160).align_x(Horizontal::Right).padding(App::PAD1),
-        container(text(data.analysis_name.clone())).width(Length::Fill).align_x(Horizontal::Left)
-    ].padding(10).align_y(Vertical::Center));
-
-    content = content.push(make_motif_selection(data.selected, &data.selected_file));
-    content = content.push(make_proband_row(data));
-
-    content = content.push(row![
-        container(text("")).width(160),
-        container(checkbox("Output filtered BAM", data.out_bam).on_toggle(Message::CheckboxOutBAM)),
-        horizontal_space(),
-    ].padding(10.0).align_y(Vertical::Center));
-
-    content = content.push(row![
-        container("").width(160),
-        button("Run").on_press(Message::RunDante),
-        container(text(data.message_line.clone()).align_x(Horizontal::Left)).padding(App::PAD2),
-        horizontal_space(),
-    ].padding(10.0).align_y(Vertical::Center));
-
     return content;
 }
 
@@ -307,38 +254,10 @@ fn get_metadata(data: &Data) -> (String, Button<Message>) {
     return (metadata, button("Edit metadata").on_press(edit_msg));
 }
 
-fn make_motif_selection(selected: Option<MotifFile>, selected_file: &Option<PathBuf>) -> Row<Message> {
-    let motif_files = [MotifFile::STRSet_20250311, MotifFile::Custom];
-
-    let content = match selected {
-        None => row![
-            container(text("Motifs: ")).width(160).align_x(Horizontal::Right).padding(App::PAD1),
-            container(pick_list(motif_files, selected, Message::SetMotifs).placeholder("type")),
-            container(text("")).width(Length::Fill).align_x(Horizontal::Left)
-        ].padding(10).align_y(Vertical::Center),
-        Some(MotifFile::Custom) => {
-            let x: String = selected_file.clone().unwrap().to_string_lossy().to_string();
-            row![
-                container(text("Motifs: ")).width(160).align_x(Horizontal::Right).padding(App::PAD1),
-                container(pick_list(motif_files, selected, Message::SetMotifs).placeholder("type")).padding(App::PAD1),
-                container(text(x)).width(Length::Fill).align_x(Horizontal::Left)
-            ].padding(10).align_y(Vertical::Center)
-        }
-        Some(_) => {
-            row![
-                container(text("Motifs: ")).width(160).align_x(Horizontal::Right).padding(App::PAD1),
-                container(pick_list(motif_files, selected, Message::SetMotifs).placeholder("type")),
-                container(text("")).width(Length::Fill).align_x(Horizontal::Left)
-            ].padding(10).align_y(Vertical::Center)
-        }
-    };
-    return content;
-}
-
 fn analyze(data: &mut Data) -> Task<Message> {
     data.save();
 
-    let Some(ref motif_file) = data.selected_file else { unreachable!() }; 
+    let Some(ref motif_file) = data.m_selection.selected_file else { unreachable!() }; 
     let Some(ref bam_file) = data.bam_file else { unreachable!() };
 
     let mut output_file = data.analysis_path.clone();
@@ -398,99 +317,6 @@ fn load_file(result: &mut Option<PathBuf>) {
         None => return,
     };
     *result = Some(path);
-}
-
-fn view_report<'a>(mut content: Column<'a, Message>, data: &'a Data, size: Size) -> Column<'a, Message> {
-    let available_width = size.width as usize - 5 - 160 - 5 - 5;
-
-    let mut i = 0;
-    let mut r = row![].padding(5).align_y(Vertical::Center);
-    r = r.push(container(text("Group filter: ")).width(160).align_x(Horizontal::Right).padding(App::PAD1));
-    r = r.extend(make_group_row(&data.groups, available_width, &mut i));
-    r = r.push(horizontal_space());
-    // let r = std::convert::Into::<Element<Message>>::into(r).explain(iced::Color::BLACK);
-    content = content.push(r);
-
-    let mut i = 0;
-    let mut r = row![].padding(5).align_y(Vertical::Center);
-    r = r.push(container(text("Motif filter: ")).width(160).align_x(Horizontal::Right).padding(App::PAD1));
-    r = r.extend(make_checkbox_row(&data.motifs, available_width, &mut i));
-    r = r.push(horizontal_space());
-    // let r = std::convert::Into::<Element<Message>>::into(r).explain(iced::Color::BLACK);
-    content = content.push(r);
-
-    // BUG: if available_width is too small, i is never increased
-    while i < data.motifs.len() {
-        let mut r = row![].padding(5).align_y(Vertical::Center);
-        r = r.push(container(text("")).width(160).align_x(Horizontal::Right));
-        r = r.extend(make_checkbox_row(&data.motifs, available_width, &mut i));
-        r = r.push(horizontal_space());
-        // let r = std::convert::Into::<Element<Message>>::into(r).explain(iced::Color::BLACK);
-        content = content.push(r);
-    }
-
-    const PAD2: Padding = Padding { bottom: 0.0, top: 10.0, right: 25.0, left: 0.0 };
-    const PAD3: Padding = Padding { bottom: 0.0, top: 10.0, right: 5.0, left: 0.0 };
-    let report_types = [
-        // ReportType::OnePage,
-        // ReportType::Summary,
-        ReportType::Result,
-        // ReportType::Technical
-    ];
-
-    let r = row![
-        container(text("")).width(160),
-        container(button("View").on_press(Message::EditResults(data.clone()))).padding(PAD2),
-        container(button("Print").on_press(Message::Print)).padding(PAD3),
-        container(pick_list(report_types, data.selected_report, Message::SetReport).placeholder("report type")).padding(PAD3),
-        container(text(data.message_line2.clone())).padding(PAD2),
-        horizontal_space(),
-    ].padding(10).align_y(Vertical::Center);
-    // let r = std::convert::Into::<Element<Message>>::into(r).explain(iced::Color::BLACK);
-    content = content.push(r);
-    return content;
-}
-
-fn make_group_row<'a>(groups: &'a[(bool, String)], available_width: usize, i: &mut usize) -> Vec<Element<'a, Message>> {
-    const PAD: Padding = Padding { bottom: 0.0, top: 0.0, right: 15.0, left: 0.0};
-    let spacing = 15 /*checkbox*/ + 10 /*between checkbox and label*/ + 15 /*right padding*/;
-    let letter_width = 11;
-
-    let mut v = Vec::new();
-    let mut cur_width = 0;
-    while *i < (*groups).len() && cur_width + spacing + groups[*i].1.len() * letter_width < available_width {
-        let (ref checked, ref id) = &groups[*i];
-        let ii = *i;
-        let f = move |b| Message::MotifGroupbox(ii, b);
-        v.push(container(checkbox(id, *checked).on_toggle(f)).padding(PAD).into());
-        cur_width += spacing + id.len() * letter_width;
-        *i += 1;
-    }
-    return v;
-}
-
-fn make_checkbox_row<'a>(motifs: &'a[(bool, String, Vec<String>, String)], available_width: usize, i: &mut usize) -> Vec<Element<'a, Message>> {
-    const PAD: Padding = Padding { bottom: 0.0, top: 0.0, right: 15.0, left: 0.0 };
-    let spacing = 15 /* checkbox */ + 10 /* between checkbox and label */ + 15 /* right padding */;
-    let letter_width = 11;
-
-    let mut v = Vec::new();
-    let mut cur_width = 0;
-    while *i < (*motifs).len() && cur_width + spacing + motifs[*i].1.len() * letter_width < available_width {
-        let (ref checked, ref id, _, ref name) = &motifs[*i];
-        let ii = *i;
-        let f = move |b| Message::MotifCheckbox(ii, b);
-        v.push(container(
-            tooltip(
-                checkbox(id, *checked).on_toggle(f),
-                container(text(name)).padding(5).style(container::rounded_box),
-                tooltip::Position::FollowCursor,
-            )
-        ).padding(PAD).into());
-        cur_width += spacing + id.len() * letter_width;
-        *i += 1;
-    }
-    return v;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -612,9 +438,9 @@ mod reporting {
             report_id => "20250422",
         );
 
-        let motifs = data.motifs.iter().filter(|x| x.0).map(|x| x.1.to_string().replace("/", "_")).collect::<Vec<_>>();
+        let motifs = data.m_selection.motifs.iter().filter(|x| x.0).map(|x| x.1.to_string().replace("/", "_")).collect::<Vec<_>>();
 
-        let hgvs_db = data.selected_file.as_ref().unwrap();
+        let hgvs_db = data.m_selection.selected_file.as_ref().unwrap();
         let hgvs_context: Vec<Value> = motifs.iter().map(|x| get_hgvs_context(hgvs_db, x)).collect();
 
         let json = data.get_dante_json();

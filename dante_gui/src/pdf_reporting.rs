@@ -1,3 +1,5 @@
+#![allow(warnings)]
+
 use typst_as_lib::package_resolver::FileSystemCache;
 use typst_as_lib::package_resolver::PackageResolver;
 use typst_as_lib::typst_kit_options::TypstKitFontOptions;

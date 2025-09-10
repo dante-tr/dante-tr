@@ -21,6 +21,8 @@ mod metadata_editor;
 mod async_tasks;
 mod editor_results;
 
+mod components;
+
 // defines const EMBEDDED_FILES: [(&str, &[u8]); N];
 include!(concat!(env!("OUT_DIR"), "/embedded_assets.rs"));
 
