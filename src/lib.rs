@@ -65,20 +65,26 @@ fn process_motif(
     //  select relevant reads
     let (left_flank, repeat, right_flank) = motif_record;
     let (dedup, q, score, print_quality) = params;
-    let tmp = format!("{}:{}-{}", repeat.reference, repeat.start + 1, repeat.end);
-    let region = tmp.parse().unwrap();
-    let reads = reader
+    let region_str = format!("{}:{}-{}", repeat.reference, repeat.start + 1, repeat.end);
+    let region = region_str.parse().unwrap();
+    let reads: Vec<_> = reader
         .query(&header, &region).unwrap()
         .map(|x| x.expect("Incorrect read."))
+        .collect();
+    let raw_count = reads.len();
+    let reads: Vec<_> = reads.into_iter()
         .filter(|x| !x.sequence().is_empty())
         .filter(|x| !(dedup && x.flags().is_duplicate()))
-        .filter(|x| !mapq_less_than(x, q));
+        .filter(|x| !mapq_less_than(x, q))
+        .collect();
+    let filt_count = reads.len();
+    println!("{region_str}: {filt_count}/{raw_count}");
 
     //  build HMM
     let modules = get_modules(left_flank, repeat, right_flank);
     let model = Hmm::from(&modules).log();
 
-    let (annotation, annotated_reads) = annotate_reads(reads, model, repeat, score, print_quality);
+    let (annotation, annotated_reads) = annotate_reads(reads.into_iter(), model, repeat, score, print_quality);
 
     // write to files
     out_tsv.lock().unwrap().write_all(annotation.as_bytes()).expect("Cannot write to output file.");
@@ -153,8 +159,7 @@ where
         for i in 0..n_modules {
             let mb = get_module_bases(&mods, i);
             let mr = get_module_repetitions(mb, &repeat.copy_unit, i);
-            // let ms = get_module_sequences(i, )
-            let ms = "".to_string();  // TODO: finish this
+            let ms = get_module_sequences(&mods, i);
             module_bases.push(mb);
             module_repetitions.push(mr);
             module_sequences.push(ms);
@@ -175,9 +180,25 @@ where
             {mismatches_str}\n\
             "
         );
+        // let line = format!("\
+        //     {name}\t{motif}\t{read_id}\n\
+        //     {read}\n\
+        //     {reference}\n\
+        //     {modules}\n\
+        //     {mismatches_str}\n\
+        //     {read_sn}\t{mate_order}\t{quality}\t{log_likelihood}\n\
+        //     {n_modules}\t{left_bg}\t{module_bases}\t{right_bg}\t{module_repetitions}\t{module_sequences}\n\
+        //     {n_deletions}\t{n_insertions}\t{n_mismatches}\n\
+        //     "
+        // );
         annotation_str.push_str(&line);
     }
     return (annotation_str, annotated_reads);
+}
+
+fn get_module_sequences(_mods: &[u8], _idx: usize) -> String {
+    let ms = "".to_string();  // TODO: finish this
+    return ms
 }
 
 fn get_module_repetitions(mb: u8, copy_units: &[Vec<u8>], idx: usize) -> u8 {
