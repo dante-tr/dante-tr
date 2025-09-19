@@ -142,9 +142,11 @@ where
         let quality = str::from_utf8(&qual_str).unwrap();
         let log_likelihood = likelihood;
 
+        let mlen = mods.len();
         let mut left_bg = 0;
-        while left_bg < mods.len() && mods[left_bg] == b'-' { left_bg += 1; }
-        let right_bg = 0;  // TODO: finish this?
+        while left_bg < mlen && mods[left_bg] == b'-' { left_bg += 1; }
+        let mut right_bg = 0;
+        while right_bg < mlen && mods[(mlen - 1) - right_bg] == b'-' { right_bg += 1; }
 
         let mismatches_str = generate_mismatches(&reconstructed_read, &reconstructed_reference);
         let n_deletions = mismatches_str.bytes().filter(|x| *x == b'D').count();
@@ -354,5 +356,50 @@ fn can_read_and_parse_hgvs_file() {
         let tr: TandemRepeat = line.parse().unwrap();
         println!("{:?}", tr);
     }
+}
+
+#[test]
+fn tmp_fn_name() {
+    // CTTCCTCCTCCTCATCGGTGGCGGCGGCGGCGGCGTCAGGCCAGTGCCGCGGCTTTCTCTCCGCGCCTGTGTTCGCCGGGACGCATTCGGGGCGGGCGGCGGCGGCGGCAGCGGCGGCCGCGGCGGCGGGCGGGGCCGCCCCCCGCCT
+    // CCCFFFFFHHHHGIIJJIHIJIJJJHGHDDDBDDBBDDDDDDDDCCCC5@BDDBBCCCCACDBBDBDBBCCCCCBDDBBD@BDDBDDDDDDDDDD@5.5&)0)&5))0)&)2&55)0&&&&&)&&)&))&&&&&)&&&&)&&50)&&&
+    // -----------------------------------------------------------------00000000000000000000000000000011111111111111111111111111111111111111111111122222222
+    // GCG[4]GCA[1]GCG[2]GCC[1]GCG[3]G[1]GCG[1]GGGCCGCC[1]
+    //
+    // I think annotation is wrong
+    // Independent of annotation, seq nomenclature is wrong as well
+    //
+    // SPD     chr2:g.176093059_176093103GCG[15]       CCTGTGTTCGCCGGGACGCATTCGGGGCGG  TCCGGCTTTGCGTACCCCGGGACCTCTGAG
+    // result 15
+
+    // HISEQ1:26:HA2RRADXX:1:1203:16720:7919
+    let seq:  Vec<u8> = b"CTTCCTCCTCCTCATCGGTGGCGGCGGCGGCGGCGTCAGGCCAGTGCCGCGGCTTTCTCTCCGCGCCTGTGTTCGCCGGGACGCATTCGGGGCGGGCGGCGGCGGCGGCAGCGGCGGCCGCGGCGGCGGGCGGGGCCGCCCCCCGCCT".to_vec();
+    let qual: Vec<u8> = b"CCCFFFFFHHHHGIIJJIHIJIJJJHGHDDDBDDBBDDDDDDDDCCCC5@BDDBBCCCCACDBBDBDBBCCCCCBDDBBD@BDDBDDDDDDDDDD@5.5&)0)&5))0)&)2&55)0&&&&&)&&)&))&&&&&)&&&&)&&50)&&&".to_vec();
+
+    // SPD
+    let left_flank:  Vec<u8> = b"CCTGTGTTCGCCGGGACGCATTCGGGGCGG".to_vec();
+    let right_flank: Vec<u8> = b"TCCGGCTTTGCGTACCCCGGGACCTCTGAG".to_vec();
+    let repeat: TandemRepeat = "chr2:g.176093059_176093103GCG[15]".parse().expect("Malformatted nomenclature found.");
+
+    let modules = get_modules(&left_flank, &repeat, &right_flank);
+    let model = Hmm::from(&modules).log();
+    let (_likelihood, annotation) = model.log_predict(&seq, &qual);
+
+    for x in &annotation { print!("{}", x / 10); }
+    println!();
+    for x in &annotation { print!("{}", x % 10); }
+    println!();
+    println!("{}", str::from_utf8(&seq).unwrap());
+    println!("{}", str::from_utf8(&qual).unwrap());
+
+    let exp_split: Vec<&[u8]> = vec![
+        b"CTTCCTCCTCCTCATCGGTGGCGGCGGCGGCGGCGTCAGGCCAGTGCCGCGGCTTTCTCTCCGCG",
+        b"CCTGTGTTCGCCGGGACGCATTCGGGGCGG",
+        b"GCG", b"GCG", b"GCG", b"GCG", b"GCA", b"GCG", b"GCG", b"GCC", b"GCG", b"GCG", b"GCG", b"GGC", b"GGG", b"GCC", b"GCC",
+        b"CCCCGCCT"
+    ];
+
+    let exp_modid: Vec<_> = vec![
+        -1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2
+    ];
 }
 

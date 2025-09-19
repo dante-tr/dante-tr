@@ -42,12 +42,14 @@ impl From<(&[u8], usize)> for Module {
     }
 }
 
+#[derive(Debug)]
 struct MDesc {
     start: usize,
     len: usize,
     rep: Option<usize>
 }
 
+#[derive(Debug)]
 enum State {
     Start,
     Seq{c: u8, id: u8},
@@ -72,11 +74,41 @@ impl From<&Vec<Module>> for Hmm {
         let deletions = get_deletions(&states, &description);
 
         let initial = initial_probabilities(&states);
-        let transition = transition_probabilities(&states, &description);
+        let (transition, _tsets) = transition_probabilities(&states, &description);
         let emission = emission_probabilities(&states);
 
         Hmm { states, deletions, initial, transition, emission }
     }
+}
+
+#[test]
+fn test_construction_of_transition_sets() {
+    let modules: Vec<Module> = vec![
+        (&b"TTTT"[..]).into(),
+        (&b"GCG"[..], 5).into(),
+        (&b"TTTT"[..]).into()
+    ];
+
+    let states = get_states(&modules);
+    let description = get_description(&modules);
+
+    let (_, tsets) = transition_probabilities(&states, &description);
+
+    let (trans_deletion, trans_modchange, trans_unitchange) = tsets;
+    let exp_trans_deletion = HashSet::from([
+        (0, 2), (1, 3), (2, 4), (3, 5), (4, 6), (5, 7), (6, 5), (6, 8), (7, 6),
+        (7, 9), (8, 10), (9, 11), (10, 12)
+    ]);
+    assert!(exp_trans_deletion == trans_deletion);
+
+    let exp_trans_modchange = HashSet::from([
+        (0, 1), (0, 2), (0, 5), (0, 8), (3, 5), (4, 5), (4, 6), (4, 8), (4, 12),
+        (6, 8), (7, 8), (7, 9), (7, 12), (10, 12), (11, 12), (16, 5), (19, 8)
+    ]);
+    assert!(exp_trans_modchange == trans_modchange);
+
+    let exp_trans_unitchange = HashSet::from([(6, 5), (7, 5), (7, 6), (19, 5)]);
+    assert!(exp_trans_unitchange == trans_unitchange);
 }
 
 fn get_states(modules: &[Module]) -> Vec<State> {
@@ -150,8 +182,32 @@ fn initial_probabilities(states: &[State]) -> ndarray::Array1<f32> {
     return p;
 }
 
-fn transition_probabilities(states: &[State], desc: &[MDesc]) -> ndarray::Array2<f32> {
-    let mut p = Array::zeros((states.len(), states.len()));
+fn create_state_to_mod(states: &[State], desc: &[MDesc]) -> Vec<usize> {
+    let mut x = Vec::new();
+    x.push(usize::MAX);  // starting in bg
+    for (i, d) in desc.iter().enumerate() {
+        x.extend_from_slice(&vec![i; d.len]);
+    }
+
+    let result = x.iter().cloned().cycle().take(states.len()).collect();
+    return result;
+}
+
+type TransitionSet = HashSet<(usize, usize)>;
+
+/// Returns transition probability matrix and three transition sets (HashSet\<(usize, usize)\>) representing:
+/// - transitions causing deletions
+/// - transitions causing module change
+/// - transitions causing unit change
+fn transition_probabilities(states: &[State], desc: &[MDesc])
+    -> (ndarray::Array2<f32>, (TransitionSet, TransitionSet, TransitionSet))
+{
+    let mut result = Array::zeros((states.len(), states.len()));
+    let mut transition_delet = HashSet::new();  // transition causing deletion
+    let mut transition_mchng = HashSet::new();  // transition causing module change
+    let mut transition_uchng = HashSet::new();  // transition causing unit change
+
+    let state_to_mod = create_state_to_mod(states, desc);
 
     let bg_start = 0;
     let mut bg_end = 0;
@@ -164,12 +220,14 @@ fn transition_probabilities(states: &[State], desc: &[MDesc]) -> ndarray::Array2
         let m_rep = m.rep.unwrap() as f32; // safe due to previous if
 
         // add cycle
-        p[[m_end, m.start]] = 1.0 - 1.0/m_rep;
+        result[[m_end, m.start]] = 1.0 - 1.0/m_rep;  // connection type 01
+        transition_uchng.insert((m_end, m.start));
 
         // add insertion between repetitions
         let ins = bg_end + m_end;
         if ins < states.len() {    // last -> bg does not have insertion
-            p[[ins, m.start]] = 1.0 - 1.0/m_rep - P_INS;
+            result[[ins, m.start]] = 1.0 - 1.0/m_rep - P_INS;  // connection type 02
+            transition_uchng.insert((ins, m.start));
         }
 
         // add deletions between repetitions
@@ -177,7 +235,9 @@ fn transition_probabilities(states: &[State], desc: &[MDesc]) -> ndarray::Array2
             let del_start = m.start + i;
             let del_end = m.start + (i + DEL) % m.len;
             if (del_start != m.start) & (del_end != m_end) {
-                p[[del_start, del_end]] = P_DEL;
+                result[[del_start, del_end]] = P_DEL;  // connection type 03
+                transition_uchng.insert((del_start, del_end));
+                transition_delet.insert((del_start, del_end));
             }
         }
     }
@@ -185,48 +245,57 @@ fn transition_probabilities(states: &[State], desc: &[MDesc]) -> ndarray::Array2
     // connect simple insertions
     for i in 1..=bg_end-2 {
         let ins = bg_end + i;
-        p[[i, ins]] = P_INS;
-        p[[ins, ins]] = P_INS;
-        p[[ins, i+1]] = 1.0 - p.slice(s![ins, ..]).sum();
+        result[[i, ins]] = P_INS;  // connection type 04
+        result[[ins, ins]] = P_INS;  // connection type 05
+        result[[ins, i+1]] = 1.0 - result.slice(s![ins, ..]).sum();  // connection type 06
+        if state_to_mod[ins] != state_to_mod[i+1] { transition_mchng.insert((ins, i+1)); }
     }
 
     // connect simple deletions
-    p[[bg_start, bg_start + DEL]] = P_DEL * FREQ;
+    result[[bg_start, bg_start + DEL]] = P_DEL * FREQ;  // connection type 07
+    transition_delet.insert((bg_start, bg_start + DEL));
+    transition_mchng.insert((bg_start, bg_start + DEL));
     for i in 1..=bg_end-DEL {
-        p[[i, i+DEL]] = P_DEL;
+        result[[i, i + DEL]] = P_DEL;  // connection type 08
+        transition_delet.insert((i, i + DEL));
+        if state_to_mod[i] != state_to_mod[i+DEL] { transition_mchng.insert((i, i+DEL)); }
     }
 
     // allow module skipping
     for m in desc.iter() {
-        p[[bg_start, m.start]] = FREQ;
+        result[[bg_start, m.start]] = FREQ;  // connection type 09
+        transition_mchng.insert((bg_start, m.start));
     }
 
     for (i, m) in desc.iter().enumerate() {
         let m_end = m.start + m.len - 1;
         // number of remaining modules to the right
         let r_mod = (desc.len() - i) as f32;
-        let r_prob = 1.0 - p.slice(s![m_end, ..]).sum();
+        let r_prob = 1.0 - result.slice(s![m_end, ..]).sum();
         // +2, because we jump over the next module, as it will be connected later
         if let Some(x) = desc.get(i+2..) {
             for destination in x {
-                p[[m_end, destination.start]] = r_prob / r_mod;
+                result[[m_end, destination.start]] = r_prob / r_mod;  // connection type 10
+                transition_mchng.insert((m_end, destination.start));
             }
         }
-        p[[m_end, bg_end]] = r_prob / r_mod;
+        result[[m_end, bg_end]] = r_prob / r_mod;  // connection type 11
+        transition_mchng.insert((m_end, bg_end));
     }
 
     // loop in start
-    p[[bg_start, bg_start]] = 1.0 - p.slice(s![bg_start, ..]).sum();
+    result[[bg_start, bg_start]] = 1.0 - result.slice(s![bg_start, ..]).sum();  // connection type 12
 
     // connect to the next state
     for i in 1..bg_end-1 {
-        p[[i, i+1]] = 1.0 - p.slice(s![i, ..]).sum();
+        result[[i, i+1]] = 1.0 - result.slice(s![i, ..]).sum();  // connection type 13
+        if state_to_mod[i] != state_to_mod[i+1] { transition_mchng.insert((i, i+1)); }
     }
 
     // loop in end
-    p[[bg_end, bg_end]] = 1.0;
+    result[[bg_end, bg_end]] = 1.0;  // connection type 14
 
-    return p;
+    return (result, (transition_delet, transition_mchng, transition_uchng));
 }
 
 fn emission_probabilities(states: &[State]) -> ndarray::Array3<f32> {
@@ -277,78 +346,6 @@ fn emission_probabilities(states: &[State]) -> ndarray::Array3<f32> {
             }
         }
     }}}
-
-    return p;
-}
-
-fn _transition_probabilities2(states: &[State], desc: &[MDesc])
-    -> ndarray::Array2<f32>
-{
-    let bg_start = 0;
-    let mut bg_end = 0;
-    while !matches!(states[bg_end], State::End) { bg_end += 1; }
-
-    let mut p = Array::zeros((states.len(), states.len()));
-
-    // create intramodule connections
-    for m in desc.iter() {
-        if matches!(states[m.start], State::Seq{..}) { continue; }
-        let m_end = m.start + m.len - 1;
-
-        // add cycle
-        p[[m_end, m.start]] = 1.0;
-
-        // add insertion between repetitions
-        let ins = bg_end + m_end;
-        if ins < states.len() {    // last -> bg does not have insertion
-            p[[ins, m.start]] = 1.0 - P_INS;
-        }
-
-        // add deletions between repetitions
-        for i in 0..m.len {
-            let del_start = m.start + i;
-            let del_end = m.start + (i + DEL) % m.len;
-            if (del_start != m.start) & (del_end != m_end) {
-                p[[del_start, del_end]] = P_DEL;
-            }
-        }
-    }
-
-    // connect simple insertions
-    for i in 1..=bg_end-2 {
-        let ins = bg_end + i;
-        p[[i, ins]] = P_INS;
-        p[[ins, ins]] = P_INS;
-        p[[ins, i+1]] = 1.0;
-    }
-
-    // connect simple deletions
-    p[[bg_start, bg_start + DEL]] = P_DEL * FREQ;
-    for i in 1..=bg_end-DEL { p[[i, i+DEL]] = P_DEL; }
-
-    // allow module skipping
-    for m in desc.iter() { p[[bg_start, m.start]] = FREQ; }
-
-    for (i, m) in desc.iter().enumerate() {
-        let m_end = m.start + m.len - 1;
-        // number of remaining modules to the right
-        let r_mod = (desc.len() - i) as f32;
-        let r_prob = 0.5;
-        // +2, because we jump over the next module, as it will be connected later
-        if let Some(x) = desc.get(i+2..) {
-            for destination in x {
-                p[[m_end, destination.start]] = r_prob / r_mod;
-            }
-        }
-        p[[m_end, bg_end]] = r_prob / r_mod;
-    }
-
-    // loop in start
-    p[[bg_start, bg_start]] = 1.0;
-    // connect to the next state
-    for i in 1..bg_end-1 { p[[i, i+1]] = 1.0; }
-    // loop in end
-    p[[bg_end, bg_end]] = 1.0;
 
     return p;
 }
