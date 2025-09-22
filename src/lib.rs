@@ -12,6 +12,7 @@ use std::io::Write;
 use std::iter::zip;
 use std::path::Path;
 use std::path::PathBuf;
+use std::ops::Range;
 use std::str;
 use std::sync::{Arc, Mutex};
 
@@ -122,7 +123,7 @@ where
             else { "No quality".bytes().collect() };
 
         let (likelihood, annotation) = model.log_predict(&seq, &qual_mod);
-
+        let (partition, mod_ids) = model.partition_to_units(&annotation);
         let (new_annot, reconstructed_read) = model.realign(&annotation, &seq);
         let reconstructed_reference = model.reconstruct_sequence(&new_annot);
         let mods = model.reconstruct_mod_ids(&new_annot);
@@ -159,9 +160,9 @@ where
         let mut module_repetitions: Vec<u8> = Vec::with_capacity(n_modules);
         let mut module_sequences: Vec<String> = Vec::with_capacity(n_modules);
         for i in 0..n_modules {
+            let ms = get_module_sequences(&seq, &partition, &mod_ids, i);
             let mb = get_module_bases(&mods, i);
             let mr = get_module_repetitions(mb, &repeat.copy_unit, i);
-            let ms = get_module_sequences(&mods, i);
             module_bases.push(mb);
             module_repetitions.push(mr);
             module_sequences.push(ms);
@@ -198,9 +199,16 @@ where
     return (annotation_str, annotated_reads);
 }
 
-fn get_module_sequences(_mods: &[u8], _idx: usize) -> String {
-    let ms = "".to_string();  // TODO: finish this
-    return ms
+fn get_module_sequences(seq: &[u8], partition: &[Range<usize>], mod_ids: &[usize], idx: usize) -> String {
+    let mut ms = Vec::new();
+    for i in 0..mod_ids.len() {
+        if mod_ids[i] == idx {
+            let x = &seq[partition[i].clone()];
+            ms.extend(x);
+        }
+    }
+    let ms = str::from_utf8(&ms).unwrap().to_string();
+    return ms;
 }
 
 fn get_module_repetitions(mb: u8, copy_units: &[Vec<u8>], idx: usize) -> u8 {
