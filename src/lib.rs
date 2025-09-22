@@ -159,25 +159,30 @@ where
         let mut module_bases: Vec<u8> = Vec::with_capacity(n_modules);
         let mut module_repetitions: Vec<u8> = Vec::with_capacity(n_modules);
         let mut module_sequences: Vec<String> = Vec::with_capacity(n_modules);
+        let mut module_nomenclatures: Vec<String> = Vec::with_capacity(n_modules);
         for i in 0..n_modules {
             let ms = get_module_sequences(&seq, &partition, &mod_ids, i);
+            let mn = get_module_nomenclature(&seq, &partition, &mod_ids, i);
             let mb = get_module_bases(&mods, i);
             let mr = get_module_repetitions(mb, &repeat.copy_unit, i);
             module_bases.push(mb);
             module_repetitions.push(mr);
             module_sequences.push(ms);
+            module_nomenclatures.push(mn)
         }
 
         let module_bases = module_bases.into_iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
         let module_repetitions = module_repetitions.into_iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
         let module_sequences = module_sequences.join(",");
+        let module_nomenclatures = module_nomenclatures.join(",");
 
         let line = format!("\
             {name}\t{motif}\t\
             {read_sn}\t{read_id}\t{mate_order}\t{quality}\t{log_likelihood}\t\
             {read}\t\
             {reference}\t\
-            {n_modules}\t{left_bg}\t{module_bases}\t{right_bg}\t{module_repetitions}\t{module_sequences}\t\
+            {n_modules}\t{left_bg}\t{module_bases}\t{right_bg}\t{module_repetitions}\t\
+            {module_sequences}\t{module_nomenclatures}\t\
             {modules}\t\
             {n_deletions}\t{n_insertions}\t{n_mismatches}\t\
             {mismatches_str}\n\
@@ -197,6 +202,33 @@ where
         annotation_str.push_str(&line);
     }
     return (annotation_str, annotated_reads);
+}
+
+fn get_module_nomenclature(seq: &[u8], partition: &[Range<usize>], mod_ids: &[usize], idx: usize) -> String {
+    let mut mn = Vec::new();
+    let mut append_unit = |s, o|{
+        if o != 0 {
+            mn.push(format!("{}[{}]", str::from_utf8(s).unwrap(), o));
+        }
+    };
+
+    let mut prev: &[u8] = b"";
+    let mut occ = 0;
+    for i in 0..mod_ids.len() {
+        if mod_ids[i] == idx {
+            let curr = &seq[partition[i].clone()];
+            if curr == prev {
+                occ += 1;
+            } else {
+                append_unit(prev, occ);
+
+                prev = curr;
+                occ = 1;
+            }
+        }
+    }
+    append_unit(prev, occ);
+    return mn.join("");
 }
 
 fn get_module_sequences(seq: &[u8], partition: &[Range<usize>], mod_ids: &[usize], idx: usize) -> String {
@@ -240,7 +272,7 @@ fn init_tsv(filename: &str) -> File {
     read_sn\tread_id\tmate_order\tquality\tlog_likelihood\t\
     read\t\
     reference\t\
-    n_modules\tleft_bg\tmodule_bases\tright_bg\tmodule_repetitions\tmodule_sequences\t\
+    n_modules\tleft_bg\tmodule_bases\tright_bg\tmodule_repetitions\tmodule_sequences\tmodule_nomenclatures\t\
     modules\t\
     n_deletions\tn_insertions\tn_mismatches\t\
     mismatches_str\n\
@@ -411,6 +443,17 @@ fn tmp_fn_name() {
     let exp_mod_ids: Vec<_> = vec![
         usize::MAX, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2
     ];
+
+    println!();
+    let x = get_module_nomenclature(&seq, &partition, &mod_ids, 0);
+    println!("{}", x);
+    let x = get_module_nomenclature(&seq, &partition, &mod_ids, 1);
+    println!("{}", x);
+    let x = get_module_nomenclature(&seq, &partition, &mod_ids, 2);
+    println!("{}", x);
+    let x = get_module_nomenclature(&seq, &partition, &mod_ids, 3);
+    println!("{}", x);
+    println!();
 
     for (i, p) in partition.into_iter().enumerate() {
         println!("{}", str::from_utf8(&seq[p]).unwrap());
