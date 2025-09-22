@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::{collections::{HashMap, HashSet}, ops::Range};
 
 use ndarray::{self, s, Axis, Array, stack, ArrayView1};
 // https://docs.rs/ndarray/latest/ndarray/doc/ndarray_for_numpy_users/index.html
@@ -58,10 +58,15 @@ enum State {
     Ins,
 }
 
+type TransitionSet = HashSet<(usize, usize)>;
+
 #[derive(Default)]
 pub struct Hmm {
     states: Vec<State>,
-    deletions: HashSet<(usize, usize)>,
+    state_to_mod: Vec<usize>,
+    deletions: TransitionSet,
+    module_changes: TransitionSet,
+    unit_changes: TransitionSet,
     initial: ndarray::Array1<f32>,
     transition: ndarray::Array2<f32>,
     emission: ndarray::Array3<f32>,
@@ -71,13 +76,15 @@ impl From<&Vec<Module>> for Hmm {
     fn from(modules: &Vec<Module>) -> Self {
         let states = get_states(modules);
         let description = get_description(modules);
-        let deletions = get_deletions(&states, &description);
+        let state_to_mod = create_state_to_mod(&states, &description);
 
         let initial = initial_probabilities(&states);
-        let (transition, _tsets) = transition_probabilities(&states, &description);
+        let (transition, tsets) = transition_probabilities(&states, &description);
         let emission = emission_probabilities(&states);
 
-        Hmm { states, deletions, initial, transition, emission }
+        let (deletions, module_changes, unit_changes) = tsets;
+
+        Hmm { states, state_to_mod, deletions, module_changes, unit_changes, initial, transition, emission }
     }
 }
 
@@ -149,29 +156,6 @@ fn get_description(modules: &[Module]) -> Vec<MDesc> {
     return description;
 }
 
-fn get_deletions(states: &[State], desc: &[MDesc]) -> HashSet<(usize, usize)> {
-    let mut deletions = HashSet::new();
-
-    let mut bg_end = 0;
-    while !matches!(states[bg_end], State::End) { bg_end += 1; }
-
-    for i in 0..=bg_end-DEL {
-        deletions.insert((i, i+DEL));
-    }
-
-    for m in desc.iter() {
-        if matches!(states[m.start], State::Seq{..}) { continue; }
-        for i in 0..m.len {
-            let del_start = m.start + i;
-            let del_end = m.start + (i + DEL) % m.len;
-            if (del_start != m.start) & (del_end != m.start + m.len - 1) {
-                deletions.insert((del_start, del_end));
-            }
-        }
-    }
-    return deletions;
-}
-
 fn initial_probabilities(states: &[State]) -> ndarray::Array1<f32> {
     let mut p = Array::zeros(states.len());
     for (i, state) in states.iter().enumerate() {
@@ -192,8 +176,6 @@ fn create_state_to_mod(states: &[State], desc: &[MDesc]) -> Vec<usize> {
     let result = x.iter().cloned().cycle().take(states.len()).collect();
     return result;
 }
-
-type TransitionSet = HashSet<(usize, usize)>;
 
 /// Returns transition probability matrix and three transition sets (HashSet\<(usize, usize)\>) representing:
 /// - transitions causing deletions
@@ -419,6 +401,26 @@ impl Hmm {
         return self;
     }
 
+    pub fn partition_to_units(&self, path: &[usize]) -> (Vec<Range<usize>>, Vec<usize>) {
+        let mut partition = Vec::new();
+        let mut mod_ids = Vec::new();
+        let mut s = 0;
+
+        for i in 1..path.len() {
+            let mchng = self.module_changes.contains(&(path[i-1], path[i]));
+            let uchng = self.unit_changes.contains(&(path[i-1], path[i]));
+            if mchng || uchng {
+                partition.push(s..i);
+                mod_ids.push(self.state_to_mod[path[s]]);
+                s = i;
+            }
+        }
+        partition.push(s..path.len());
+        mod_ids.push(self.state_to_mod[path[s]]);
+
+        return (partition, mod_ids);
+    }
+
     pub fn reconstruct_sequence(&self, path: &[usize]) -> Vec<u8> {
         let mut seq = Vec::with_capacity(path.len());
         for &i in path.iter() {
@@ -614,7 +616,10 @@ mod tests {
         let emission = read_npy("data/test/log_emit_f32.npy").unwrap();
 
         let model = Hmm { 
-            states: Vec::new(), deletions: HashSet::new(), initial, transition, emission 
+            states: Vec::new(),
+            state_to_mod: Vec::new(),
+            deletions: HashSet::new(), module_changes: HashSet::new(), unit_changes: HashSet::new(),
+            initial, transition, emission 
         };
         println!("Initial strides: {:?}", model.initial.strides());
         println!("Initial shape: {:?}", model.initial.shape());

@@ -391,6 +391,8 @@ fn tmp_fn_name() {
     println!("{}", str::from_utf8(&seq).unwrap());
     println!("{}", str::from_utf8(&qual).unwrap());
 
+    let (partition, mod_ids) = model.partition_to_units(&annotation);
+
     let exp_split: Vec<&[u8]> = vec![
         b"CTTCCTCCTCCTCATCGGTGGCGGCGGCGGCGGCGTCAGGCCAGTGCCGCGGCTTTCTCTCCGCG",
         b"CCTGTGTTCGCCGGGACGCATTCGGGGCGG",
@@ -398,8 +400,14 @@ fn tmp_fn_name() {
         b"CCCCGCCT"
     ];
 
-    let exp_modid: Vec<_> = vec![
-        -1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2
+    let exp_mod_ids: Vec<_> = vec![
+        usize::MAX, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2
     ];
+
+    for (i, p) in partition.into_iter().enumerate() {
+        println!("{}", str::from_utf8(&seq[p]).unwrap());
+        println!("{}", str::from_utf8(exp_split[i]).unwrap());
+        println!("{} {}", mod_ids[i], exp_mod_ids[i])
+    }
 }
 
