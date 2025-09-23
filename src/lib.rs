@@ -244,12 +244,18 @@ fn get_module_sequences(seq: &[u8], partition: &[Range<usize>], mod_ids: &[usize
 }
 
 fn get_module_repetitions(mb: u8, copy_units: &[Vec<u8>], idx: usize) -> u8 {
+    // TODO: this should really reflect how many times the HMM passed through module.
+    // Now it should be easy to implement, but for parity with python it is implemented like this.
+    // But definitely, change it in the future.
     if mb == 0 { return 0; }
     if idx == 0 { return 1; }
     if idx == copy_units.len() + 1 { return 1; }
     if idx > copy_units.len() + 1 { panic!("This should never happen."); }
     let copy_len: u8 = copy_units[idx - 1].len().try_into().unwrap();
-    return mb / copy_len;
+    let mb: f64 = mb.into();
+    let copy_len: f64 = copy_len.into();
+    let res = mb / copy_len;
+    return res.round_ties_even() as u8;
 }
 
 fn get_module_bases(mods: &[u8], idx: usize) -> u8 {
