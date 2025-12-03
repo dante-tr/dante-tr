@@ -5,6 +5,7 @@ use noodles::sam::Header;
 use noodles::sam::alignment::record::mapping_quality::MappingQuality;
 use noodles::bgzf as bgzf;
 use rayon::prelude::*;
+use std::fmt;
 use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
@@ -156,25 +157,28 @@ where
 
         let n_modules = repeat.copy_number.len() + 2;
 
-        let mut module_bases: Vec<u8> = Vec::with_capacity(n_modules);
-        let mut module_repetitions: Vec<u8> = Vec::with_capacity(n_modules);
         let mut module_sequences: Vec<String> = Vec::with_capacity(n_modules);
         let mut module_nomenclatures: Vec<String> = Vec::with_capacity(n_modules);
+        let mut module_bases: Vec<usize> = Vec::with_capacity(n_modules);
+        let mut module_repetitions: Vec<usize> = Vec::with_capacity(n_modules);
         for i in 0..n_modules {
             let ms = get_module_sequences(&seq, &partition, &mod_ids, i);
             let mn = get_module_nomenclature(&seq, &partition, &mod_ids, i);
             let mb = get_module_bases(&mods, i);
             let mr = get_module_repetitions(mb, &repeat.copy_unit, i);
+            module_sequences.push(ms);
+            module_nomenclatures.push(mn);
             module_bases.push(mb);
             module_repetitions.push(mr);
-            module_sequences.push(ms);
-            module_nomenclatures.push(mn)
         }
+        let module_classes = get_module_classes(left_bg, &module_bases, right_bg);
 
         let module_bases = module_bases.into_iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
         let module_repetitions = module_repetitions.into_iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
         let module_sequences = module_sequences.join(",");
         let module_nomenclatures = module_nomenclatures.join(",");
+        let module_classes = module_classes.into_iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
+
 
         let line = format!("\
             {name}\t{motif}\t\
@@ -185,7 +189,7 @@ where
             {module_sequences}\t{module_nomenclatures}\t\
             {modules}\t\
             {n_deletions}\t{n_insertions}\t{n_mismatches}\t\
-            {mismatches_str}\n\
+            {mismatches_str}\t{module_classes}\n\
             "
         );
         // let line = format!("\
@@ -202,6 +206,67 @@ where
         annotation_str.push_str(&line);
     }
     return (annotation_str, annotated_reads);
+}
+
+#[derive(Clone)]
+enum AClass {
+    Spanning,
+    Flanking,
+    Missing,
+    Filtered(String)
+}
+
+impl fmt::Display for AClass {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AClass::Missing => write!(f, "Missing"),
+            AClass::Spanning => write!(f, "Spanning"),
+            AClass::Flanking => write!(f, "Flanking"),
+            AClass::Filtered(x) => write!(f, "Filtered({x})")
+        }
+    }
+}
+
+fn get_module_classes(left_bg: usize, module_bases: &[usize], right_bg: usize) -> Vec<AClass> {
+    let mut base_count = Vec::with_capacity(module_bases.len() + 2);
+    base_count.push(left_bg);
+    for &x in module_bases { base_count.push(x); }
+    base_count.push(right_bg);
+
+    // Filtering options:
+    // 1)  addresses this case:
+    //     modules               0111111111111222222222222222222222222222222...
+    //     module_bases          1,12,33,30
+    //     module_repetitions    1,4,11,1
+    const MIN_MOD_LEN: usize = 3;
+    for x in &mut base_count { *x = (*x).saturating_sub(MIN_MOD_LEN); }
+    // 2)  previous case could be better addressed by ignoring first and last ~5bp of read/annotation
+    // 3)  if read has too many mismatches+indels, filter it out.
+    //     This was implemented, but unused in the python code.
+    // 4)  Filter out skipped modules. This should not happen now,
+    //     but filtering option 1) can trigger it
+    let first_nonzero = base_count.iter().position(|&x| x != 0);
+    let last_nonzero  = base_count.iter().rposition(|&x| x != 0);
+    let valid = match (first_nonzero, last_nonzero) {
+        (Some(s), Some(e)) => base_count[s..=e].iter().all(|&x| x != 0),
+        (None, None) => true,
+        _ => unreachable!()
+    };
+    if ! valid { return vec![AClass::Filtered("Incorrect Annotation".to_string()); module_bases.len()] }
+    // End of filtering options
+
+    let mut result = Vec::with_capacity(module_bases.len());
+    for i in 1..(base_count.len()-1) {
+        if base_count[i] == 0 {
+            result.push(AClass::Missing);
+        } else if base_count[i-1] != 0 && base_count[i+1] != 0 {
+            result.push(AClass::Spanning);
+        } else {
+            // bc[i] != 0 and (bc[i-1] == 0 or bc[i+1] == 0) 
+            result.push(AClass::Flanking);
+        }
+    }
+    return result;
 }
 
 fn get_module_nomenclature(seq: &[u8], partition: &[Range<usize>], mod_ids: &[usize], idx: usize) -> String {
@@ -243,7 +308,7 @@ fn get_module_sequences(seq: &[u8], partition: &[Range<usize>], mod_ids: &[usize
     return ms;
 }
 
-fn get_module_repetitions(mb: u8, copy_units: &[Vec<u8>], idx: usize) -> u8 {
+fn get_module_repetitions(mb: usize, copy_units: &[Vec<u8>], idx: usize) -> usize {
     // TODO: this should really reflect how many times the HMM passed through module.
     // Now it should be easy to implement, but for parity with python it is implemented like this.
     // But definitely, change it in the future.
@@ -252,17 +317,20 @@ fn get_module_repetitions(mb: u8, copy_units: &[Vec<u8>], idx: usize) -> u8 {
     if idx == copy_units.len() + 1 { return 1; }
     if idx > copy_units.len() + 1 { panic!("This should never happen."); }
     let copy_len: u8 = copy_units[idx - 1].len().try_into().unwrap();
-    let mb: f64 = mb.into();
+    let mb: f64 = mb as f64;  // f64 cannot represent all usize values. Potentially dangerous
     let copy_len: f64 = copy_len.into();
     let res = mb / copy_len;
-    return res.round_ties_even() as u8;
+    // fNN as iNN is defined to be a truncating cast, saturating out-of-range values and mapping NaN to 0.
+    // If that's what you want, just writing as is currently the best way to get that behavior.
+    // https://users.rust-lang.org/t/floor-and-cast-f64-to-usize-in-one-operation/88768/4
+    return res.round_ties_even() as usize;
 }
 
-fn get_module_bases(mods: &[u8], idx: usize) -> u8 {
+fn get_module_bases(mods: &[u8], idx: usize) -> usize {
     const ASCII_ZERO: usize = 48;
     let idx: u8 = (idx + ASCII_ZERO).try_into().unwrap();
     let count = mods.iter().filter(|&&x| x == idx).count();
-    return count.try_into().unwrap();
+    return count;
 }
 
 fn header<P: AsRef<Path>>(bam_filename: P) -> Header {
@@ -281,7 +349,7 @@ fn init_tsv(filename: &str) -> File {
     n_modules\tleft_bg\tmodule_bases\tright_bg\tmodule_repetitions\tmodule_sequences\tmodule_nomenclatures\t\
     modules\t\
     n_deletions\tn_insertions\tn_mismatches\t\
-    mismatches_str\n\
+    mismatches_str\tmodule_classes\n\
     ";
 
     out.write_all(line).expect("Cannot write to output file.");

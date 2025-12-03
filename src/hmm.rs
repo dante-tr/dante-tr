@@ -202,13 +202,14 @@ fn transition_probabilities(states: &[State], desc: &[MDesc])
         let m_rep = m.rep.unwrap() as f32; // safe due to previous if
 
         // add cycle
-        result[[m_end, m.start]] = 1.0 - 1.0/m_rep;  // connection type 01
+        set_cell(&mut result, [m_end, m.start], 1.0 - 1.0/m_rep, "connection type 01");
         transition_uchng.insert((m_end, m.start));
 
         // add insertion between repetitions
         let ins = bg_end + m_end;
         if ins < states.len() {    // last -> bg does not have insertion
-            result[[ins, m.start]] = 1.0 - 1.0/m_rep - P_INS;  // connection type 02
+            let value = 1.0 - 1.0/m_rep - P_INS;  // connection type 02
+            set_cell(&mut result, [ins, m.start], value, "connection type 02");
             transition_uchng.insert((ins, m.start));
         }
 
@@ -217,7 +218,7 @@ fn transition_probabilities(states: &[State], desc: &[MDesc])
             let del_start = m.start + i;
             let del_end = m.start + (i + DEL) % m.len;
             if (del_start != m.start) & (del_end != m_end) {
-                result[[del_start, del_end]] = P_DEL;  // connection type 03
+                set_cell(&mut result, [del_start, del_end], P_DEL, "connection type 03");
                 transition_uchng.insert((del_start, del_end));
                 transition_delet.insert((del_start, del_end));
             }
@@ -227,57 +228,60 @@ fn transition_probabilities(states: &[State], desc: &[MDesc])
     // connect simple insertions
     for i in 1..=bg_end-2 {
         let ins = bg_end + i;
-        result[[i, ins]] = P_INS;  // connection type 04
-        result[[ins, ins]] = P_INS;  // connection type 05
-        result[[ins, i+1]] = 1.0 - result.slice(s![ins, ..]).sum();  // connection type 06
+        set_cell(&mut result, [i, ins], P_INS, "connection type 04");
+        set_cell(&mut result, [ins, ins], P_INS, "connection type 05");
+
+        let value = 1.0 - result.slice(s![ins, ..]).sum();
+        set_cell(&mut result, [ins, i+1], value, "connection type 06");
         if state_to_mod[ins] != state_to_mod[i+1] { transition_mchng.insert((ins, i+1)); }
     }
 
     // connect simple deletions
-    result[[bg_start, bg_start + DEL]] = P_DEL * FREQ;  // connection type 07
+    let cell = [bg_start, bg_start + DEL];
+    set_cell(&mut result, cell, P_DEL * FREQ, "connection type 07");
     transition_delet.insert((bg_start, bg_start + DEL));
     transition_mchng.insert((bg_start, bg_start + DEL));
+
     for i in 1..=bg_end-DEL {
-        result[[i, i + DEL]] = P_DEL;  // connection type 08
+        set_cell(&mut result, [i, i + DEL], P_DEL, "connection type 08");
         transition_delet.insert((i, i + DEL));
         if state_to_mod[i] != state_to_mod[i+DEL] { transition_mchng.insert((i, i+DEL)); }
     }
 
-    // allow module skipping
-    for m in desc.iter() {
-        result[[bg_start, m.start]] = FREQ;  // connection type 09
-        transition_mchng.insert((bg_start, m.start));
-    }
+    let m = &desc[0];
+    set_cell(&mut result, [bg_start, m.start], FREQ, "start");
+    transition_mchng.insert((bg_start, m.start));
 
-    for (i, m) in desc.iter().enumerate() {
+    for (i, m) in desc.iter().enumerate().skip(desc.len() - 1) {
         let m_end = m.start + m.len - 1;
         // number of remaining modules to the right
         let r_mod = (desc.len() - i) as f32;
         let r_prob = 1.0 - result.slice(s![m_end, ..]).sum();
-        // +2, because we jump over the next module, as it will be connected later
-        if let Some(x) = desc.get(i+2..) {
-            for destination in x {
-                result[[m_end, destination.start]] = r_prob / r_mod;  // connection type 10
-                transition_mchng.insert((m_end, destination.start));
-            }
-        }
-        result[[m_end, bg_end]] = r_prob / r_mod;  // connection type 11
+        set_cell(&mut result, [m_end, bg_end], r_prob / r_mod, "end");
         transition_mchng.insert((m_end, bg_end));
     }
 
     // loop in start
-    result[[bg_start, bg_start]] = 1.0 - result.slice(s![bg_start, ..]).sum();  // connection type 12
+    let value = 1.0 - result.slice(s![bg_start, ..]).sum();
+    set_cell(&mut result, [bg_start, bg_start], value, "connection type 12");
 
     // connect to the next state
     for i in 1..bg_end-1 {
-        result[[i, i+1]] = 1.0 - result.slice(s![i, ..]).sum();  // connection type 13
+        let value = 1.0 - result.slice(s![i, ..]).sum();  // connection type 13
+        set_cell(&mut result, [i, i+1], value, "connection type 13");
         if state_to_mod[i] != state_to_mod[i+1] { transition_mchng.insert((i, i+1)); }
     }
 
     // loop in end
-    result[[bg_end, bg_end]] = 1.0;  // connection type 14
+    set_cell(&mut result, [bg_end, bg_end], 1.0, "connection type 14");
 
     return (result, (transition_delet, transition_mchng, transition_uchng));
+}
+
+fn set_cell(matrix: &mut ndarray::Array2<f32>, cell: [usize; 2], value: f32, description: &str) {
+    matrix[cell] = value;
+    // println!("{:>2} -> {:>2}  {:>12}  {}", cell[0], cell[1], value, description);
+    let _ = description;
 }
 
 fn emission_probabilities(states: &[State]) -> ndarray::Array3<f32> {
