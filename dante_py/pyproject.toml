@@ -5,6 +5,8 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "jinja2>=3.1.6",
+    "matplotlib>=3.10.8",
     "pandas>=2.3.3",
     "scipy>=1.16.3",
 ]

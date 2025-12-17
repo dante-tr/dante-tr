@@ -74,11 +74,11 @@ fn process_motif(
         .map(|x| x.expect("Incorrect read."))
         .collect();
     let raw_count = reads.len();
-    let reads: Vec<_> = reads.into_iter()
-        .filter(|x| !x.sequence().is_empty())
-        .filter(|x| !(dedup && x.flags().is_duplicate()))
-        .filter(|x| !mapq_less_than(x, q))
-        .collect();
+    // let reads: Vec<_> = reads.into_iter()
+    //     .filter(|x| !x.sequence().is_empty())
+    //     .filter(|x| !(dedup && x.flags().is_duplicate()))
+    //     .filter(|x| !mapq_less_than(x, q))
+    //     .collect();
     let filt_count = reads.len();
     println!("{region_str}: {filt_count}/{raw_count}");
 
@@ -239,8 +239,25 @@ fn get_module_classes(left_bg: usize, module_bases: &[usize], right_bg: usize) -
     //     module_bases          1,12,33,30
     //     module_repetitions    1,4,11,1
     const MIN_MOD_LEN: usize = 3;
-    for x in &mut base_count { *x = (*x).saturating_sub(MIN_MOD_LEN); }
-    // 2)  previous case could be better addressed by ignoring first and last ~5bp of read/annotation
+    // for x in &mut base_count { *x = (*x).saturating_sub(MIN_MOD_LEN); }
+    // 2)  previous case could be better addressed by ignoring first and last ~3bp of read/annotation
+    let mut to_remove = MIN_MOD_LEN;
+    let mut i = 0;
+    while to_remove > 0 {
+        let tmp = [to_remove, base_count[i]];
+        let m = *tmp.iter().min().unwrap();
+        to_remove -= m; base_count[i] -= m;
+        i += 1;
+    }
+
+    let mut to_remove = MIN_MOD_LEN;
+    let mut i = base_count.len() - 1;
+    while to_remove > 0 {
+        let tmp = [to_remove, base_count[i]];
+        let m = *tmp.iter().min().unwrap();
+        to_remove -= m; base_count[i] -= m;
+        i -= 1;
+    }
     // 3)  if read has too many mismatches+indels, filter it out.
     //     This was implemented, but unused in the python code.
     // 4)  Filter out skipped modules. This should not happen now,

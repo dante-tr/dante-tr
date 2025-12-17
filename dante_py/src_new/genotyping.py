@@ -59,7 +59,11 @@ def genotype(
 class Inference:
     """ Class for inference of alleles. """
     MIN_REPETITIONS = 1
-    DEFAULT_MODEL_PARAMS = (0.001, 0.000105087, 0.0210812, 0.001)
+    # DEFAULT_MODEL_PARAMS = (0.001, 0.000105087, 0.0210812, 0.001)
+    # p1, p2, p3, q = DEFAULT_MODEL_PARAMS
+    # inserts = q
+    # deletes = p1 + p2 * n
+    DEFAULT_MODEL_PARAMS = (0.0001, 0.0001, 0.0, 0.0001)
     DEFAULT_FIT_FUNCTION = 'linear'
 
     # TODO: type the members
@@ -129,7 +133,9 @@ class Inference:
         l_bckg_open = 0.01
         l_exp = 1.01
 
-        l_bckg_model_open = 1.0
+        # l_bckg_model_open = 1.00
+        l_bckg_model_open = 0.5
+        # l_bckg_model_open = 0.25
 
         if self.p_expanded is None:
             self.p_expanded = l_exp
