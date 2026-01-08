@@ -8,3 +8,5 @@ data/test/log_init_f32.npy filter=lfs diff=lfs merge=lfs -text
 data/test/log_trans_f32.npy filter=lfs diff=lfs merge=lfs -text
 data/test/mini.bam filter=lfs diff=lfs merge=lfs -text
 data/test/nomenclature_hgs_1Q_wo_names.tsv filter=lfs diff=lfs merge=lfs -text
+dante_gui/assets/bin/dante_remastr_standalone filter=lfs diff=lfs merge=lfs -text
+dante_gui/assets/bin/dante_remastr_standalone.exe filter=lfs diff=lfs merge=lfs -text
