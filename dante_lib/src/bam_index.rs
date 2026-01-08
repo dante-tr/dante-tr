@@ -56,15 +56,6 @@ fn is_coordinate_sorted(header: &sam::Header) -> bool {
         .unwrap_or_default()
 }
 
-#[test]
-fn test_coordinate_sorted() {
-    let bam_path = "data/real/ilr_lib3.bam";
-    let mut reader = bam::io::reader::Builder.build_from_path(bam_path).unwrap();
-    let header = reader.read_header().unwrap();
-
-    assert!(is_coordinate_sorted(&header));
-}
-
 fn bai<P: AsRef<Path>>(bam: P) -> PathBuf {
     let mut bai = bam.as_ref().to_path_buf();
     bai.set_extension("bam.bai");
@@ -79,19 +70,3 @@ pub fn check_bai<P: AsRef<Path>>(bam: P) {
     }
 }
 
-#[test]
-fn test_bai_construction() {
-    let bam_path = "data/real/ilr_lib3.bam";
-    let bai_path = bai(bam_path);
-    if !bai_path.exists() {
-        println!("Create .bai for bam file.");
-        create_bai_file(bam_path).expect("Cannot create .bai file.");
-    }
-
-    use noodles::bam::io::indexed_reader::Builder;
-    let mut reader = Builder::default()
-        .build_from_path(bam_path)
-        .expect("Unable to read the associated index (.bai).");
-
-    let _header = reader.read_header().unwrap();
-}

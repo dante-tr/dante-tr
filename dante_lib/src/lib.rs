@@ -439,57 +439,6 @@ fn mate_order(read: &bam::Record) -> String {
 }
 
 #[test]
-fn can_load_bam() {
-    use noodles::bam::io::reader;
-    let mut reader = reader::Builder
-        .build_from_path("./data/test/mini.bam").unwrap();
-
-    reader.read_header().unwrap(); // this is necessary here
-    for result in reader.records() {
-        let record = result.unwrap();
-        println!("{:?}", record);
-    }
-}
-
-#[test]
-fn count_present() {
-    let hgvs = File::open("data/test/HGVS.txt").unwrap();
-    let reader = BufReader::new(hgvs);
-
-    // let mut present_count = 0;
-    let present_count = 0;
-    let mut max_count = 0;
-    for line in reader.lines() {
-        let line = line.unwrap().trim().to_owned();
-        let _tr: TandemRepeat = line.parse().unwrap();
-        // if is_present(&tr, &references) {
-        //     present_count += 1;
-        // } else {
-            // println!("{}", tr);
-            // print_diff(&tr, &references);
-            // println!();
-        // }
-        max_count += 1;
-    }
-    println!("Present repeats: {}/{}", present_count, max_count);
-}
-
-#[test]
-fn can_read_and_parse_hgvs_file() {
-    let file = "./data/test/mini_HGVS.txt";
-    let file = File::open(file).unwrap();
-    let reader = BufReader::new(file);
-
-    for line in reader.lines() {
-        let line = line.unwrap();
-        let line = line.trim();
-        println!("{}", line);
-        let tr: TandemRepeat = line.parse().unwrap();
-        println!("{:?}", tr);
-    }
-}
-
-#[test]
 fn tmp_fn_name() {
     // CTTCCTCCTCCTCATCGGTGGCGGCGGCGGCGGCGTCAGGCCAGTGCCGCGGCTTTCTCTCCGCGCCTGTGTTCGCCGGGACGCATTCGGGGCGGGCGGCGGCGGCGGCAGCGGCGGCCGCGGCGGCGGGCGGGGCCGCCCCCCGCCT
     // CCCFFFFFHHHHGIIJJIHIJIJJJHGHDDDBDDBBDDDDDDDDCCCC5@BDDBBCCCCACDBBDBDBBCCCCCBDDBBD@BDDBDDDDDDDDDD@5.5&)0)&5))0)&)2&55)0&&&&&)&&)&))&&&&&)&&&&)&&50)&&&

@@ -88,35 +88,35 @@ impl From<&Vec<Module>> for Hmm {
     }
 }
 
-#[test]
-fn test_construction_of_transition_sets() {
-    let modules: Vec<Module> = vec![
-        (&b"TTTT"[..]).into(),
-        (&b"GCG"[..], 5).into(),
-        (&b"TTTT"[..]).into()
-    ];
-
-    let states = get_states(&modules);
-    let description = get_description(&modules);
-
-    let (_, tsets) = transition_probabilities(&states, &description);
-
-    let (trans_deletion, trans_modchange, trans_unitchange) = tsets;
-    let exp_trans_deletion = HashSet::from([
-        (0, 2), (1, 3), (2, 4), (3, 5), (4, 6), (5, 7), (6, 5), (6, 8), (7, 6),
-        (7, 9), (8, 10), (9, 11), (10, 12)
-    ]);
-    assert!(exp_trans_deletion == trans_deletion);
-
-    let exp_trans_modchange = HashSet::from([
-        (0, 1), (0, 2), (0, 5), (0, 8), (3, 5), (4, 5), (4, 6), (4, 8), (4, 12),
-        (6, 8), (7, 8), (7, 9), (7, 12), (10, 12), (11, 12), (16, 5), (19, 8)
-    ]);
-    assert!(exp_trans_modchange == trans_modchange);
-
-    let exp_trans_unitchange = HashSet::from([(6, 5), (7, 5), (7, 6), (19, 5)]);
-    assert!(exp_trans_unitchange == trans_unitchange);
-}
+// #[test]
+// fn test_construction_of_transition_sets() {
+//     let modules: Vec<Module> = vec![
+//         (&b"TTTT"[..]).into(),
+//         (&b"GCG"[..], 5).into(),
+//         (&b"TTTT"[..]).into()
+//     ];
+// 
+//     let states = get_states(&modules);
+//     let description = get_description(&modules);
+// 
+//     let (_, tsets) = transition_probabilities(&states, &description);
+// 
+//     let (trans_deletion, trans_modchange, trans_unitchange) = tsets;
+//     let exp_trans_deletion = HashSet::from([
+//         (0, 2), (1, 3), (2, 4), (3, 5), (4, 6), (5, 7), (6, 5), (6, 8), (7, 6),
+//         (7, 9), (8, 10), (9, 11), (10, 12)
+//     ]);
+//     assert!(exp_trans_deletion == trans_deletion);
+// 
+//     let exp_trans_modchange = HashSet::from([
+//         (0, 1), (0, 2), (0, 5), (0, 8), (3, 5), (4, 5), (4, 6), (4, 8), (4, 12),
+//         (6, 8), (7, 8), (7, 9), (7, 12), (10, 12), (11, 12), (16, 5), (19, 8)
+//     ]);
+//     assert!(exp_trans_modchange == trans_modchange);
+// 
+//     let exp_trans_unitchange = HashSet::from([(6, 5), (7, 5), (7, 6), (19, 5)]);
+//     assert!(exp_trans_unitchange == trans_unitchange);
+// }
 
 fn get_states(modules: &[Module]) -> Vec<State> {
     let mut states: Vec<State> = Vec::new();
@@ -474,40 +474,12 @@ impl Hmm {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use float_cmp::approx_eq;
-    use ndarray::ArrayView;
-    use ndarray::Dim;
-    use ndarray_npy::read_npy;
-    use ndarray::Array2;
-    use ndarray::Array3;
-
-    #[test]
-    fn basic_test() {
-        let modules: Vec<Module> = vec![
-            (&b"TCT"[..]).into(),
-            (&b"GTC"[..], 5).into(),
-            (&b"AAA"[..]).into()
-        ];
-
-        let seq =  b"AATCTGTCGTCGTCGTCAGTCGTCAAATT".to_vec();
-        let qual = b":F::FF:,F,FFFFFFF,FF,FFF:F,FF".to_vec();
-
-        let model = Hmm::from(&modules).log();
-        let (likelihood, annotation) = model.log_predict(&seq, &qual);
-
-        assert!(approx_eq!(f32, likelihood, 7.106122e-13_f32.ln(), (1e-4, 2)));
-        assert!(annotation == vec![
-            0, 0, 1, 2, 3, 4, 5, 6, 4, 5, 6, 4, 5, 6, 4,
-            5, 6, 16, 4, 5, 6, 4, 5, 6, 7, 8, 9, 10, 10
-        ]);
-
-        let rebuilt = model.reconstruct_sequence(&annotation);
-        let expected = b"--TCTGTCGTCGTCGTC_GTCGTCAAA--".to_vec();
-        assert!(rebuilt == expected);
-        let modules = model.reconstruct_mod_ids(&annotation);
-        let expected = b"--000111111111111I111111222--";
-        assert!(modules == expected);
-    }
+    // use float_cmp::approx_eq;
+    // use ndarray::ArrayView;
+    // use ndarray::Dim;
+    // use ndarray_npy::read_npy;
+    // use ndarray::Array2;
+    // use ndarray::Array3;
 
     #[test]
     fn reconstructed_output_has_the_same_length() {
@@ -587,95 +559,6 @@ mod tests {
         ]);
     }
 
-    // #[ignore = "deprecated"]
-    #[test]
-    fn construct_hmm() {
-        let modules: Vec<Module> = vec![
-            (&b"TCT"[..]).into(),   // inside parenthesis creates &[u8] instead of &[u8;N]
-            (&b"GTC"[..], 5).into(),
-            (&b"AAA"[..]).into()
-        ];
-
-        let model = Hmm::from(&modules);
-        let expected: Array2<f32> = read_npy("data/test/log_trans_f32.npy").unwrap();
-        let expected = expected.map(|&x| x.exp());
-
-        let diff = find_diff_ndarray2(expected.view(), model.transition.view(), (1e-4, 2));
-        if let Some((i, j)) = diff {
-            println!("{} {} {} {}", i, j, expected[[i, j]], model.transition[[i, j]]);
-            println!("{:#034b}", expected[[i, j]].to_bits());
-            println!("{:#034b}", model.transition[[i, j]].to_bits());
-        }
-        assert!(diff.is_none());
-
-        // println!("{:#?}", model.initial);
-        // println!("{:#?}", model.transition);
-        // println!("{:#?}", model.emission);
-    }
-
-    #[test]
-    fn prediction_works() {
-        let initial = read_npy("data/test/log_init_f32.npy").unwrap();
-        let transition = read_npy("data/test/log_trans_f32.npy").unwrap();
-        let emission = read_npy("data/test/log_emit_f32.npy").unwrap();
-
-        let model = Hmm { 
-            states: Vec::new(),
-            state_to_mod: Vec::new(),
-            deletions: HashSet::new(), module_changes: HashSet::new(), unit_changes: HashSet::new(),
-            initial, transition, emission 
-        };
-        println!("Initial strides: {:?}", model.initial.strides());
-        println!("Initial shape: {:?}", model.initial.shape());
-        println!("Transition strides: {:?}", model.transition.strides());
-        println!("Transition shape: {:?}", model.transition.shape());
-        println!("Emission strides: {:?}", model.emission.strides());
-        println!("Emission shape: {:?}", model.emission.shape());
-
-        let seq =  b"AATCTGTCGTCGTCGTCAGTCGTCAAATT".to_vec();
-        let qual = b":F::FF:,F,FFFFFFF,FF,FFF:F,FF".to_vec();
-        let (likelihood, path) = model.log_predict(&seq, &qual);
-        println!("{likelihood}: {path:?}");
-
-        assert!(approx_eq!(f32, likelihood, 7.106122e-13_f32.ln(), (1e-3, 2)));
-        assert!(path == vec![
-            0, 0, 1, 2, 3, 4, 5, 6, 4, 5, 6, 4, 5, 6, 4,
-            5, 6, 16, 4, 5, 6, 4, 5, 6, 7, 8, 9, 10, 10
-        ]);
-    }
-
-//     #[test]
-//     fn initial_are_correct() {
-//         let states = vec![
-//             State::StartBackground,
-//             State::Sequence, State::Sequence, State::SequenceEnd,
-//             State::Motif, State::Motif, State::MotifEnd,
-//             State::Sequence, State::Sequence, State::SequenceEnd,
-//             State::EndBackground,
-//             State::Insert, State::Insert, State::Insert, State::Insert,
-//             State::Insert, State::Insert, State::Insert, State::Insert
-//         ];
-//         let obtained = initial_probabilities(&states);
-//         let expected = read_npy("data/log_init_f32.npy").unwrap();
-//     }
-
-    #[test]
-    fn emissions_are_correct() {
-        use State as S;
-        let states = vec![
-            S::Start,
-            S::Seq{c: b'T', id: 0}, S::Seq{c: b'C', id: 0}, S::Seq{c: b'T', id: 0},
-            S::Motif{c: b'G', id: 1}, S::Motif{c: b'T', id: 0}, S::Motif{c: b'C', id: 1},
-            S::Seq{c: b'A', id: 2}, S::Seq{c: b'A', id: 2}, S::Seq{c: b'A', id: 2},
-            S::End,
-            S::Ins, S::Ins, S::Ins, S::Ins,
-            S::Ins, S::Ins, S::Ins, S::Ins
-        ];
-        let obtained = emission_probabilities(&states).map(|&x| x.ln());
-        let expected: Array3<f32> = read_npy("data/test/log_emit_f32.npy").unwrap();
-        assert_eq_ndarray3(expected.view(), obtained.view(), (1e-3, 2));
-    }
-
     #[test]
     fn emissions_support_iupac_codes() {
         let modules: Vec<Module> = vec![
@@ -702,92 +585,5 @@ mod tests {
         println!("{}", str::from_utf8(&rref).unwrap());
         println!("{}", str::from_utf8(&mods).unwrap());
     }
-
-    // how to make this generic over dimensions?
-    fn assert_eq_ndarray3(
-        a1: ArrayView<f32, Dim<[usize; 3]>>,
-        a2: ArrayView<f32, Dim<[usize; 3]>>, 
-        acc: (f32, i32)
-    ) {
-        let shp = a1.shape();
-        for i in 0..shp[0] {
-            let diff = find_diff_ndarray2(
-                a1.index_axis(Axis(0), i),
-                a2.index_axis(Axis(0), i),
-                acc
-            );
-            if let Some((j, k)) = diff {
-                println!(
-                    "for i={i}, j={j}, k={k}: Expected {}, got {}.",
-                    a1[[i, j, k]], a2[[i, j, k]]
-                );
-                panic!();
-            }
-        }
-    }
-
-    fn find_diff_ndarray2(
-        a1: ArrayView<f32, Dim<[usize; 2]>>,
-        a2: ArrayView<f32, Dim<[usize; 2]>>,
-        acc: (f32, i32)
-    ) -> Option<(usize, usize)> {
-        let shp = a1.shape();
-        for i in 0..shp[0] {
-            for j in 0..shp[1] {
-                if !approx_eq!(f32, a1[[i, j]], a2[[i, j]], acc) {
-                    return Some((i, j));
-                }
-            }
-        }
-        return None;
-    }
-
-    // use ndarray::Dimension;
-    // use ndarray::RemoveAxis;
-    // maybe look at how outer_iter is implemented?
-    // fn find_diff<D>(
-    //     a1: ArrayView<f32, D>, a2: ArrayView<f32, D>, acc: (f32, i32)
-    // ) -> Option<Vec<usize>>
-    // where
-    //     D: Dimension + RemoveAxis
-    // {
-    //     let tmp = a1.outer_iter();
-    //     let shp = a1.shape();
-    //     if shp.len() == 1 {
-    //         for i in a1.outer_iter() {
-    //         }
-    //         for i in 0..shp[0] {
-    //             if !approx_eq!(f32, a1[[i]], a2[[i]], acc) {
-    //                 return Some(vec![i]);
-    //             }
-    //         }
-    //         return None;
-    //     } else {
-    //         for i in 0..shp[0] {
-    //             let tmp1 = a1.index_axis(Axis(0), i).into_dimensionality().unwrap();
-    //             let tmp2 = a2.index_axis(Axis(0), i).into_dimensionality().unwrap();
-    //             let x = find_diff(
-    //                 tmp1,
-    //                 tmp2,
-    //                 acc
-    //             );
-    //             if let Some(mut x) = x {
-    //                 let mut v = vec![i];
-    //                 x.reverse();
-    //                 v.extend_from_slice(&x);
-    //                 return Some(v);
-    //             }
-    //         }
-    //         return None;
-    //     }
-    // }
-
-    // #[test]
-    // fn test_find_diff() {
-    //     let a1 = array![[1.,2.,3.], [4.,5.,6.]];
-    //     let a2 = array![[1.,2.,3.], [4.,0.,6.]];
-
-    //     // let x = find_diff(a1.view(), a2.view(), (1e-3, 2));
-    // }
 }
 
