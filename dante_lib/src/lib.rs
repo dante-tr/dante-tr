@@ -28,6 +28,7 @@ use crate::hmm::{Module, Hmm};
 use crate::repeats::TandemRepeat;
 use crate::io::get_modules;
 
+#[deprecated(since="0.12.0", note="please use `run_v2` instead")]
 pub fn run(
     bam_file: &Path, motif_file: &Path, output: String, out_bam: bool,
     params: (bool, u8, Option<char>, bool)
@@ -49,6 +50,53 @@ pub fn run(
     // create bai index
     //     let filename = args.output.to_string() + ".bam";
     //     check_bai(filename);
+}
+
+pub fn run_v2(bam_file: &Path, motif_file: &Path, output: &Path, out_bam_flag: bool) {
+    check_bai(bam_file);
+
+    let motif_records = read_motifs(motif_file);
+    motif_records.par_iter().for_each(|motif_record| {
+
+        // load bam
+        let mut reader = bam::io::indexed_reader::Builder::default()
+            .build_from_path(bam_file)
+            .expect("Unable to read the associated index (.bai).");
+        let header = reader.read_header().unwrap();
+
+        // select relevant reads
+        let (left_flank, repeat, right_flank) = motif_record;
+        let region_str = format!("{}:{}-{}", repeat.reference, repeat.start + 1, repeat.end);
+        let region = region_str.parse().unwrap();
+        let reads: Vec<_> = reader
+            .query(&header, &region).unwrap()
+            .map(|x| x.expect("Incorrect read."))
+            .collect();
+
+        // build HMM and annotate reads
+        let model = Hmm::from(&get_modules(left_flank, repeat, right_flank)).log();
+        let (annotation, annotated_reads) = annotate_reads(reads.into_iter(), model, repeat, None, false);
+
+        // write to files
+        let name = repeat.name.as_ref().unwrap().clone();
+
+        let out_tsv_file = output.join(name.to_owned() + ".annotations.tsv");
+        let mut out_tsv = init_tsv(&out_tsv_file.to_string_lossy());
+        out_tsv.write_all(annotation.as_bytes()).expect("Cannot write to output file.");
+
+        if out_bam_flag {
+            let out_bam_file = output.join(name.to_owned() + ".annotated.bam");
+            let mut out_bam = init_bam(&out_bam_file.to_string_lossy(), &header);
+            for record in annotated_reads {
+                out_bam.write_record(&header, &record).expect("Cannot write to out bam.");
+            }
+            // TODO:
+            // sort bam
+            // create bai index
+        }
+    });
+
+    println!("Annotation finished successfully.");
 }
 
 fn process_motif(

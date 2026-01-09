@@ -1,14 +1,48 @@
 use clap::Parser;
 use std::path::PathBuf;
+use std::fs;
 
 use remastr::run;
+use remastr::run_v2;
+
+// fn main() {
+//     let args = Args::parse();
+//     run(
+//         &PathBuf::from(args.bam_file), &PathBuf::from(args.motif_file), args.output, args.out_bam,
+//         (args.dedup, args.q, args.score, args.print_quality)
+//     );
+// }
 
 fn main() {
-    let args = Args::parse();
-    run(
-        &PathBuf::from(args.bam_file), &PathBuf::from(args.motif_file), args.output, args.out_bam,
-        (args.dedup, args.q, args.score, args.print_quality)
-    );
+    let args = ArgsNew::parse();
+
+    // mkdir -p <output>
+    fs::create_dir_all(&args.output).unwrap_or_else(|err| {
+        println!("! {:?}", err.kind());
+    });
+
+    run_v2(&args.bam_file, &args.motif_file, &args.output, args.out_bam);
+}
+
+// Predict short tandem repeat annotation
+#[derive(Parser, Debug, PartialEq, Eq)]
+struct ArgsNew {
+    /// Reads mapped to reference in BAM format
+    #[arg(short='b')]
+    bam_file: PathBuf,
+
+    /// Table in tsv format containing data about repeat such as HGVS nomenclature, flanks, etc.
+    #[arg(short='m')]
+    motif_file: PathBuf,
+
+    /// Directory where the results of annotation will be written
+    #[arg(short='o')]
+    output: PathBuf,
+
+    /// Output annotated reads in BAM.
+    /// BAM files contain only reads which overlap with motif positions.
+    #[arg(long="output-bams", action, verbatim_doc_comment)]
+    out_bam: bool,
 }
 
 // Predict short tandem repeat annotation
@@ -105,3 +139,18 @@ fn test_cli_maximal() {
     };
     assert_eq!(args, result);
 }
+
+#[test]
+fn test_cli_new() {
+    let cmd = "dante_cli -b reads.bam -m motifs.tsv -o output_dir --output-bams";
+
+    let args = ArgsNew::try_parse_from(cmd.split_whitespace()).unwrap();
+    let result = ArgsNew {
+        bam_file  : PathBuf::from("reads.bam"),
+        motif_file: PathBuf::from("motifs.tsv"),
+        output    : PathBuf::from("output_dir"),
+        out_bam   : true,
+    };
+    assert_eq!(args, result);
+}
+
