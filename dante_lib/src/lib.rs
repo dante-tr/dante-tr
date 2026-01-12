@@ -27,6 +27,7 @@ use crate::bam_index::check_bai;
 use crate::hmm::{Module, Hmm};
 use crate::repeats::TandemRepeat;
 use crate::io::get_modules;
+use crate::bam_ops::RelevantReads;
 
 #[deprecated(since="0.12.0", note="please use `run_v2` instead")]
 pub fn run(
@@ -58,42 +59,30 @@ pub fn run_v2(bam_file: &Path, motif_file: &Path, output: &Path, out_bam_flag: b
     let motif_records = read_motifs(motif_file);
     motif_records.par_iter().for_each(|motif_record| {
 
-        // load bam
-        let mut reader = bam::io::indexed_reader::Builder::default()
-            .build_from_path(bam_file)
-            .expect("Unable to read the associated index (.bai).");
-        let header = reader.read_header().unwrap();
-
-        // select relevant reads
         let (left_flank, repeat, right_flank) = motif_record;
+        let name = repeat.name.as_ref().unwrap().clone();
         let region_str = format!("{}:{}-{}", repeat.reference, repeat.start + 1, repeat.end);
         let region = region_str.parse().unwrap();
-        let reads: Vec<_> = reader
-            .query(&header, &region).unwrap()
-            .map(|x| x.expect("Incorrect read."))
-            .collect();
+
+        let mut relevant_reads = RelevantReads::from(bam_file, region);
+        if out_bam_flag {
+            let h = relevant_reads.header();
+            let out_bam_file = output.join(name.to_owned() + ".annotated.bam");
+            let mut out_bam = init_bam(&out_bam_file.to_string_lossy(), &h);
+            for record in relevant_reads.iter() {
+                out_bam.write_record(&h, &record).expect("Cannot write to out bam.");
+            }
+            // TODO: sort bam + create bai index
+        }
 
         // build HMM and annotate reads
         let model = Hmm::from(&get_modules(left_flank, repeat, right_flank)).log();
-        let (annotation, annotated_reads) = annotate_reads(reads.into_iter(), model, repeat, None, false);
+        let (annotation, _) = annotate_reads(relevant_reads.iter(), model, repeat, None, false);
 
-        // write to files
-        let name = repeat.name.as_ref().unwrap().clone();
-
+        // write resulting csv
         let out_tsv_file = output.join(name.to_owned() + ".annotations.tsv");
         let mut out_tsv = init_tsv(&out_tsv_file.to_string_lossy());
         out_tsv.write_all(annotation.as_bytes()).expect("Cannot write to output file.");
-
-        if out_bam_flag {
-            let out_bam_file = output.join(name.to_owned() + ".annotated.bam");
-            let mut out_bam = init_bam(&out_bam_file.to_string_lossy(), &header);
-            for record in annotated_reads {
-                out_bam.write_record(&header, &record).expect("Cannot write to out bam.");
-            }
-            // TODO:
-            // sort bam
-            // create bai index
-        }
     });
 
     println!("Annotation finished successfully.");
@@ -547,6 +536,39 @@ fn tmp_fn_name() {
         println!("{}", str::from_utf8(&seq[p]).unwrap());
         println!("{}", str::from_utf8(exp_split[i]).unwrap());
         println!("{} {}", mod_ids[i], exp_mod_ids[i])
+    }
+}
+
+mod bam_ops {
+    use noodles::bam;
+    use noodles::bgzf::Reader;
+    use noodles::core::Region;
+    use noodles::sam::Header;
+    use std::fs::File;
+    use std::path::Path;
+
+    pub struct RelevantReads {
+        reader: bam::io::indexed_reader::IndexedReader<Reader<File>>,
+        header: Header,
+        region: Region,
+    }
+
+    impl RelevantReads {
+        pub fn from(bam_file: &Path, region: Region) -> RelevantReads {
+            let mut reader = bam::io::indexed_reader::Builder::default()
+                .build_from_path(bam_file)
+                .expect("Unable to read the associated index (.bai).");
+            let header = reader.read_header().expect("Error. TODO");
+            RelevantReads { reader, header, region }
+        }
+
+        pub fn header(&self) -> Header { self.header.clone() }
+
+        pub fn iter(&mut self) -> impl Iterator<Item = bam::Record> + '_ {
+            self.reader
+                .query(&self.header, &self.region).expect("Error. TODO")
+                .map(|x| x.expect("Error. TODO"))
+        }
     }
 }
 
