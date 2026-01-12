@@ -2,7 +2,6 @@ use clap::Parser;
 use std::path::PathBuf;
 use std::fs;
 
-use remastr::run;
 use remastr::run_v2;
 
 // fn main() {

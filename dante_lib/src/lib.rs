@@ -2,7 +2,6 @@ use nom::AsBytes;
 use noodles::bam;
 use noodles::bam::io::Writer;
 use noodles::sam::Header;
-use noodles::sam::alignment::record::mapping_quality::MappingQuality;
 use noodles::bgzf as bgzf;
 use rayon::prelude::*;
 use std::fmt;
@@ -15,7 +14,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::ops::Range;
 use std::str;
-use std::sync::{Arc, Mutex};
 
 mod bam_index;
 mod hmm;
@@ -28,30 +26,6 @@ use crate::hmm::{Module, Hmm};
 use crate::repeats::TandemRepeat;
 use crate::io::get_modules;
 use crate::bam_ops::RelevantReads;
-
-#[deprecated(since="0.12.0", note="please use `run_v2` instead")]
-pub fn run(
-    bam_file: &Path, motif_file: &Path, output: String, out_bam: bool,
-    params: (bool, u8, Option<char>, bool)
-) {
-    check_bai(bam_file);
-
-    let header = header(bam_file);
-    let out_bam = if out_bam { Some(Arc::new(Mutex::new(init_bam(&output, &header)))) } else { None };
-    let out_tsv = Arc::new(Mutex::new(init_tsv(&output)));
-
-    let motif_records = read_motifs(motif_file);
-    motif_records.par_iter().for_each(|motif_record| {
-        process_motif(motif_record, bam_file, params, out_tsv.clone(), out_bam.clone());
-    });
-
-    println!("Annotation finished successfully.");
-    // TODO:
-    // sort bam
-    // create bai index
-    //     let filename = args.output.to_string() + ".bam";
-    //     check_bai(filename);
-}
 
 pub fn run_v2(bam_file: &Path, motif_file: &Path, output: &Path, out_bam_flag: bool) {
     check_bai(bam_file);
@@ -86,56 +60,6 @@ pub fn run_v2(bam_file: &Path, motif_file: &Path, output: &Path, out_bam_flag: b
     });
 
     println!("Annotation finished successfully.");
-}
-
-fn process_motif(
-    motif_record: &(Vec<u8>, TandemRepeat, Vec<u8>), 
-    bam_file: &Path,
-    params: (bool, u8, Option<char>, bool),
-    out_tsv: Arc<Mutex<File>>,
-    out_bam: Option<Arc<Mutex<Writer<bgzf::Writer<File>>>>>,
-) {
-    // load bam
-    let mut reader = bam::io::indexed_reader::Builder::default()
-        .build_from_path(bam_file)
-        .expect("Unable to read the associated index (.bai).");
-    let header = reader.read_header().unwrap();
-
-    //  select relevant reads
-    let (left_flank, repeat, right_flank) = motif_record;
-    let (dedup, q, score, print_quality) = params;
-    let region_str = format!("{}:{}-{}", repeat.reference, repeat.start + 1, repeat.end);
-    let region = region_str.parse().unwrap();
-    let reads: Vec<_> = reader
-        .query(&header, &region).unwrap()
-        .map(|x| x.expect("Incorrect read."))
-        .collect();
-    let raw_count = reads.len();
-    // let reads: Vec<_> = reads.into_iter()
-    //     .filter(|x| !x.sequence().is_empty())
-    //     .filter(|x| !(dedup && x.flags().is_duplicate()))
-    //     .filter(|x| !mapq_less_than(x, q))
-    //     .collect();
-    let filt_count = reads.len();
-    println!("{region_str}: {filt_count}/{raw_count}");
-
-    //  build HMM
-    let modules = get_modules(left_flank, repeat, right_flank);
-    let model = Hmm::from(&modules).log();
-
-    let (annotation, annotated_reads) = annotate_reads(reads.into_iter(), model, repeat, score, print_quality);
-
-    // write to files
-    out_tsv.lock().unwrap().write_all(annotation.as_bytes()).expect("Cannot write to output file.");
-    match out_bam {
-        None => {},
-        Some(mutex) => {
-            let mut writer = mutex.lock().unwrap();
-            for record in annotated_reads {
-                writer.write_record(&header, &record).expect("Cannot write to out bam.");
-            }
-        }
-    }
 }
 
 fn annotate_reads<T>(reads: T, model: Hmm, repeat: &TandemRepeat, score: Option<char>, print_quality: bool)
@@ -387,14 +311,8 @@ fn get_module_bases(mods: &[u8], idx: usize) -> usize {
     return count;
 }
 
-fn header<P: AsRef<Path>>(bam_filename: P) -> Header {
-    let file = File::open(bam_filename).unwrap();
-    let header = bam::io::Reader::new(file).read_header().unwrap();
-    return header;
-}
-
 fn init_tsv(filename: &str) -> File {
-    let mut out = File::create(filename).expect("Cannot open file for writing.");
+    let mut out = File::create(filename).unwrap_or_else(|e| panic!("TSV file {:?} not found: {}", filename, e));
     let line = b"\
     name\tmotif\t\
     read_sn\tread_id\tmate_order\tquality\tlog_likelihood\t\
@@ -417,13 +335,6 @@ fn init_bam(tsv_file: &str, header: &Header) -> Writer<bgzf::Writer<File>> {
     let mut writer = bam::io::Writer::new(new_bam);
     writer.write_header(header).unwrap();
     return writer;
-}
-
-fn mapq_less_than(rec: &bam::Record, x: u8) -> bool {
-    let x = MappingQuality::new(x)
-        .expect("Mapq is from 0 to 254. 255 is reserved for None.");
-    let Some(q) = rec.mapping_quality() else { return false };
-    return q < x;
 }
 
 fn read_motifs(filename: &Path) -> Vec<(Vec<u8>, TandemRepeat, Vec<u8>)> {
