@@ -1,6 +1,3 @@
 __pycache__/
 uv.lock
 .python-version
-src_new/genotyping_test.py
-src_new/repeat_nomenclature.py
-src_new/repeat_nomenclature_test.py
