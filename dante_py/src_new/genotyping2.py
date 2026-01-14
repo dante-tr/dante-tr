@@ -18,8 +18,7 @@ def genotype(
 ) -> tuple:
     """This function provides an interface for genotypization step."""
     print()
-
-    if len(spanning_observed_counts) == 0 and len(flanking_observed_counts) == 0:
+    if len(spanning_observed_counts) == 0:
         return (None, ('B', 'B'), (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0))
 
     model = Inference(
@@ -34,13 +33,10 @@ def genotype(
         monoallelic_motif
     )
 
-    predicted_tmp = model.real_predict(likelihoods)
-    # adjust for no spanning reads (should output Background)
-    if len(spanning_observed_counts) == 0:
-        predicted_tmp = (0, 0)
+    predicted_tmp = predict(likelihoods)
+    raw_confidence = get_confidence(likelihoods, predicted_tmp, model.max_rep, monoallelic_motif)
     prediction = convert_to_sym(model.max_rep, predicted_tmp, monoallelic_motif)
 
-    raw_confidence = get_confidence(likelihoods, predicted_tmp, model.max_rep, monoallelic_motif)
     return likelihoods, prediction, raw_confidence
 
 
@@ -50,16 +46,17 @@ class Inference:
     MIN_REPETITIONS = 1
     OVERHEAD = 3
 
-    OPEN_TO_CLOSED = 10.0
+    L_EXP = 1.01
     L_OTHERS = 1.0
     L_BCKG_OPEN = 0.01
-    L_EXP = 1.01
+    L_BCKG_CLOSED = 0.001  # L_BCKG_OPEN / 10
+
     L_BCKG_MODEL_OPEN = 0.5
 
     def __init__(
         self,
-        observed_annots: list[int], spanning_read_lengths: list[int],
-        observed_fa: list[int], flanking_read_lengths: list[int],
+        spanning_obs_counts: list[int], spanning_read_lengths: list[int],
+        flanking_obs_counts: list[int], flanking_read_lengths: list[int],
         min_rep_count: int, min_lflank_len: int, min_rflank_len: int, min_rep_len: int
     ):
         """
@@ -75,29 +72,28 @@ class Inference:
         self.read_dist: np.ndarray = read_distribution / float(np.sum(read_distribution))  # make it sum to 1.0
 
         # TODO: Can I remove this and have 0, 1, ..., n, E, B?
-        boundaries = self.get_boundaries(observed_annots, observed_fa)
-        self.min_rep = boundaries[0]
-        self.max_rep = boundaries[1]
-        self.e_allele = boundaries[2]
-        self.max_with_e = self.e_allele + 1  # non-inclusive
+        min_rep, max_rep, e_allele = self.get_boundaries(spanning_obs_counts, flanking_obs_counts)
+        self.min_rep = min_rep
+        self.max_rep = max_rep
+        self.max_with_e = e_allele + 1
 
-        tmp = self.construct_models()
-        self.models = tmp[0]
-        self.model_probabilities = tmp[1]
+        models, model_probabilities = self.construct_models()
+        self.models = models
+        self.model_probabilities = model_probabilities
 
     @classmethod
-    def get_boundaries(cls, observed_annots, observed_fa) -> tuple[int, int, int]:
+    def get_boundaries(cls, spanning_obs_counts: list[int], flanking_obs_counts: list[int]) -> tuple[int, int, int]:
         """Returns boundaries of the implicit matrix. Is it possible to get rid of this?"""
-        if len(observed_annots) > 0:
-            max_rep = max(observed_annots) + cls.OVERHEAD + 1  # non-inclusive
-            min_rep = max(cls.MIN_REPETITIONS, min(observed_annots) - cls.OVERHEAD)  # inclusive
+        if len(spanning_obs_counts) > 0:
+            max_rep = max(spanning_obs_counts) + cls.OVERHEAD + 1  # non-inclusive
+            min_rep = max(cls.MIN_REPETITIONS, min(spanning_obs_counts) - cls.OVERHEAD)  # inclusive
         else:
-            max_rep = max(observed_fa) + cls.OVERHEAD  # non-inclusive
-            min_rep = max(cls.MIN_REPETITIONS, max(observed_fa) - cls.OVERHEAD)  # inclusive
+            max_rep = max(flanking_obs_counts) + cls.OVERHEAD  # non-inclusive
+            min_rep = max(cls.MIN_REPETITIONS, max(flanking_obs_counts) - cls.OVERHEAD)  # inclusive
 
         # expanded allele
-        if len(observed_fa) > 0:
-            e_allele = max(max_rep, max(observed_fa) + 1)
+        if len(flanking_obs_counts) > 0:
+            e_allele = max(max_rep, max(flanking_obs_counts) + 1)
         else:
             e_allele = max_rep
         return (min_rep, max_rep, e_allele)
@@ -133,28 +129,12 @@ class Inference:
     # ---
     def evaluate(
         self,
-        spanning_observed_counts: list[int], spanning_read_lengths: list[int],
-        flanking_observed_counts: list[int], flanking_read_lengths: list[int],
-        monoallelic_motif: bool
+        spanning_obs_counts: list[int], spanning_read_lengths: list[int],
+        flanking_obs_counts: list[int], flanking_read_lengths: list[int],
+        is_monoallelic: bool
     ) -> np.ndarray:
-        """Evaluates all the models in implicit matrix"""
-        flag_spanning_flanking = np.concatenate([
-            np.ones_like(spanning_observed_counts, dtype=bool),
-            np.zeros_like(flanking_observed_counts, dtype=bool)
-        ]).astype(bool)
-        lh_dict = self.real_infer(
-            monoallelic_motif,
-            np.array(spanning_observed_counts + flanking_observed_counts),
-            np.array(spanning_read_lengths + flanking_read_lengths),
-            flag_spanning_flanking
-        )
-        likelihoods = self.convert_to_ndarray(lh_dict)
-        return likelihoods
-
-    def real_infer(
-        self, monoallelic: bool, observed_arr: np.ndarray, rl_arr: np.ndarray, closed_arr: np.ndarray
-    ) -> dict[tuple[int | str, int | str], float]:
         """
+        Evaluates all the models in implicit matrix.
         Does all the inference,
         computes for which 2 combination of alleles are these annotations and parameters the best.
         argmax_{G1, G2} P(G1, G2 | AL, COV, RL)
@@ -171,60 +151,43 @@ class Inference:
          1.: P(al_i, cov_i, rl_i, cl_i | G1)
             = P(rl_i from read distrib.) * p(allele is al_i | G1) * P(read generated closed evidence | rl_i, al_i)
          2.: P(rl_i is from r.distr.) * P(allele is >= al_i | G1) * P(read generated open evidence | rl_i, al_i)
-
-        :param annotations: list(Annotation) - closed annotated reads (both primers set)
-        :param filt_annotations: list(Annotation) - open annotated reads (only one primer set)
-        :param index_rep: int - index of a repetition
-        :param verbose: bool - print more stuff?
-        :param monoallelic: bool - do we have a mono-allelic motif (i.e. chrX/chrY and male sample?)
-        :return: dict(tuple(int, int):float) - directory of model indices to their likelihood
         """
+        is_spanning = np.array([True] * len(spanning_obs_counts) + [False] * len(flanking_obs_counts))
+        obs_counts = np.array(spanning_obs_counts + flanking_obs_counts)
+        read_lengths = np.array(spanning_read_lengths + flanking_read_lengths)
+
         # go through every model and evaluate:
-        evaluated_models = {}
-        if monoallelic:
-            models = list(generate_models_one_allele(self.min_rep, self.max_rep))
+        if is_monoallelic:
+            likelihoods = np.zeros((self.max_rep, self.max_rep + 1))
+            for m1 in generate_models_monoallelic(self.min_rep, self.max_rep):
+                model_lh = 0.0
+                for obs, rl, closed in zip(obs_counts, read_lengths, is_spanning):
+                    lh = self.likelihood_read(obs, rl, m1, None, closed=closed)
+                    model_lh += np.log(lh)
+
+                m2 = m1
+                if m1 == self.max_rep and m2 == self.max_rep:
+                    m1 = 0
+                likelihoods[m1, m2] = model_lh
+
+            ind_good = (likelihoods < 0.0) & (likelihoods > -1e10) & (likelihoods != np.nan)
+            likelihoods[~ind_good] = -np.inf
         else:
-            models = list(generate_models(self.min_rep, self.max_rep, multiple_bckgs=True))
+            likelihoods = np.zeros((self.max_rep, self.max_rep + 1))
+            for m1, m2 in generate_biallelic_indices(self.min_rep, self.max_rep):
+                model_lh = 0.0
+                for obs, rl, closed in zip(obs_counts, read_lengths, is_spanning):
+                    lh = self.likelihood_read(obs, rl, m1, m2, closed=closed)
+                    model_lh += np.log(lh)
 
-        # print(models)
-        for m1, m2 in models:
-            evaluated_models[(m1, m2)] = 0.0
-            # go through every read
-            for obs, rl, closed in zip(observed_arr, rl_arr, closed_arr):
-                lh = self.likelihood_read(obs, rl, m1, None if m2 == 'X' else m2, closed=closed)
-                # TODO weighted sum according to the closeness/openness of reads?
-                evaluated_models[(m1, m2)] += np.log(lh)
+                if m1 == self.max_rep and m2 == self.max_rep:  # legacy, for backwards compatibility, change in future
+                    m1 = 0
+                likelihoods[m1, m2] = model_lh
 
-        return evaluated_models
+            ind_good = (likelihoods < 0.0) & (likelihoods > -1e10) & (likelihoods != np.nan)
+            likelihoods[~ind_good] = -np.inf
 
-    def convert_to_ndarray(self, lh_dict: dict[tuple[int | str, int | str], float]) -> np.ndarray:
-        """Converts dictionary into matrix and selects the best prediction"""
-        # convert to a numpy array:
-        lh_array = np.zeros((self.max_rep, self.max_rep + 1))
-        for (k1, k2), v in lh_dict.items():
-            if k2 == 'X':  # if we have mono-allelic
-                k2 = k1
-            # B is the smallest, E is the largest!
-            if k2 == 'B' or k1 == 'E' or (isinstance(k1, int) and isinstance(k2, int) and k2 < k1):
-                k1, k2 = k2, k1
-            if k1 == 'B':
-                k1 = 0
-            if k2 == 'B':
-                k2 = 0
-            if k1 == 'E':  # only if k2 is 'E' too.
-                k1 = 0
-            if k2 == 'E':
-                k2 = self.max_rep
-            lh_array[k1, k2] = v
-
-        # get minimal and maximal likelihood
-        ind_good = (lh_array < 0.0) & (lh_array > -1e10) & (lh_array != np.nan)
-        if len(lh_array[ind_good]) == 0:
-            return lh_array
-        lh_array[~ind_good] = -np.inf
-
-        # output best option
-        return lh_array
+        return likelihoods
 
     # TODO: remove this
     def likelihood_coverage(self, true_length, rl, _closed):
@@ -244,7 +207,7 @@ class Inference:
 
         return 1.0 / float(open_overlapping - whole_inside_str)
 
-    def likelihood_read_allele(self, model, observed, rl, closed=True) -> float:
+    def likelihood_read_allele(self, model, observed, rl, closed) -> float:
         """
         Likelihood of generation of read with observed allele count and rl.
         :param model: ndarray - model for the allele
@@ -272,7 +235,7 @@ class Inference:
 
     @functools.lru_cache()
     def likelihood_read(
-        self, observed: int, rl: int, model_index1: int, model_index2: int | None = None, closed: bool = True
+        self, observed: int, rl: int, model_index1: int, model_index2: int | None, closed: bool
     ) -> float:
         """
         Compute likelihood of generation of a read from either of those models.
@@ -284,70 +247,60 @@ class Inference:
         :return: float - likelihood of this read generation
         """
         # TODO: tuto podla mna nemoze byt len tak +, chyba tam korelacia modelov, ale v ramci zjednodusenia asi ok
-        m1 = model_index1
-        m2 = model_index2
-        allele1_likelihood = (
+        m1 = 'B' if model_index1 == 0 else 'E' if model_index1 == self.max_rep else model_index1
+        m2 = 'B' if model_index2 == 0 else 'E' if model_index2 == self.max_rep else model_index2
+
+        # why is it possible that m1 and m2 are B or E?
+        allele1_l = (
             self.model_probabilities[m1] * self.likelihood_read_allele(self.models[m1], observed, rl, closed)
         )
-        allele2_likelihood = 0.0 if model_index2 is None else (
+        allele2_l = 0.0 if model_index2 is None else (
             self.model_probabilities[m2] * self.likelihood_read_allele(self.models[m2], observed, rl, closed)
         )
 
         if closed:
-            p_bckg = self.L_BCKG_OPEN / self.OPEN_TO_CLOSED
+            bckgrnd_l = self.L_BCKG_CLOSED * self.likelihood_read_allele(self.models['B'], observed, rl, closed)
         else:
-            p_bckg = self.L_BCKG_OPEN
-        bckgrnd_likelihood = p_bckg * self.likelihood_read_allele(self.models['B'], observed, rl, closed)
+            bckgrnd_l = self.L_BCKG_OPEN * self.likelihood_read_allele(self.models['B'], observed, rl, closed)
 
-        assert not np.isnan(allele2_likelihood)
-        assert not np.isnan(allele1_likelihood)
-        assert not np.isnan(bckgrnd_likelihood)
+        assert not np.isnan(allele2_l)
+        assert not np.isnan(allele1_l)
+        assert not np.isnan(bckgrnd_l)
 
         # "tuto" refers to the next line
-        return allele1_likelihood + allele2_likelihood + bckgrnd_likelihood
-
-    def real_predict(self, lh_array: np.ndarray) -> tuple[int, int]:
-        # get minimal and maximal likelihood
-        ind_good = (lh_array != -np.inf)
-        if len(lh_array[ind_good]) == 0:
-            return 0, 0
-        best = sorted(np.unravel_index(np.argmax(lh_array), lh_array.shape))
-        prediction = (int(best[0]), int(best[1]))
-
-        return prediction
+        return allele1_l + allele2_l + bckgrnd_l
 
 
-def generate_models(min_rep: int, max_rep: int, multiple_bckgs: bool = True) -> Iterator[tuple[int | str, int | str]]:
-    """
-    Generate all pairs of alleles (models for generation of reads).
-    :param min_rep: int - minimal number of repetitions
-    :param max_rep: int - maximal number of repetitions
-    :param multiple_backgrounds: bool - whether to generate all background states
-    :return: generator of allele pairs (numbers or 'E' or 'B')
-    """
+def generate_biallelic_indices(min_rep: int, max_rep: int) -> Iterator:
+    """ Generate all pairs of alleles (models for generation of reads). """
+    # B = 0
+    # E = max_rep
+    # new_index, old_index
     for model_index1 in range(min_rep, max_rep):
         for model_index2 in range(model_index1, max_rep):
-            yield model_index1, model_index2
-        yield model_index1, 'E'
-        if multiple_bckgs:
-            yield 'B', model_index1
+            yield (model_index1, model_index2)  # , (model_index1, model_index2)
+        yield (model_index1, max_rep)  # , (model_index1, 'E')
+        yield (0, model_index1)  # , ('B', model_index1)
 
-    yield 'B', 'B'
-    yield 'E', 'E'
+    yield (0, 0)  # , ('B', 'B')
+    yield (max_rep, max_rep)  # , ('E', 'E')
 
 
-def generate_models_one_allele(min_rep: int, max_rep: int) -> Iterator[tuple[int | str, int | str]]:
-    """
-    Generate all pairs of alleles (models for generation of reads).
-    :param min_rep: int - minimal number of repetitions
-    :param max_rep: int - maximal number of repetitions
-    :return: generator of allele pairs (numbers or 'E' or 'B'), 'X' for non-existing allele
-    """
-    for model_index1 in range(min_rep, max_rep):
-        yield model_index1, 'X'
+def generate_models_monoallelic(min_rep: int, max_rep: int) -> Iterator:
+    """ Generate all alleles (models for generation of reads). """
+    yield from range(min_rep, max_rep)  # model_index1, 'X'
+    yield 0  # 'B', 'X'
+    yield max_rep  # 'E', 'X'
 
-    yield 'B', 'X'
-    yield 'E', 'X'
+
+def predict(lh_array: np.ndarray) -> tuple[int, int]:
+    ind_good = lh_array != -np.inf
+    if len(lh_array[ind_good]) == 0:
+        return 0, 0
+    best = sorted(np.unravel_index(np.argmax(lh_array), lh_array.shape))
+    prediction = (int(best[0]), int(best[1]))
+
+    return prediction
 
 
 def convert_to_sym(max_rep, best: tuple[int, int], monoallelic: bool) -> tuple[int | str, int | str]:
@@ -357,12 +310,12 @@ def convert_to_sym(max_rep, best: tuple[int, int], monoallelic: bool) -> tuple[i
     :param monoallelic: bool - if this is monoallelic version
     :return: (int|str, int|str) - symbolic representation of alleles
     """
-    # convert it to symbols
+    def fn1(x):
+        return 'E' if x == max_rep else 'B' if x == 0 else x
+
     if best[0] == 0 and best[1] == max_rep:
         best_sym = ('E', 'E')
     else:
-        def fn1(x):
-            return 'E' if x == max_rep else 'B' if x == 0 else x
         best_sym = tuple(map(fn1, best))
 
     # if mono-allelic return 'X' as second allele symbol
@@ -372,9 +325,7 @@ def convert_to_sym(max_rep, best: tuple[int, int], monoallelic: bool) -> tuple[i
     return best_sym
 
 
-def get_confidence(
-    lh_array: np.ndarray, predicted: tuple[int, int], max_rep: int, monoallelic: bool = False
-) -> Confidences:
+def get_confidence(lh_array: np.ndarray, predicted: tuple[int, int], max_rep: int, monoallelic: bool) -> Confidences:
     """
     Get confidence of a prediction.
     :param lh_array: 2D-ndarray - log likelihoods of the prediction
