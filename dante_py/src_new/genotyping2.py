@@ -3,6 +3,7 @@
 import functools
 import itertools
 from typing import Iterator, TypeAlias
+from pprint import pprint
 
 import numpy as np
 from scipy.stats import binom  # type: ignore
@@ -74,12 +75,19 @@ class Inference:
         # TODO: Can I remove this and have 0, 1, ..., n, E, B?
         min_rep, max_rep, e_allele = self.get_boundaries(spanning_obs_counts, flanking_obs_counts)
         self.min_rep = min_rep
-        self.max_rep = max_rep
         self.max_with_e = e_allele + 1
 
-        models, model_probabilities = self.construct_models()
+        self.max_rep = max_rep  # should be inclusive, but I think it often isn't
+        self.exp_idx = max_rep + 1
+        self.bkg_idx = max_rep + 2
+
+        tmp = Inference.construct_models(self.min_rep, self.max_rep, self.max_with_e)
+        old_models, old_model_probabilities, models, mprobs = tmp
+        self.old_models = old_models
+        self.old_model_probs = old_model_probabilities
+        # pprint(self.old_models)
         self.models = models
-        self.model_probabilities = model_probabilities
+        self.mprobs = mprobs
 
     @classmethod
     def get_boundaries(cls, spanning_obs_counts: list[int], flanking_obs_counts: list[int]) -> tuple[int, int, int]:
@@ -98,33 +106,39 @@ class Inference:
             e_allele = max_rep
         return (min_rep, max_rep, e_allele)
 
-    def construct_models(self) -> tuple[dict, dict]:
+    @staticmethod
+    def construct_models(min_rep, max_rep, max_with_e) -> tuple[dict, dict, list, list]:
         """
         Construct models (np.ndarray representing probability distribution of getting read given haplotype) and
         model probabilities (float - not summing to 1? because they are likelihoods?)
         """
         # get models
-        background_model = model_bckg(self.min_rep, self.max_with_e)
-        expanded_model = model_full(self.max_with_e, self.max_with_e - 1)
-        allele_models = {
-            i: model_full(self.max_with_e, i) for i in range(self.min_rep, self.max_rep)
-        }
-        models = {
-            'E': expanded_model,
-            'B': background_model
-        }
+        background_model = model_bckg(min_rep, max_with_e)
+        expanded_model = model_full(max_with_e, max_with_e - 1)
+        allele_models = {i: model_full(max_with_e, i) for i in range(max_rep)}
+        models = {'E': expanded_model, 'B': background_model}
         models.update(allele_models)  # type: ignore
 
         # get model likelihoods
-        allele_model_probabilities = {
-            i: self.L_OTHERS for i in range(self.min_rep, self.max_rep)
-        }
-        model_probabilities = {
-            'E': self.L_EXP,
-            'B': self.L_BCKG_MODEL_OPEN
-        }
+        allele_model_probabilities = {i: Inference.L_OTHERS for i in range(max_rep)}
+        model_probabilities = {'E': Inference.L_EXP, 'B': Inference.L_BCKG_MODEL_OPEN}
         model_probabilities.update(allele_model_probabilities)  # type: ignore
-        return models, model_probabilities
+
+        # get new models
+        new_models = []
+        for i in range(max_rep + 1):  # inclusive 0, 1, ..., n
+            new_models.append(model_full(max_with_e, i))
+        new_models.append(model_full(max_with_e, max_with_e - 1))     # exp
+        new_models.append(model_bckg(min_rep, max_with_e))            # bkg
+
+        # get new mprobs
+        new_mprobs = []
+        for i in range(max_rep + 1):
+            new_mprobs.append(Inference.L_OTHERS)
+        new_mprobs.append(Inference.L_EXP)
+        new_mprobs.append(Inference.L_BCKG_MODEL_OPEN)
+
+        return models, model_probabilities, new_models, new_mprobs
 
     # ---
     def evaluate(
@@ -133,8 +147,39 @@ class Inference:
         flanking_obs_counts: list[int], flanking_read_lengths: list[int],
         is_monoallelic: bool
     ) -> np.ndarray:
+        obs_counts = np.array(spanning_obs_counts + flanking_obs_counts)
+        read_lengths = np.array(spanning_read_lengths + flanking_read_lengths)
+        is_spanning = np.array([True] * len(spanning_obs_counts) + [False] * len(flanking_obs_counts))
+
+        if is_monoallelic:
+            return self.evaluate_monoallelic_motif(obs_counts, read_lengths, is_spanning)
+        else:
+            return self.evaluate_biallelic_motif(obs_counts, read_lengths, is_spanning)
+
+    def evaluate_monoallelic_motif(self, obs_counts, read_lengths, is_spanning):
+        likelihoods = np.zeros((self.max_rep, self.max_rep + 1))
+        models = list(range(self.min_rep, self.max_rep)) + [0, self.max_rep]  # 'B', 'E'
+        for m1 in models:
+            model_lh = 0.0
+            for obs, rl, closed in zip(obs_counts, read_lengths, is_spanning):
+                # lh = self.likelihood_read(obs, rl, m1, None, closed=closed)
+                lh = self.l_read_given_one_genotype(obs, rl, closed, m1)
+                model_lh += np.log(lh)
+
+            m2 = m1
+            if m1 == self.max_rep and m2 == self.max_rep:
+                m1 = 0
+            likelihoods[m1, m2] = model_lh
+
+        ind_good = (likelihoods < 0.0) & (likelihoods > -1e10) & (likelihoods != np.nan)
+        likelihoods[~ind_good] = -np.inf
+        return likelihoods
+
+    def evaluate_biallelic_motif(self, obs_counts, read_lengths, is_spanning):
         """
-        Evaluates all the models in implicit matrix.
+        This description is wrong, but slightly useful.
+
+        Evaluates all the models in explicit matrix.
         Does all the inference,
         computes for which 2 combination of alleles are these annotations and parameters the best.
         argmax_{G1, G2} P(G1, G2 | AL, COV, RL)
@@ -149,84 +194,81 @@ class Inference:
              2. open evidence (al_i >= X), cl_i == True if i is closed
 
          1.: P(al_i, cov_i, rl_i, cl_i | G1)
-            = P(rl_i from read distrib.) * p(allele is al_i | G1) * P(read generated closed evidence | rl_i, al_i)
-         2.: P(rl_i is from r.distr.) * P(allele is >= al_i | G1) * P(read generated open evidence | rl_i, al_i)
+            = P(rl_i is from read distrib.) * p(allele is == al_i | G1) * P(read generated closed evidence | rl_i, al_i)
+         2.: P(al_i, cov_i, rl_i, cl_i | G1)
+            = P(rl_i is from read distrib.) * P(allele is >= al_i | G1) * P(read generated open evidence | rl_i, al_i)
         """
-        is_spanning = np.array([True] * len(spanning_obs_counts) + [False] * len(flanking_obs_counts))
-        obs_counts = np.array(spanning_obs_counts + flanking_obs_counts)
-        read_lengths = np.array(spanning_read_lengths + flanking_read_lengths)
+        def generate_biallelic_indices(min_rep: int, max_rep: int) -> Iterator:
+            # B = 0
+            # E = max_rep
+            for model_index1 in range(min_rep, max_rep):
+                for model_index2 in range(model_index1, max_rep):
+                    yield (model_index1, model_index2)  # , (model_index1, model_index2)
+                yield (model_index1, max_rep)  # , (model_index1, 'E')
+                yield (0, model_index1)  # , ('B', model_index1)
 
-        # go through every model and evaluate:
-        if is_monoallelic:
-            likelihoods = np.zeros((self.max_rep, self.max_rep + 1))
-            for m1 in generate_models_monoallelic(self.min_rep, self.max_rep):
-                model_lh = 0.0
-                for obs, rl, closed in zip(obs_counts, read_lengths, is_spanning):
-                    lh = self.likelihood_read(obs, rl, m1, None, closed=closed)
-                    model_lh += np.log(lh)
+            yield (0, 0)  # , ('B', 'B')
+            yield (max_rep, max_rep)  # , ('E', 'E')
 
-                m2 = m1
-                if m1 == self.max_rep and m2 == self.max_rep:
-                    m1 = 0
-                likelihoods[m1, m2] = model_lh
+        likelihoods = np.zeros((self.max_rep, self.max_rep + 1))
+        models = list(generate_biallelic_indices(self.min_rep, self.max_rep))
+        # print(models)
+        for m1, m2 in models:
+            # P(OC, RL, SF | G1, G2), where OC=obs_counts, RL=read_lengths, SF=is_spanning, G1=m1, G2=m2
+            model_lh = 0.0
+            for obs, rl, closed in zip(obs_counts, read_lengths, is_spanning):
+                # lh = self.likelihood_read(obs, rl, m1, m2, closed=closed)
+                lh = self.l_read_given_two_genotypes(obs, rl, closed, m1, m2)
+                model_lh += np.log(lh)
 
-            ind_good = (likelihoods < 0.0) & (likelihoods > -1e10) & (likelihoods != np.nan)
-            likelihoods[~ind_good] = -np.inf
-        else:
-            likelihoods = np.zeros((self.max_rep, self.max_rep + 1))
-            for m1, m2 in generate_biallelic_indices(self.min_rep, self.max_rep):
-                model_lh = 0.0
-                for obs, rl, closed in zip(obs_counts, read_lengths, is_spanning):
-                    lh = self.likelihood_read(obs, rl, m1, m2, closed=closed)
-                    model_lh += np.log(lh)
+            if m1 == self.max_rep and m2 == self.max_rep:  # legacy, for backwards compatibility, change in future
+                m1 = 0
+            likelihoods[m1, m2] = model_lh
 
-                if m1 == self.max_rep and m2 == self.max_rep:  # legacy, for backwards compatibility, change in future
-                    m1 = 0
-                likelihoods[m1, m2] = model_lh
-
-            ind_good = (likelihoods < 0.0) & (likelihoods > -1e10) & (likelihoods != np.nan)
-            likelihoods[~ind_good] = -np.inf
-
+        ind_good = (likelihoods < 0.0) & (likelihoods > -1e10) & (likelihoods != np.nan)
+        likelihoods[~ind_good] = -np.inf
         return likelihoods
 
-    # TODO: remove this
-    def likelihood_coverage(self, true_length, rl, _closed):
-        """
-        Likelihood of generating a read with this length and this allele.
-        :param true_length: int - true number of repetitions of an STR
-        :param rl: int - read length
-        :param closed: bool - if the read is closed - i.e. both primers are there
-        :return: float - likelihood of a read being generated with this attributes
-        """
-        whole_inside_str = max(0, true_length * self.str_rep + self.minl_primer1 + self.minl_primer2 - rl + 1)
-        # closed_overlapping = max(0, rl - self.minl_primer1 - self.minl_primer2 - true_length * self.str_rep + 1)
-        open_overlapping = max(0, rl + true_length * self.str_rep - 2 * self.minl_str + 1)
-
-        assert open_overlapping > whole_inside_str, \
-            f"{open_overlapping} open {whole_inside_str} whole inside {true_length} {rl} {self.minl_str}"
-
-        return 1.0 / float(open_overlapping - whole_inside_str)
-
-    def likelihood_read_allele(self, model, observed, rl, closed) -> float:
-        """
-        Likelihood of generation of read with observed allele count and rl.
-        :param model: ndarray - model for the allele
-        :param observed: int - observed allele count
-        :param rl: int - read length
-        :param closed: bool - if the read is closed - i.e. both primers are there
-        :return:
-        """
+    def likelihood_read_allele(self, model_idx, observed, rl, closed) -> float:
         if closed:
-            likelihood_rl: float = self.read_dist[rl]
-            likelihood_model = model[observed]
-            likelihood_coverage = self.likelihood_coverage(observed, rl, True)
-            return likelihood_rl * likelihood_model * likelihood_coverage
+            return self.l_spanning_read_given_genotype(observed, rl, model_idx)
+        else:
+            return self.l_flanking_read_given_genotype(observed, rl, model_idx)
 
+    def l_spanning_read_given_genotype(self, observed, rl, model_idx) -> float:
+        def likelihood_cov(params, true_length, rl, _closed):
+            """ Likelihood of generating a read with this length and this allele. """
+            whole_inside_str = max(0, true_length * params.str_rep + params.minl_primer1 + params.minl_primer2 - rl + 1)
+            # closed_overlapping = max(0, rl - self.minl_primer1 - self.minl_primer2 - true_length * self.str_rep + 1)
+            open_overlapping = max(0, rl + true_length * params.str_rep - 2 * params.minl_str + 1)
+
+            assert open_overlapping > whole_inside_str, \
+                f"{open_overlapping} open {whole_inside_str} whole inside {true_length} {rl} {params.minl_str}"
+
+            return 1.0 / float(open_overlapping - whole_inside_str)
+
+        likelihood_rl: float = self.read_dist[rl]
+        likelihood_model: float = self.old_models[model_idx][observed]
+        likelihood_coverage: float = likelihood_cov(self, observed, rl, True)
+        return likelihood_rl * likelihood_model * likelihood_coverage
+
+    def l_flanking_read_given_genotype(self, observed, rl, model_idx) -> float:
+        def likelihood_cov(params, true_length, rl, _closed):
+            """ Likelihood of generating a read with this length and this allele. """
+            whole_inside_str = max(0, true_length * params.str_rep + params.minl_primer1 + params.minl_primer2 - rl + 1)
+            # closed_overlapping = max(0, rl - self.minl_primer1 - self.minl_primer2 - true_length * self.str_rep + 1)
+            open_overlapping = max(0, rl + true_length * params.str_rep - 2 * params.minl_str + 1)
+
+            assert open_overlapping > whole_inside_str, \
+                f"{open_overlapping} open {whole_inside_str} whole inside {true_length} {rl} {params.minl_str}"
+
+            return 1.0 / float(open_overlapping - whole_inside_str)
+
+        partial_likelihood = 0.0
         number_of_options = 0
-        partial_likelihood = 0
         for true_length in itertools.chain(range(observed, self.max_rep), [self.max_with_e - 1]):
-            likelihood_model = model[true_length]
-            likelihood_coverage = self.likelihood_coverage(true_length, rl, False)
+            likelihood_model = self.old_models[model_idx][true_length]
+            likelihood_coverage = likelihood_cov(self, true_length, rl, False)
             partial_likelihood += likelihood_model * likelihood_coverage
             number_of_options += 1
 
@@ -234,63 +276,37 @@ class Inference:
         return likelihood_rl * partial_likelihood / float(number_of_options)
 
     @functools.lru_cache()
-    def likelihood_read(
-        self, observed: int, rl: int, model_index1: int, model_index2: int | None, closed: bool
+    def l_read_given_two_genotypes(
+        self, oc: int, rl: int, sf: bool, g1_idx: int, g2_idx: int
     ) -> float:
-        """
-        Compute likelihood of generation of a read from either of those models.
-        :param observed: int - observed allele count
-        :param rl: int - read length
-        :param model_index1: char/int - model index for left allele
-        :param model_index2: char/int - model index for right allele or None if mono-allelic
-        :param closed: bool - if the read is closed - i.e. both primers are there
-        :return: float - likelihood of this read generation
-        """
+        """ P(OC[i], RL[i], SF[i] | G1, G2) * P(G1, G2) which is definitelly incorrect"""
+        m1 = 'B' if g1_idx == 0 else 'E' if g1_idx == self.max_rep else g1_idx
+        m2 = 'B' if g2_idx == 0 else 'E' if g2_idx == self.max_rep else g2_idx
+        m1_new = self.bkg_idx if g1_idx == 0 else self.exp_idx if g1_idx == self.max_rep else g1_idx
+        m2_new = self.bkg_idx if g2_idx == 0 else self.exp_idx if g2_idx == self.max_rep else g2_idx
+
+        bkground_likelihood = self.L_BCKG_CLOSED if sf else self.L_BCKG_OPEN
+        bckgrnd_l = bkground_likelihood * self.likelihood_read_allele('B', oc, rl, sf)
+        allele1_l = self.mprobs[m1_new] * self.likelihood_read_allele(m1, oc, rl, sf)
+        allele2_l = self.mprobs[m2_new] * self.likelihood_read_allele(m2, oc, rl, sf)
+
         # TODO: tuto podla mna nemoze byt len tak +, chyba tam korelacia modelov, ale v ramci zjednodusenia asi ok
-        m1 = 'B' if model_index1 == 0 else 'E' if model_index1 == self.max_rep else model_index1
-        m2 = 'B' if model_index2 == 0 else 'E' if model_index2 == self.max_rep else model_index2
-
-        # why is it possible that m1 and m2 are B or E?
-        allele1_l = (
-            self.model_probabilities[m1] * self.likelihood_read_allele(self.models[m1], observed, rl, closed)
-        )
-        allele2_l = 0.0 if model_index2 is None else (
-            self.model_probabilities[m2] * self.likelihood_read_allele(self.models[m2], observed, rl, closed)
-        )
-
-        if closed:
-            bckgrnd_l = self.L_BCKG_CLOSED * self.likelihood_read_allele(self.models['B'], observed, rl, closed)
-        else:
-            bckgrnd_l = self.L_BCKG_OPEN * self.likelihood_read_allele(self.models['B'], observed, rl, closed)
-
-        assert not np.isnan(allele2_l)
-        assert not np.isnan(allele1_l)
-        assert not np.isnan(bckgrnd_l)
-
-        # "tuto" refers to the next line
         return allele1_l + allele2_l + bckgrnd_l
 
+    @functools.lru_cache()
+    def l_read_given_one_genotype(
+        self, oc: int, rl: int, sf: bool, g1_idx: int
+    ) -> float:
+        """ P(OC[i], RL[i], SF[i] | G1) * P(G1) """
+        m1 = 'B' if g1_idx == 0 else 'E' if g1_idx == self.max_rep else g1_idx
+        m1_new = self.bkg_idx if g1_idx == 0 else self.exp_idx if g1_idx == self.max_rep else g1_idx
 
-def generate_biallelic_indices(min_rep: int, max_rep: int) -> Iterator:
-    """ Generate all pairs of alleles (models for generation of reads). """
-    # B = 0
-    # E = max_rep
-    # new_index, old_index
-    for model_index1 in range(min_rep, max_rep):
-        for model_index2 in range(model_index1, max_rep):
-            yield (model_index1, model_index2)  # , (model_index1, model_index2)
-        yield (model_index1, max_rep)  # , (model_index1, 'E')
-        yield (0, model_index1)  # , ('B', model_index1)
+        bkground_likelihood = self.L_BCKG_CLOSED if sf else self.L_BCKG_OPEN
+        bckgrnd_l = bkground_likelihood * self.likelihood_read_allele('B', oc, rl, sf)
+        allele1_l = self.mprobs[m1_new] * self.likelihood_read_allele(m1, oc, rl, sf)
 
-    yield (0, 0)  # , ('B', 'B')
-    yield (max_rep, max_rep)  # , ('E', 'E')
-
-
-def generate_models_monoallelic(min_rep: int, max_rep: int) -> Iterator:
-    """ Generate all alleles (models for generation of reads). """
-    yield from range(min_rep, max_rep)  # model_index1, 'X'
-    yield 0  # 'B', 'X'
-    yield max_rep  # 'E', 'X'
+        # TODO: tuto podla mna nemoze byt len tak +, chyba tam korelacia modelov, ale v ramci zjednodusenia asi ok
+        return allele1_l + bckgrnd_l
 
 
 def predict(lh_array: np.ndarray) -> tuple[int, int]:
