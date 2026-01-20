@@ -3,7 +3,6 @@
 import functools
 import itertools
 from typing import Iterator, TypeAlias
-from pprint import pprint
 
 import numpy as np
 from scipy.stats import binom  # type: ignore
@@ -22,11 +21,7 @@ def genotype(
     if len(spanning_observed_counts) == 0:
         return (None, ('B', 'B'), (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0))
 
-    model = Inference(
-        spanning_observed_counts, spanning_read_lengths,
-        flanking_observed_counts, flanking_read_lengths,
-        min_rep_count, min_flank_len, min_flank_len, min_rep_len
-    )
+    model = Inference(spanning_observed_counts, spanning_read_lengths, flanking_observed_counts, flanking_read_lengths)
 
     likelihoods = model.evaluate(
         spanning_observed_counts, spanning_read_lengths,
@@ -57,79 +52,51 @@ class Inference:
     def __init__(
         self,
         spanning_obs_counts: list[int], spanning_read_lengths: list[int],
-        flanking_obs_counts: list[int], flanking_read_lengths: list[int],
-        min_rep_count: int, min_lflank_len: int, min_rflank_len: int, min_rep_len: int
+        flanking_obs_counts: list[int], flanking_read_lengths: list[int]
     ):
         """
         Initialization of the Inference class + setup of all models and their probabilities.
         """
-        # assign variables
-        self.str_rep: int = min_rep_count
-        self.minl_primer1: int = min_lflank_len
-        self.minl_primer2: int = min_rflank_len
-        self.minl_str: int = min_rep_len
-
         read_distribution = np.bincount(spanning_read_lengths + flanking_read_lengths, minlength=100)
         self.read_dist: np.ndarray = read_distribution / float(np.sum(read_distribution))  # make it sum to 1.0
 
         # TODO: Can I remove this and have 0, 1, ..., n, E, B?
         min_rep, max_rep, e_allele = self.get_boundaries(spanning_obs_counts, flanking_obs_counts)
         self.min_rep = min_rep
-        self.max_with_e = e_allele + 1
+        self.max_with_e = e_allele
 
         self.max_rep = max_rep  # should be inclusive, but I think it often isn't
         self.exp_idx = max_rep + 1
         self.bkg_idx = max_rep + 2
 
-        tmp = Inference.construct_models(self.min_rep, self.max_rep, self.max_with_e)
-        old_models, old_model_probabilities, models, mprobs = tmp
-        self.old_models = old_models
-        self.old_model_probs = old_model_probabilities
-        # pprint(self.old_models)
+        models, mprobs = Inference.construct_models(self.min_rep, self.max_rep, self.max_with_e)
         self.models = models
         self.mprobs = mprobs
 
     @classmethod
     def get_boundaries(cls, spanning_obs_counts: list[int], flanking_obs_counts: list[int]) -> tuple[int, int, int]:
         """Returns boundaries of the implicit matrix. Is it possible to get rid of this?"""
-        if len(spanning_obs_counts) > 0:
-            max_rep = max(spanning_obs_counts) + cls.OVERHEAD + 1  # non-inclusive
-            min_rep = max(cls.MIN_REPETITIONS, min(spanning_obs_counts) - cls.OVERHEAD)  # inclusive
-        else:
-            max_rep = max(flanking_obs_counts) + cls.OVERHEAD  # non-inclusive
-            min_rep = max(cls.MIN_REPETITIONS, max(flanking_obs_counts) - cls.OVERHEAD)  # inclusive
+        max_rep = max(spanning_obs_counts) + cls.OVERHEAD + 1  # non-inclusive
+        min_rep = max(cls.MIN_REPETITIONS, min(spanning_obs_counts) - cls.OVERHEAD)  # inclusive
 
         # expanded allele
+        max_with_e = max_rep + 1
         if len(flanking_obs_counts) > 0:
-            e_allele = max(max_rep, max(flanking_obs_counts) + 1)
-        else:
-            e_allele = max_rep
-        return (min_rep, max_rep, e_allele)
+            max_with_e = max(max_rep, max(flanking_obs_counts) + 1) + 1
+        return (min_rep, max_rep, max_with_e)
 
     @staticmethod
-    def construct_models(min_rep, max_rep, max_with_e) -> tuple[dict, dict, list, list]:
+    def construct_models(min_rep, max_rep, max_with_e) -> tuple[list, list]:
         """
         Construct models (np.ndarray representing probability distribution of getting read given haplotype) and
         model probabilities (float - not summing to 1? because they are likelihoods?)
         """
-        # get models
-        background_model = model_bckg(min_rep, max_with_e)
-        expanded_model = model_full(max_with_e, max_with_e - 1)
-        allele_models = {i: model_full(max_with_e, i) for i in range(max_rep)}
-        models = {'E': expanded_model, 'B': background_model}
-        models.update(allele_models)  # type: ignore
-
-        # get model likelihoods
-        allele_model_probabilities = {i: Inference.L_OTHERS for i in range(max_rep)}
-        model_probabilities = {'E': Inference.L_EXP, 'B': Inference.L_BCKG_MODEL_OPEN}
-        model_probabilities.update(allele_model_probabilities)  # type: ignore
-
         # get new models
         new_models = []
         for i in range(max_rep + 1):  # inclusive 0, 1, ..., n
             new_models.append(model_full(max_with_e, i))
         new_models.append(model_full(max_with_e, max_with_e - 1))     # exp
-        new_models.append(model_bckg(min_rep, max_with_e))            # bkg
+        new_models.append(model_bckg(max_with_e, min_rep))            # bkg
 
         # get new mprobs
         new_mprobs = []
@@ -138,9 +105,8 @@ class Inference:
         new_mprobs.append(Inference.L_EXP)
         new_mprobs.append(Inference.L_BCKG_MODEL_OPEN)
 
-        return models, model_probabilities, new_models, new_mprobs
+        return new_models, new_mprobs
 
-    # ---
     def evaluate(
         self,
         spanning_obs_counts: list[int], spanning_read_lengths: list[int],
@@ -155,22 +121,23 @@ class Inference:
             return self.evaluate_monoallelic_motif(obs_counts, read_lengths, is_spanning)
         else:
             return self.evaluate_biallelic_motif(obs_counts, read_lengths, is_spanning)
+    # ---
 
     def evaluate_monoallelic_motif(self, obs_counts, read_lengths, is_spanning):
-        likelihoods = np.zeros((self.max_rep, self.max_rep + 1))
-        models = list(range(self.min_rep, self.max_rep)) + [0, self.max_rep]  # 'B', 'E'
-        for m1 in models:
-            model_lh = 0.0
+        n = self.max_rep + 3  # 0, 1, ..., n, E, B
+        lhoods = np.full((n, n), -np.inf)  # because they are loglikelihoods
+        for idx in range(n):
+            m_lh = 0.0
             for obs, rl, closed in zip(obs_counts, read_lengths, is_spanning):
-                # lh = self.likelihood_read(obs, rl, m1, None, closed=closed)
-                lh = self.l_read_given_one_genotype(obs, rl, closed, m1)
-                model_lh += np.log(lh)
+                m_lh += np.log(self.l_read_given_one_genotype(obs, rl, closed, idx))
+            lhoods[idx, idx] = m_lh
 
-            m2 = m1
-            if m1 == self.max_rep and m2 == self.max_rep:
-                m1 = 0
-            likelihoods[m1, m2] = model_lh
-
+        # transform to old format
+        likelihoods = np.zeros((self.max_rep, self.max_rep + 1))
+        for idx in range(self.min_rep, self.max_rep):
+            likelihoods[idx, idx] = lhoods[idx, idx]
+        likelihoods[0, 0] = lhoods[self.bkg_idx, self.bkg_idx]
+        likelihoods[0, self.max_rep] = lhoods[self.exp_idx, self.exp_idx]
         ind_good = (likelihoods < 0.0) & (likelihoods > -1e10) & (likelihoods != np.nan)
         likelihoods[~ind_good] = -np.inf
         return likelihoods
@@ -218,7 +185,9 @@ class Inference:
             model_lh = 0.0
             for obs, rl, closed in zip(obs_counts, read_lengths, is_spanning):
                 # lh = self.likelihood_read(obs, rl, m1, m2, closed=closed)
-                lh = self.l_read_given_two_genotypes(obs, rl, closed, m1, m2)
+                m1_new = self.bkg_idx if m1 == 0 else self.exp_idx if m1 == self.max_rep else m1
+                m2_new = self.bkg_idx if m2 == 0 else self.exp_idx if m2 == self.max_rep else m2
+                lh = self.l_read_given_two_genotypes(obs, rl, closed, m1_new, m2_new)
                 model_lh += np.log(lh)
 
             if m1 == self.max_rep and m2 == self.max_rep:  # legacy, for backwards compatibility, change in future
@@ -229,84 +198,73 @@ class Inference:
         likelihoods[~ind_good] = -np.inf
         return likelihoods
 
-    def likelihood_read_allele(self, model_idx, observed, rl, closed) -> float:
-        if closed:
-            return self.l_spanning_read_given_genotype(observed, rl, model_idx)
-        else:
-            return self.l_flanking_read_given_genotype(observed, rl, model_idx)
-
-    def l_spanning_read_given_genotype(self, observed, rl, model_idx) -> float:
-        def likelihood_cov(params, true_length, rl, _closed):
-            """ Likelihood of generating a read with this length and this allele. """
-            whole_inside_str = max(0, true_length * params.str_rep + params.minl_primer1 + params.minl_primer2 - rl + 1)
-            # closed_overlapping = max(0, rl - self.minl_primer1 - self.minl_primer2 - true_length * self.str_rep + 1)
-            open_overlapping = max(0, rl + true_length * params.str_rep - 2 * params.minl_str + 1)
-
-            assert open_overlapping > whole_inside_str, \
-                f"{open_overlapping} open {whole_inside_str} whole inside {true_length} {rl} {params.minl_str}"
-
-            return 1.0 / float(open_overlapping - whole_inside_str)
-
-        likelihood_rl: float = self.read_dist[rl]
-        likelihood_model: float = self.old_models[model_idx][observed]
-        likelihood_coverage: float = likelihood_cov(self, observed, rl, True)
-        return likelihood_rl * likelihood_model * likelihood_coverage
-
-    def l_flanking_read_given_genotype(self, observed, rl, model_idx) -> float:
-        def likelihood_cov(params, true_length, rl, _closed):
-            """ Likelihood of generating a read with this length and this allele. """
-            whole_inside_str = max(0, true_length * params.str_rep + params.minl_primer1 + params.minl_primer2 - rl + 1)
-            # closed_overlapping = max(0, rl - self.minl_primer1 - self.minl_primer2 - true_length * self.str_rep + 1)
-            open_overlapping = max(0, rl + true_length * params.str_rep - 2 * params.minl_str + 1)
-
-            assert open_overlapping > whole_inside_str, \
-                f"{open_overlapping} open {whole_inside_str} whole inside {true_length} {rl} {params.minl_str}"
-
-            return 1.0 / float(open_overlapping - whole_inside_str)
-
-        partial_likelihood = 0.0
-        number_of_options = 0
-        for true_length in itertools.chain(range(observed, self.max_rep), [self.max_with_e - 1]):
-            likelihood_model = self.old_models[model_idx][true_length]
-            likelihood_coverage = likelihood_cov(self, true_length, rl, False)
-            partial_likelihood += likelihood_model * likelihood_coverage
-            number_of_options += 1
-
-        likelihood_rl = self.read_dist[rl]
-        return likelihood_rl * partial_likelihood / float(number_of_options)
-
+    # ---
     @functools.lru_cache()
     def l_read_given_two_genotypes(
         self, oc: int, rl: int, sf: bool, g1_idx: int, g2_idx: int
     ) -> float:
         """ P(OC[i], RL[i], SF[i] | G1, G2) * P(G1, G2) which is definitelly incorrect"""
-        m1 = 'B' if g1_idx == 0 else 'E' if g1_idx == self.max_rep else g1_idx
-        m2 = 'B' if g2_idx == 0 else 'E' if g2_idx == self.max_rep else g2_idx
-        m1_new = self.bkg_idx if g1_idx == 0 else self.exp_idx if g1_idx == self.max_rep else g1_idx
-        m2_new = self.bkg_idx if g2_idx == 0 else self.exp_idx if g2_idx == self.max_rep else g2_idx
-
         bkground_likelihood = self.L_BCKG_CLOSED if sf else self.L_BCKG_OPEN
-        bckgrnd_l = bkground_likelihood * self.likelihood_read_allele('B', oc, rl, sf)
-        allele1_l = self.mprobs[m1_new] * self.likelihood_read_allele(m1, oc, rl, sf)
-        allele2_l = self.mprobs[m2_new] * self.likelihood_read_allele(m2, oc, rl, sf)
+        bg_idx = self.bkg_idx
+        bckgrnd_l = bkground_likelihood * self.l_read_given_genotype(oc, rl, sf, bg_idx)
+        allele1_l = self.mprobs[g1_idx] * self.l_read_given_genotype(oc, rl, sf, g1_idx)
+        allele2_l = self.mprobs[g2_idx] * self.l_read_given_genotype(oc, rl, sf, g2_idx)
 
         # TODO: tuto podla mna nemoze byt len tak +, chyba tam korelacia modelov, ale v ramci zjednodusenia asi ok
         return allele1_l + allele2_l + bckgrnd_l
+        # return bckgrnd_l + allele1_l + allele2_l  # damn you float arithmetic
 
     @functools.lru_cache()
     def l_read_given_one_genotype(
         self, oc: int, rl: int, sf: bool, g1_idx: int
     ) -> float:
         """ P(OC[i], RL[i], SF[i] | G1) * P(G1) """
-        m1 = 'B' if g1_idx == 0 else 'E' if g1_idx == self.max_rep else g1_idx
-        m1_new = self.bkg_idx if g1_idx == 0 else self.exp_idx if g1_idx == self.max_rep else g1_idx
-
+        # print(g1_idx, sep=" ", end="")
         bkground_likelihood = self.L_BCKG_CLOSED if sf else self.L_BCKG_OPEN
-        bckgrnd_l = bkground_likelihood * self.likelihood_read_allele('B', oc, rl, sf)
-        allele1_l = self.mprobs[m1_new] * self.likelihood_read_allele(m1, oc, rl, sf)
+        bg_idx = self.bkg_idx
+        bckgrnd_l = bkground_likelihood * self.l_read_given_genotype(oc, rl, sf, bg_idx)
+        allele1_l = self.mprobs[g1_idx] * self.l_read_given_genotype(oc, rl, sf, g1_idx)
 
         # TODO: tuto podla mna nemoze byt len tak +, chyba tam korelacia modelov, ale v ramci zjednodusenia asi ok
-        return allele1_l + bckgrnd_l
+        return bckgrnd_l + allele1_l
+
+    def l_read_given_genotype(self, oc: int, rl: int, is_spanning: bool, gt_idx: int) -> float:
+        if is_spanning:
+            return self.l_spanning_read_given_genotype(oc, rl, gt_idx)
+        else:
+            return self.l_flanking_read_given_genotype(oc, rl, gt_idx)
+
+    def l_spanning_read_given_genotype(self, oc, rl, gt_idx) -> float:
+        """ This wants to be eq. 6 in https://doi.org/10.1093/bioinformatics/bty791 """
+
+        def lc(oc, rl):  # basically returns 1/rl with some inherited confusion numbers
+            return 1.0 / float(max(0, +(rl - 5 + oc)) - max(0, -(rl - 7 - oc)))  # This never made sense anyway
+
+        likelihood_rl: float = self.read_dist[rl]
+        likelihood_model: float = self.models[gt_idx][oc]
+        likelihood_cov: float = lc(oc, rl)
+        return likelihood_rl * likelihood_model * likelihood_cov
+
+    def l_flanking_read_given_genotype(self, oc, rl, gt_idx) -> float:
+        """ This wants to be eq. 6 in https://doi.org/10.1093/bioinformatics/bty791 for flanking reads"""
+
+        def lc(oc, rl):  # basically returns 1/rl with some inherited confusion numbers
+            return 1.0 / float(max(0, +(rl - 5 + oc)) - max(0, -(rl - 7 - oc)))  # This never made sense anyway
+
+        likelihood_rl: float = self.read_dist[rl]
+
+        partial_likelihood = 0.0
+        number_of_options = 0
+        tmp = list(itertools.chain(range(oc, self.max_rep), [self.max_with_e - 1]))
+        for true_length in tmp:
+            likelihood_model: float = self.models[gt_idx][true_length]  # I think this is supposed to be other way
+            likelihood_cov: float = lc(true_length, rl)
+
+            partial_likelihood += likelihood_model * likelihood_cov
+            number_of_options += 1
+
+        return likelihood_rl * partial_likelihood / float(number_of_options)
+    # ---
 
 
 def predict(lh_array: np.ndarray) -> tuple[int, int]:
@@ -395,15 +353,7 @@ def get_confidence(lh_array: np.ndarray, predicted: tuple[int, int], max_rep: in
 
 
 # ---
-
-# DEFAULT_MODEL_PARAMS = (0.001, 0.000105087, 0.0210812, 0.001)
-# p1, p2, p3, q = DEFAULT_MODEL_PARAMS
-# inserts = q
-# deletes = p1 + p2 * n
-DEFAULT_MODEL_PARAMS = (0.0001, 0.0001, 0.0, 0.0001)
-
-
-def model_full(rng: int, n: int) -> np.ndarray:
+def model_full(size: int, gt: int) -> np.ndarray:
     """
     Create binomial model for both deletes and inserts of STRs
     :param rng: int - max_range of distribution
@@ -428,21 +378,26 @@ def model_full(rng: int, n: int) -> np.ndarray:
 
         return end_distr
 
-    # print(rng, n)
+    # DEFAULT_MODEL_PARAMS = (0.001, 0.000105087, 0.0210812, 0.001)
+    # p1, p2, p3, q = DEFAULT_MODEL_PARAMS
+    # inserts = q
+    # deletes = p1 + p2 * n
+    DEFAULT_MODEL_PARAMS = (0.0001, 0.0001, 0.0, 0.0001)
+
     p1, p2, _, q = DEFAULT_MODEL_PARAMS
-    deletes: np.ndarray = binom.pmf(np.arange(rng), n, clip(1 - (p1 + p2 * n), 0.0, 1.0))
+    deletes: np.ndarray = binom.pmf(np.arange(size), gt, clip(1 - (p1 + p2 * gt), 0.0, 1.0))
     # print(deletes)
-    inserts: np.ndarray = binom.pmf(np.arange(rng), n, q)
+    inserts: np.ndarray = binom.pmf(np.arange(size), gt, q)
     # print(inserts)
     result = combine_distribs(deletes, inserts)
     # print(result)
     return result
 
 
-def model_bckg(min_rep, max_with_e) -> np.ndarray:
-    """Returns ndarray with length ???"""
+def model_bckg(size: int, zeros: int) -> np.ndarray:
+    """Returns ndarray with length size"""
     result = np.concatenate([
-        np.zeros(min_rep, dtype=float),
-        np.ones(max_with_e - min_rep, dtype=float) / float(max_with_e - min_rep)
+        np.zeros(zeros, dtype=float),
+        np.ones(size - zeros, dtype=float) / float(size - zeros)
     ])
     return result
