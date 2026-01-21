@@ -21,10 +21,17 @@ def genotype(
     if len(spanning_observed_counts) == 0:
         return (None, ('B', 'B'), (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0))
 
-    model = Inference(spanning_observed_counts, spanning_read_lengths, flanking_observed_counts, flanking_read_lengths)
-    likelihoods = model.evaluate(spanning_observed_counts, spanning_read_lengths, flanking_observed_counts, flanking_read_lengths, monoallelic_motif)
+    obs_counts = spanning_observed_counts + flanking_observed_counts
+    read_lengths = spanning_read_lengths + flanking_read_lengths
+    is_spanning = [True] * len(spanning_observed_counts) + [False] * len(flanking_observed_counts)
+    min_rep = Model.get_min_rep(spanning_observed_counts)
+    max_rep = Model.get_max_rep(spanning_observed_counts)
+    max_with_e = Model.get_max_with_e(max_rep, flanking_observed_counts)
 
-    likelihoods = transform_to_old_format(likelihoods, model.min_rep, model.max_rep, model.exp_idx, model.bkg_idx)
+    model = Model(read_lengths, min_rep, max_rep, max_with_e)
+    likelihoods = model.evaluate(obs_counts, read_lengths, is_spanning, monoallelic_motif)
+
+    likelihoods = transform_to_old_format(likelihoods, min_rep, model.max_rep, model.exp_idx, model.bkg_idx)
     predicted_tmp = predict(likelihoods)
     raw_confidence = get_confidence(likelihoods, predicted_tmp, model.max_rep, monoallelic_motif)
     prediction = convert_to_sym(model.max_rep, predicted_tmp, monoallelic_motif)
@@ -33,7 +40,7 @@ def genotype(
 
 
 # All other objects below this line are considered internal a should not be used
-class Inference:
+class Model:
     """
     Class for inference of alleles.
     This description is wrong, but slightly useful.
@@ -55,9 +62,6 @@ class Inference:
      2.: P(al_i, cov_i, rl_i, cl_i | G1)
         = P(rl_i is from read distrib.) * P(allele is >= al_i | G1) * P(read generated open evidence | rl_i, al_i)
     """
-    MIN_REPETITIONS = 1
-    OVERHEAD = 3
-
     L_EXP = 1.01
     L_OTHERS = 1.0
     L_BCKG_OPEN = 0.01
@@ -65,80 +69,71 @@ class Inference:
 
     L_BCKG_MODEL_OPEN = 0.5
 
-    def __init__(
-        self,
-        spanning_obs_counts: list[int], spanning_read_lengths: list[int],
-        flanking_obs_counts: list[int], flanking_read_lengths: list[int]
-    ):
-        """
-        Initialization of the Inference class + setup of all models and their probabilities.
-        """
-        read_distribution = np.bincount(spanning_read_lengths + flanking_read_lengths, minlength=100)
-        self.read_dist: np.ndarray = read_distribution / float(np.sum(read_distribution))  # make it sum to 1.0
+    def __init__(self, read_lengths: list[int], min_rep: int, max_rep: int, max_with_e: int):
+        """ Initialization of the Inference class + setup of all models and their probabilities. """
+        self.max_rep: int = max_rep  # should be inclusive, but I think it often isn't
+        self.exp_idx: int = max_rep + 1
+        self.bkg_idx: int = max_rep + 2
 
-        # TODO: Can I remove this and have 0, 1, ..., n, E, B?
-        min_rep, max_rep, e_allele = Inference.get_boundaries(spanning_obs_counts, flanking_obs_counts)
-        self.max_rep = max_rep  # should be inclusive, but I think it often isn't
-        self.exp_idx = max_rep + 1
-        self.bkg_idx = max_rep + 2
+        self.read_dist: np.ndarray = np.bincount(read_lengths, minlength=100) / len(read_lengths)
+        self.models: list[np.ndarray] = Model.construct_models(self.max_rep, min_rep, max_with_e)
+        self.mprobs: list[float] = Model.construct_mprobs(self.max_rep)
 
-        self.min_rep = min_rep
-        self.max_with_e = e_allele
+        # TODO: get rid of this
+        self.max_with_e = max_with_e
 
-        models, mprobs = Inference.construct_models(self.min_rep, self.max_rep, self.max_with_e)
-        self.models = models
-        self.mprobs = mprobs
-
+    # BEGIN --- TODO: These can be defined outside of the class
     @staticmethod
-    def get_boundaries(spanning_obs_counts: list[int], flanking_obs_counts: list[int]) -> tuple[int, int, int]:
-        """Returns boundaries of the implicit matrix. Is it possible to get rid of this?"""
-        max_rep = max(spanning_obs_counts) + Inference.OVERHEAD + 1  # non-inclusive
-        min_rep = max(Inference.MIN_REPETITIONS, min(spanning_obs_counts) - Inference.OVERHEAD)  # inclusive
-
-        # expanded allele
+    def get_max_with_e(max_rep: int, flanking_obs_counts: list[int]) -> int:
         max_with_e = max_rep + 1
         if len(flanking_obs_counts) > 0:
             max_with_e = max(max_rep, max(flanking_obs_counts) + 1) + 1
-        return (min_rep, max_rep, max_with_e)
+        return max_with_e
+
+    MIN_REPETITIONS = 1
+    OVERHEAD = 3
 
     @staticmethod
-    def construct_models(min_rep, max_rep, max_with_e) -> tuple[list, list]:
-        """
-        Construct models (np.ndarray representing probability distribution of getting read given haplotype) and
-        model probabilities (float - not summing to 1? because they are likelihoods?)
-        """
+    def get_min_rep(spanning_obs_counts: list[int]) -> int:
+        return max(Model.MIN_REPETITIONS, min(spanning_obs_counts) - Model.OVERHEAD)  # inclusive
+
+    @staticmethod
+    def get_max_rep(spanning_obs_counts: list[int]) -> int:
+        return max(spanning_obs_counts) + Model.OVERHEAD + 1  # non-inclusive
+    # END
+
+    @staticmethod
+    def construct_models(max_rep: int, min_rep: int, max_with_e: int) -> list[np.ndarray]:
+        """ Construct models (np.ndarray representing probability distribution of getting read given haplotype) """
         # get new models
         new_models = []
         for i in range(max_rep + 1):  # inclusive 0, 1, ..., n
             new_models.append(model_full(max_with_e, i))
         new_models.append(model_full(max_with_e, max_with_e - 1))     # exp
         new_models.append(model_bckg(max_with_e, min_rep))            # bkg
+        return new_models
 
-        # get new mprobs
+    @staticmethod
+    def construct_mprobs(max_rep: int) -> list[float]:
+        """ Construct model probabilities (float - not summing to 1? because they are likelihoods?) """
         new_mprobs = []
         for i in range(max_rep + 1):
-            new_mprobs.append(Inference.L_OTHERS)
-        new_mprobs.append(Inference.L_EXP)
-        new_mprobs.append(Inference.L_BCKG_MODEL_OPEN)
-
-        return new_models, new_mprobs
+            new_mprobs.append(Model.L_OTHERS)
+        new_mprobs.append(Model.L_EXP)
+        new_mprobs.append(Model.L_BCKG_MODEL_OPEN)
+        return new_mprobs
 
     def evaluate(
-        self,
-        spanning_obs_counts: list[int], spanning_read_lengths: list[int],
-        flanking_obs_counts: list[int], flanking_read_lengths: list[int],
-        is_monoallelic: bool
+        self, obs_counts: list[int], read_lengths: list[int], is_spanning: list[bool], is_monoallelic: bool
     ) -> np.ndarray:
-        obs_counts = np.array(spanning_obs_counts + flanking_obs_counts)
-        read_lengths = np.array(spanning_read_lengths + flanking_read_lengths)
-        is_spanning = np.array([True] * len(spanning_obs_counts) + [False] * len(flanking_obs_counts))
-
         if is_monoallelic:
             return self.evaluate_monoallelic_motif(obs_counts, read_lengths, is_spanning)
         else:
             return self.evaluate_biallelic_motif(obs_counts, read_lengths, is_spanning)
 
-    def evaluate_monoallelic_motif(self, obs_counts, read_lengths, is_spanning):
+    def evaluate_monoallelic_motif(
+        self, obs_counts: list[int], read_lengths: list[int], is_spanning: list[bool]
+    ) -> np.ndarray:
         n = self.max_rep + 3  # 0, 1, ..., n, E, B
         loglikelihoods = np.full((n, n), -np.inf)
         for gt_idx in range(n):
@@ -149,7 +144,9 @@ class Inference:
 
         return loglikelihoods
 
-    def evaluate_biallelic_motif(self, obs_counts, read_lengths, is_spanning):
+    def evaluate_biallelic_motif(
+        self, obs_counts: list[int], read_lengths: list[int], is_spanning: list[bool]
+    ) -> np.ndarray:
         n = self.max_rep + 3  # 0, 1, ..., n, E, B
         loglikelihoods = np.full((n, n), -np.inf)
         for g1_idx in range(n):
