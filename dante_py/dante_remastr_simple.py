@@ -15,7 +15,7 @@ import textwrap
 import numpy as np
 import pandas as pd
 
-from src_new.genotyping import genotype
+from src_new.genotyping2 import genotype
 
 
 VERSION = "0.12.0"
