@@ -1,5 +1,6 @@
 from src_new.genotyping import genotype as genotype1
 from src_new.genotyping2 import genotype as genotype2
+import numpy as np
 
 
 def test_biallelic_genotype_function() -> None:
@@ -14,7 +15,9 @@ def test_biallelic_genotype_function() -> None:
 
     # biallelic
     assert prediction1 == prediction2
+    # assert np.allclose(confidence1, confidence2, equal_nan=True)
     assert confidence1 == confidence2
+    # assert np.allclose(likelihood_matrix1, likelihood_matrix2, equal_nan=True)
     assert (likelihood_matrix1 == likelihood_matrix2).all()
 
 
@@ -30,7 +33,9 @@ def test_monoallelic_genotype_function() -> None:
 
     # monoallelic
     assert prediction1 == prediction2
+    # assert np.allclose(confidence1, confidence2, equal_nan=True)
     assert confidence1 == confidence2
+    # assert np.allclose(likelihood_matrix1, likelihood_matrix2, equal_nan=True)
     assert (likelihood_matrix1 == likelihood_matrix2).all()
 
 
@@ -48,7 +53,9 @@ def test_BSS_motif() -> None:
     # BSS
     print(prediction1, prediction2)
     assert prediction1 == prediction2
+    # assert np.allclose(confidence1, confidence2, equal_nan=True)
     assert confidence1 == confidence2
+    # assert np.allclose(likelihood_matrix1, likelihood_matrix2, equal_nan=True)
     assert (likelihood_matrix1 == likelihood_matrix2).all()
 
 # end

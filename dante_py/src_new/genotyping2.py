@@ -24,9 +24,9 @@ def genotype(
     obs_counts = spanning_observed_counts + flanking_observed_counts
     read_lengths = spanning_read_lengths + flanking_read_lengths
     is_spanning = [True] * len(spanning_observed_counts) + [False] * len(flanking_observed_counts)
-    min_rep = Model.get_min_rep(spanning_observed_counts)
-    max_rep = Model.get_max_rep(spanning_observed_counts)
-    max_with_e = Model.get_max_with_e(max_rep, flanking_observed_counts)
+    min_rep = get_min_rep(spanning_observed_counts)
+    max_rep = get_max_rep(spanning_observed_counts)
+    max_with_e = get_max_with_e(max_rep, flanking_observed_counts)
 
     model = Model(read_lengths, min_rep, max_rep, max_with_e)
     likelihoods = model.evaluate(obs_counts, read_lengths, is_spanning, monoallelic_motif)
@@ -79,28 +79,8 @@ class Model:
         self.models: list[np.ndarray] = Model.construct_models(self.max_rep, min_rep, max_with_e)
         self.mprobs: list[float] = Model.construct_mprobs(self.max_rep)
 
-        # TODO: get rid of this
+        # TODO: get rid of this, only used in l_flanking_read_given_genotype l216
         self.max_with_e = max_with_e
-
-    # BEGIN --- TODO: These can be defined outside of the class
-    @staticmethod
-    def get_max_with_e(max_rep: int, flanking_obs_counts: list[int]) -> int:
-        max_with_e = max_rep + 1
-        if len(flanking_obs_counts) > 0:
-            max_with_e = max(max_rep, max(flanking_obs_counts) + 1) + 1
-        return max_with_e
-
-    MIN_REPETITIONS = 1
-    OVERHEAD = 3
-
-    @staticmethod
-    def get_min_rep(spanning_obs_counts: list[int]) -> int:
-        return max(Model.MIN_REPETITIONS, min(spanning_obs_counts) - Model.OVERHEAD)  # inclusive
-
-    @staticmethod
-    def get_max_rep(spanning_obs_counts: list[int]) -> int:
-        return max(spanning_obs_counts) + Model.OVERHEAD + 1  # non-inclusive
-    # END
 
     @staticmethod
     def construct_models(max_rep: int, min_rep: int, max_with_e: int) -> list[np.ndarray]:
@@ -224,53 +204,47 @@ class Model:
 
 
 def model_full(size: int, gt: int) -> np.ndarray:
-    """
-    Create binomial model for both deletes and inserts of STRs
-    :param rng: int - max_range of distribution
-    :param n: int - target allele number
-    :return: ndarray - combined distribution
-    """
+    """ Create binomial model for both deletes and inserts of STRs """
     def clip(value, minimal, maximal):
         return min(max(minimal, value), maximal)
 
-    def combine_distribs(deletes: np.ndarray, inserts: np.ndarray) -> np.ndarray:
-        # how much to fill?
-        to_fill = sum(deletes == 0.0) + 1
-        while to_fill < len(inserts) and inserts[to_fill] > 0.0001:
-            to_fill += 1
+    p_del = 0.0001 + 0.0001 * gt
+    deletes: np.ndarray = binom.pmf(np.arange(size), gt, clip(1 - p_del, 0.0, 1.0))
+    p_ins = 0.0001
+    inserts: np.ndarray = binom.pmf(np.arange(size), gt, p_ins)
 
-        # create the end array
-        end_distr = np.zeros_like(deletes, dtype=float)
+    # combine distributions
+    to_fill = sum(deletes == 0.0) + 1
+    while to_fill < len(inserts) and inserts[to_fill] > 0.0001:
+        to_fill += 1
 
-        # fill it!
-        for i, a in enumerate(inserts[:to_fill]):
-            end_distr[i:] += (deletes * a)[:len(deletes) - i]
+    result = np.zeros_like(deletes, dtype=float)
+    for i, a in enumerate(inserts[:to_fill]):
+        result[i:] += (deletes * a)[:len(deletes) - i]
 
-        return end_distr
-
-    # DEFAULT_MODEL_PARAMS = (0.001, 0.000105087, 0.0210812, 0.001)
-    # p1, p2, p3, q = DEFAULT_MODEL_PARAMS
-    # inserts = q
-    # deletes = p1 + p2 * n
-    DEFAULT_MODEL_PARAMS = (0.0001, 0.0001, 0.0, 0.0001)
-
-    p1, p2, _, q = DEFAULT_MODEL_PARAMS
-    deletes: np.ndarray = binom.pmf(np.arange(size), gt, clip(1 - (p1 + p2 * gt), 0.0, 1.0))
-    # print(deletes)
-    inserts: np.ndarray = binom.pmf(np.arange(size), gt, q)
-    # print(inserts)
-    result = combine_distribs(deletes, inserts)
-    # print(result)
     return result
+
+
+# def model_full_v2(size: int, gt: int) -> np.ndarray:
+#     """Returns ndarray with length size"""
+#     def clip(value, minimal, maximal):
+#         return min(max(minimal, value), maximal)
+#
+#     p_del = clip(0.0001 + 0.0001 * gt, 0.0, 1.0)
+#     deletes = binom.pmf(np.arange(gt + 1), gt, p_del)
+#     p_ins = 0.0001
+#     inserts = binom.pmf(np.arange(gt + 1), gt, p_ins)
+#
+#     result = np.convolve(inserts, deletes[::-1])[:size]
+#     padding = np.zeros(size - len(result), dtype=float)
+#     return np.concatenate([result, padding])
 
 
 def model_bckg(size: int, zeros: int) -> np.ndarray:
     """Returns ndarray with length size"""
-    result = np.concatenate([
-        np.zeros(zeros, dtype=float),
-        np.ones(size - zeros, dtype=float) / float(size - zeros)
-    ])
-    return result
+    padding = np.zeros(zeros, dtype=float)
+    result = np.ones(size - zeros, dtype=float) / float(size - zeros)
+    return np.concatenate([padding, result])
 # ---
 
 
@@ -357,3 +331,22 @@ def get_confidence(lh_array: np.ndarray, predicted: tuple[int, int], max_rep: in
         confidence_back, confidence_back_all, confidence_exp, confidence_exp_all
     )
     return result
+
+
+MIN_REPETITIONS = 1
+OVERHEAD = 3
+
+
+def get_min_rep(spanning_obs_counts: list[int]) -> int:
+    return max(MIN_REPETITIONS, min(spanning_obs_counts) - OVERHEAD)  # inclusive
+
+
+def get_max_rep(spanning_obs_counts: list[int]) -> int:
+    return max(spanning_obs_counts) + OVERHEAD + 1  # non-inclusive
+
+
+def get_max_with_e(max_rep: int, flanking_obs_counts: list[int]) -> int:
+    max_with_e = max_rep + 1
+    if len(flanking_obs_counts) > 0:
+        max_with_e = max(max_rep, max(flanking_obs_counts) + 1) + 1
+    return max_with_e
