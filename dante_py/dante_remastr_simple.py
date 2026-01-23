@@ -18,7 +18,7 @@ import pandas as pd
 from src_new.genotyping2 import genotype
 
 
-VERSION = "0.12.0"
+VERSION = "0.13.0"
 DANTE_DESCRIPTION = '''
             DANTE = Da Amazing NucleoTide Exposer (Remastered)
             --------------------------------------------------
