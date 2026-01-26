@@ -21,17 +21,17 @@ def genotype(
     obs_counts = spanning_observed_counts + flanking_observed_counts
     read_lengths = spanning_read_lengths + flanking_read_lengths
     is_spanning = [True] * len(spanning_observed_counts) + [False] * len(flanking_observed_counts)
-    min_rep = get_min_rep(spanning_observed_counts)
-    max_rep = get_max_rep(spanning_observed_counts)
-    max_with_e = get_max_with_e(max_rep, flanking_observed_counts)
+    max_rep = max(obs_counts) + 5
 
-    model = Model(read_lengths, min_rep, max_rep, max_with_e)
+    model = Model(read_lengths, max_rep)
     likelihoods = model.evaluate(obs_counts, read_lengths, is_spanning, monoallelic_motif)
 
-    likelihoods = transform_to_old_format(likelihoods, min_rep, model.max_rep, model.exp_idx, model.bkg_idx)
+    _max_rep = get_max_rep(spanning_observed_counts)
+    _min_rep = get_min_rep(spanning_observed_counts)
+    likelihoods = transform_to_old_format(likelihoods, _min_rep, _max_rep, model.exp_idx, model.bkg_idx)
     predicted_tmp = predict(likelihoods)
-    raw_confidence = get_confidence(likelihoods, predicted_tmp, model.max_rep, monoallelic_motif)
-    prediction = convert_to_sym(model.max_rep, predicted_tmp, monoallelic_motif)
+    raw_confidence = get_confidence(likelihoods, predicted_tmp, _max_rep, monoallelic_motif)
+    prediction = convert_to_sym(_max_rep, predicted_tmp, monoallelic_motif)
 
     return likelihoods, prediction, raw_confidence
 
@@ -66,29 +66,15 @@ class Model:
 
     L_BCKG_MODEL_OPEN = 0.5
 
-    def __init__(self, read_lengths: list[int], min_rep: int, max_rep: int, max_with_e: int):
+    def __init__(self, read_lengths: list[int], max_rep: int):
         """ Initialization of the Inference class + setup of all models and their probabilities. """
-        self.max_rep: int = max_rep  # should be inclusive, but I think it often isn't
+        self.read_dist: np.ndarray = np.bincount(read_lengths, minlength=100) / len(read_lengths)
+
+        self.max_rep: int = max_rep
         self.exp_idx: int = max_rep + 1
         self.bkg_idx: int = max_rep + 2
-
-        self.read_dist: np.ndarray = np.bincount(read_lengths, minlength=100) / len(read_lengths)
-        self.models: list[np.ndarray] = Model.construct_models(self.max_rep, min_rep, max_with_e)
-        self.mprobs: list[float] = Model.construct_mprobs(self.max_rep)
-
-        # TODO: get rid of this, only used in l_flanking_read_given_genotype l216
-        self.max_with_e = max_with_e
-
-    @staticmethod
-    def construct_models(max_rep: int, min_rep: int, max_with_e: int) -> list[np.ndarray]:
-        """ Construct models (np.ndarray representing probability distribution of getting read given haplotype) """
-        # get new models
-        models = []
-        for i in range(max_rep + 1):  # inclusive 0, 1, ..., n
-            models.append(model_full(max_with_e, i))
-        models.append(model_full(max_with_e, max_with_e - 1))     # exp
-        models.append(model_bckg(max_with_e, min_rep))            # bkg
-        return models
+        self.mprobs = Model.construct_mprobs(self.max_rep)
+        self.models = Model.construct_models(self.max_rep)
 
     @staticmethod
     def construct_mprobs(max_rep: int) -> list[float]:
@@ -99,6 +85,35 @@ class Model:
         mprobs.append(Model.L_EXP)
         mprobs.append(Model.L_BCKG_MODEL_OPEN)
         return mprobs
+
+    @staticmethod
+    def construct_models(max_rep: int) -> list[np.ndarray]:
+        models = []
+        for i in range(max_rep + 1):  # inclusive 0, 1, ..., n
+            models.append(Model.model_full(max_rep, i))
+        models.append(Model.model_full(max_rep, max_rep - 1))   # exp  this should be something else
+        models.append(Model.model_bckg(max_rep))                # bkg
+        return models
+
+    @staticmethod
+    def model_full(size: int, gt: int) -> np.ndarray:
+        """Returns ndarray with length size"""
+        def clip(value, minimal, maximal):
+            return min(max(minimal, value), maximal)
+
+        p_del = clip(0.0001 + 0.0001 * gt, 0.0, 1.0)
+        deletes = binom.pmf(np.arange(gt + 1), gt, p_del)
+        p_ins = 0.0001
+        inserts = binom.pmf(np.arange(gt + 1), gt, p_ins)
+
+        result = np.convolve(inserts, deletes[::-1])[:size]
+        padding = np.zeros(size - len(result), dtype=float)
+        return np.concatenate([result, padding])
+
+    @staticmethod
+    def model_bckg(size: int) -> np.ndarray:
+        """Returns ndarray with length size"""
+        return np.ones(size, dtype=float) / float(size)
 
     def evaluate(
         self, obs_counts: list[int], read_lengths: list[int], is_spanning: list[bool], is_monoallelic: bool
@@ -145,10 +160,7 @@ class Model:
         bckgrnd_l = bkground_likelihood * self.l_read_given_genotype(oc, rl, sf, bg_idx)
         allele1_l = self.mprobs[g1_idx] * self.l_read_given_genotype(oc, rl, sf, g1_idx)
         allele2_l = self.mprobs[g2_idx] * self.l_read_given_genotype(oc, rl, sf, g2_idx)
-
-        # TODO: tuto podla mna nemoze byt len tak +, chyba tam korelacia modelov, ale v ramci zjednodusenia asi ok
-        return allele1_l + allele2_l + bckgrnd_l
-        # return bckgrnd_l + allele1_l + allele2_l  # damn you float arithmetic
+        return bckgrnd_l + allele1_l + allele2_l
 
     @functools.lru_cache()
     def l_read_given_one_genotype(
@@ -159,8 +171,6 @@ class Model:
         bg_idx = self.bkg_idx
         bckgrnd_l = bkground_likelihood * self.l_read_given_genotype(oc, rl, sf, bg_idx)
         allele1_l = self.mprobs[g1_idx] * self.l_read_given_genotype(oc, rl, sf, g1_idx)
-
-        # TODO: tuto podla mna nemoze byt len tak +, chyba tam korelacia modelov, ale v ramci zjednodusenia asi ok
         return bckgrnd_l + allele1_l
 
     def l_read_given_genotype(self, oc: int, rl: int, is_spanning: bool, gt_idx: int) -> float:
@@ -190,7 +200,7 @@ class Model:
 
         partial_likelihood = 0.0
         number_of_options = 0
-        for true_length in list(range(oc, self.max_rep)) + [self.max_with_e - 1]:
+        for true_length in list(range(oc, self.max_rep)):
             likelihood_model: float = self.models[gt_idx][true_length]  # I think this is supposed to be other way
             likelihood_cov: float = lc(true_length, rl)
 
@@ -198,28 +208,6 @@ class Model:
             number_of_options += 1
 
         return likelihood_rl * partial_likelihood / float(number_of_options)
-
-
-def model_full(size: int, gt: int) -> np.ndarray:
-    """Returns ndarray with length size"""
-    def clip(value, minimal, maximal):
-        return min(max(minimal, value), maximal)
-
-    p_del = clip(0.0001 + 0.0001 * gt, 0.0, 1.0)
-    deletes = binom.pmf(np.arange(gt + 1), gt, p_del)
-    p_ins = 0.0001
-    inserts = binom.pmf(np.arange(gt + 1), gt, p_ins)
-
-    result = np.convolve(inserts, deletes[::-1])[:size]
-    padding = np.zeros(size - len(result), dtype=float)
-    return np.concatenate([result, padding])
-
-
-def model_bckg(size: int, zeros: int) -> np.ndarray:
-    """Returns ndarray with length size"""
-    padding = np.zeros(zeros, dtype=float)
-    result = np.ones(size - zeros, dtype=float) / float(size - zeros)
-    return np.concatenate([padding, result])
 # ---
 
 
@@ -318,10 +306,3 @@ def get_min_rep(spanning_obs_counts: list[int]) -> int:
 
 def get_max_rep(spanning_obs_counts: list[int]) -> int:
     return max(spanning_obs_counts) + OVERHEAD + 1  # non-inclusive
-
-
-def get_max_with_e(max_rep: int, flanking_obs_counts: list[int]) -> int:
-    max_with_e = max_rep + 1
-    if len(flanking_obs_counts) > 0:
-        max_with_e = max(max_rep, max(flanking_obs_counts) + 1) + 1
-    return max_with_e
