@@ -5,9 +5,6 @@ from typing import TypeAlias
 import functools
 import numpy as np
 
-np.set_printoptions(precision=4, suppress=True, linewidth=300, floatmode='fixed')
-np.set_printoptions(precision=2, suppress=True, linewidth=300, floatmode='fixed')
-
 Confidences: TypeAlias = tuple[float, float, float, float, float, float, float]
 
 
@@ -86,22 +83,22 @@ class Model:
     def construct_models(max_rep: int, min_rep: int, max_with_e: int) -> list[np.ndarray]:
         """ Construct models (np.ndarray representing probability distribution of getting read given haplotype) """
         # get new models
-        new_models = []
+        models = []
         for i in range(max_rep + 1):  # inclusive 0, 1, ..., n
-            new_models.append(model_full(max_with_e, i))
-        new_models.append(model_full(max_with_e, max_with_e - 1))     # exp
-        new_models.append(model_bckg(max_with_e, min_rep))            # bkg
-        return new_models
+            models.append(model_full(max_with_e, i))
+        models.append(model_full(max_with_e, max_with_e - 1))     # exp
+        models.append(model_bckg(max_with_e, min_rep))            # bkg
+        return models
 
     @staticmethod
     def construct_mprobs(max_rep: int) -> list[float]:
         """ Construct model probabilities (float - not summing to 1? because they are likelihoods?) """
-        new_mprobs = []
+        mprobs = []
         for i in range(max_rep + 1):
-            new_mprobs.append(Model.L_OTHERS)
-        new_mprobs.append(Model.L_EXP)
-        new_mprobs.append(Model.L_BCKG_MODEL_OPEN)
-        return new_mprobs
+            mprobs.append(Model.L_OTHERS)
+        mprobs.append(Model.L_EXP)
+        mprobs.append(Model.L_BCKG_MODEL_OPEN)
+        return mprobs
 
     def evaluate(
         self, obs_counts: list[int], read_lengths: list[int], is_spanning: list[bool], is_monoallelic: bool
@@ -204,40 +201,18 @@ class Model:
 
 
 def model_full(size: int, gt: int) -> np.ndarray:
-    """ Create binomial model for both deletes and inserts of STRs """
+    """Returns ndarray with length size"""
     def clip(value, minimal, maximal):
         return min(max(minimal, value), maximal)
 
-    p_del = 0.0001 + 0.0001 * gt
-    deletes: np.ndarray = binom.pmf(np.arange(size), gt, clip(1 - p_del, 0.0, 1.0))
+    p_del = clip(0.0001 + 0.0001 * gt, 0.0, 1.0)
+    deletes = binom.pmf(np.arange(gt + 1), gt, p_del)
     p_ins = 0.0001
-    inserts: np.ndarray = binom.pmf(np.arange(size), gt, p_ins)
+    inserts = binom.pmf(np.arange(gt + 1), gt, p_ins)
 
-    # combine distributions
-    to_fill = sum(deletes == 0.0) + 1
-    while to_fill < len(inserts) and inserts[to_fill] > 0.0001:
-        to_fill += 1
-
-    result = np.zeros_like(deletes, dtype=float)
-    for i, a in enumerate(inserts[:to_fill]):
-        result[i:] += (deletes * a)[:len(deletes) - i]
-
-    return result
-
-
-# def model_full_v2(size: int, gt: int) -> np.ndarray:
-#     """Returns ndarray with length size"""
-#     def clip(value, minimal, maximal):
-#         return min(max(minimal, value), maximal)
-#
-#     p_del = clip(0.0001 + 0.0001 * gt, 0.0, 1.0)
-#     deletes = binom.pmf(np.arange(gt + 1), gt, p_del)
-#     p_ins = 0.0001
-#     inserts = binom.pmf(np.arange(gt + 1), gt, p_ins)
-#
-#     result = np.convolve(inserts, deletes[::-1])[:size]
-#     padding = np.zeros(size - len(result), dtype=float)
-#     return np.concatenate([result, padding])
+    result = np.convolve(inserts, deletes[::-1])[:size]
+    padding = np.zeros(size - len(result), dtype=float)
+    return np.concatenate([result, padding])
 
 
 def model_bckg(size: int, zeros: int) -> np.ndarray:
