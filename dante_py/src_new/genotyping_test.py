@@ -4,7 +4,17 @@ from src_new.genotyping3 import genotype as genotype3
 import numpy as np
 import pytest
 
-np.set_printoptions(precision=2, suppress=True, linewidth=3000, floatmode='fixed')
+np.set_printoptions(precision=4, suppress=True, linewidth=3000, floatmode='fixed')
+
+
+# def test_single_read_motif() -> None:
+#     sp_obsed_cs = [3, 3]
+#     sp_read_len = [148, 148]
+#     fl_obsed_cs = []
+#     fl_read_len = []
+#     monoa_motif = False
+#     lm3, pred3, conf3 = genotype3(sp_obsed_cs, sp_read_len, fl_obsed_cs, fl_read_len, monoa_motif, 1, 3, 3)
+#     print(lm3)
 
 
 def test_SBMA_motif() -> None:

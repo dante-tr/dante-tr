@@ -4,6 +4,7 @@ from scipy.stats import binom  # type: ignore
 from typing import TypeAlias
 import functools
 import numpy as np
+from typing import Iterable
 
 Confidences: TypeAlias = tuple[float, float, float, float, float, float, float]
 
@@ -26,8 +27,8 @@ def genotype(
     model = Model(read_lengths, max_rep)
     likelihoods = model.evaluate(obs_counts, read_lengths, is_spanning, monoallelic_motif)
 
-    _max_rep = get_max_rep(spanning_observed_counts)
     _min_rep = get_min_rep(spanning_observed_counts)
+    _max_rep = get_max_rep(spanning_observed_counts)
     likelihoods = transform_to_old_format(likelihoods, _min_rep, _max_rep, model.exp_idx, model.bkg_idx)
     predicted_tmp = predict(likelihoods)
     raw_confidence = get_confidence(likelihoods, predicted_tmp, _max_rep, monoallelic_motif)
@@ -59,22 +60,31 @@ class Model:
      2.: P(al_i, cov_i, rl_i, cl_i | G1)
         = P(rl_i is from read distrib.) * P(allele is >= al_i | G1) * P(read generated open evidence | rl_i, al_i)
     """
-    L_EXP = 1.01
+    # construct_mprobs
     L_OTHERS = 1.0
+    L_EXP = 1.01
+    L_BCKG_MODEL_OPEN = 0.5
+
+    # l_read_given_one_genotype and l_read_given_two_genotypes
     L_BCKG_OPEN = 0.01
     L_BCKG_CLOSED = 0.001  # L_BCKG_OPEN / 10
 
-    L_BCKG_MODEL_OPEN = 0.5
+    # model_full
+    P_DEL1, P_DEL2 = 0.0001, 0.0001
+    P_INS = 0.0001
 
     def __init__(self, read_lengths: list[int], max_rep: int):
         """ Initialization of the Inference class + setup of all models and their probabilities. """
         self.read_dist: np.ndarray = np.bincount(read_lengths, minlength=100) / len(read_lengths)
 
+        # max_spanning_rep
+        # max_flanking_rep
+
         self.max_rep: int = max_rep
         self.exp_idx: int = max_rep + 1
         self.bkg_idx: int = max_rep + 2
-        self.mprobs = Model.construct_mprobs(self.max_rep)
-        self.models = Model.construct_models(self.max_rep)
+        self.mprobs: list = Model.construct_mprobs(self.max_rep)    # P(G)
+        self.models: list = Model.construct_models(self.max_rep)    # P(A|G)
 
     @staticmethod
     def construct_mprobs(max_rep: int) -> list[float]:
@@ -101,9 +111,9 @@ class Model:
         def clip(value, minimal, maximal):
             return min(max(minimal, value), maximal)
 
-        p_del = clip(0.0001 + 0.0001 * gt, 0.0, 1.0)
-        deletes = binom.pmf(np.arange(gt + 1), gt, p_del)
-        p_ins = 0.0001
+        p_del = clip(Model.P_DEL1 + Model.P_DEL2 * gt, 0.0, 1.0)
+        deletes = binom.pmf(np.arange(gt + 1), gt, p_del)  # this should be geometric distribution
+        p_ins = Model.P_INS
         inserts = binom.pmf(np.arange(gt + 1), gt, p_ins)
 
         result = np.convolve(inserts, deletes[::-1])[:size]
@@ -114,65 +124,42 @@ class Model:
     def model_bckg(size: int) -> np.ndarray:
         """Returns ndarray with length size"""
         return np.ones(size, dtype=float) / float(size)
+    # ---
 
     def evaluate(
-        self, obs_counts: list[int], read_lengths: list[int], is_spanning: list[bool], is_monoallelic: bool
+        self, observed: list[int], rlengths: list[int], spanning: list[bool], is_monoallelic: bool
     ) -> np.ndarray:
+        """Returns a matrix of loglikelihoods for each considered option"""
+        n = self.max_rep + 3  # 0, 1, ..., n, E, B
+        llmatrix = np.full((n, n), -np.inf)
+        genotypes: Iterable
         if is_monoallelic:
-            return self.evaluate_monoallelic_motif(obs_counts, read_lengths, is_spanning)
+            genotypes = range(n)
+            for gt_idx in genotypes:
+                llmatrix[gt_idx, gt_idx] = self.loglikelihood_of_D_given_G(observed, rlengths, spanning, gt_idx, gt_idx)
         else:
-            return self.evaluate_biallelic_motif(obs_counts, read_lengths, is_spanning)
+            genotypes = ((g1_idx, g2_idx) for g1_idx in range(n) for g2_idx in range(g1_idx, n))
+            for (g1_idx, g2_idx) in genotypes:
+                llmatrix[g1_idx, g2_idx] = self.loglikelihood_of_D_given_G(observed, rlengths, spanning, g1_idx, g2_idx)
+        return llmatrix
 
-    def evaluate_monoallelic_motif(
-        self, obs_counts: list[int], read_lengths: list[int], is_spanning: list[bool]
-    ) -> np.ndarray:
-        n = self.max_rep + 3  # 0, 1, ..., n, E, B
-        loglikelihoods = np.full((n, n), -np.inf)
-        for gt_idx in range(n):
-            m_lh = 0.0
-            for oc, rl, sf in zip(obs_counts, read_lengths, is_spanning):
-                m_lh += np.log(self.l_read_given_one_genotype(oc, rl, sf, gt_idx))
-            loglikelihoods[gt_idx, gt_idx] = m_lh
-
-        return loglikelihoods
-
-    def evaluate_biallelic_motif(
-        self, obs_counts: list[int], read_lengths: list[int], is_spanning: list[bool]
-    ) -> np.ndarray:
-        n = self.max_rep + 3  # 0, 1, ..., n, E, B
-        loglikelihoods = np.full((n, n), -np.inf)
-        for g1_idx in range(n):
-            for g2_idx in range(g1_idx, n):
-                m_lh = 0.0
-                for oc, rl, sf in zip(obs_counts, read_lengths, is_spanning):
-                    m_lh += np.log(self.l_read_given_two_genotypes(oc, rl, sf, g1_idx, g2_idx))
-                loglikelihoods[g1_idx, g2_idx] = m_lh
-
-        return loglikelihoods
+    def loglikelihood_of_D_given_G(
+        self, obs_counts: list[int], read_lengths: list[int], is_spanning: list[bool], g1_idx: int, g2_idx: int
+    ) -> float:
+        """ This wants to be eq. 6 in https://doi.org/10.1093/bioinformatics/bty791 """
+        """ P(OC, RL, SF | G1, G2) """
+        m_lh = 0.0
+        for oc, rl, sf in zip(obs_counts, read_lengths, is_spanning):
+            bkground_likelihood = self.L_BCKG_CLOSED if sf else self.L_BCKG_OPEN
+            bg_idx = self.bkg_idx
+            bckgrnd_l = bkground_likelihood * self.l_read_given_genotype(oc, rl, sf, bg_idx)
+            allele1_l = self.mprobs[g1_idx] * self.l_read_given_genotype(oc, rl, sf, g1_idx)
+            allele2_l = self.mprobs[g2_idx] * self.l_read_given_genotype(oc, rl, sf, g2_idx)
+            value = bckgrnd_l + allele1_l + allele2_l
+            m_lh += np.log(value)
+        return m_lh
 
     @functools.lru_cache()
-    def l_read_given_two_genotypes(
-        self, oc: int, rl: int, sf: bool, g1_idx: int, g2_idx: int
-    ) -> float:
-        """ P(OC[i], RL[i], SF[i] | G1, G2) * P(G1, G2) which is definitelly incorrect"""
-        bkground_likelihood = self.L_BCKG_CLOSED if sf else self.L_BCKG_OPEN
-        bg_idx = self.bkg_idx
-        bckgrnd_l = bkground_likelihood * self.l_read_given_genotype(oc, rl, sf, bg_idx)
-        allele1_l = self.mprobs[g1_idx] * self.l_read_given_genotype(oc, rl, sf, g1_idx)
-        allele2_l = self.mprobs[g2_idx] * self.l_read_given_genotype(oc, rl, sf, g2_idx)
-        return bckgrnd_l + allele1_l + allele2_l
-
-    @functools.lru_cache()
-    def l_read_given_one_genotype(
-        self, oc: int, rl: int, sf: bool, g1_idx: int
-    ) -> float:
-        """ P(OC[i], RL[i], SF[i] | G1) * P(G1) """
-        bkground_likelihood = self.L_BCKG_CLOSED if sf else self.L_BCKG_OPEN
-        bg_idx = self.bkg_idx
-        bckgrnd_l = bkground_likelihood * self.l_read_given_genotype(oc, rl, sf, bg_idx)
-        allele1_l = self.mprobs[g1_idx] * self.l_read_given_genotype(oc, rl, sf, g1_idx)
-        return bckgrnd_l + allele1_l
-
     def l_read_given_genotype(self, oc: int, rl: int, is_spanning: bool, gt_idx: int) -> float:
         if is_spanning:
             return self.l_spanning_read_given_genotype(oc, rl, gt_idx)
@@ -181,28 +168,20 @@ class Model:
 
     def l_spanning_read_given_genotype(self, oc: int, rl: int, gt_idx: int) -> float:
         """ This wants to be eq. 6 in https://doi.org/10.1093/bioinformatics/bty791 """
-
-        def lc(oc, rl):  # basically returns 1/rl with some inherited confusion numbers
-            return 1.0 / float(max(0, +(rl - 5 + oc)) - max(0, -(rl - 7 - oc)))  # This never made sense anyway
-
         likelihood_rl: float = self.read_dist[rl]
         likelihood_model: float = self.models[gt_idx][oc]
-        likelihood_cov: float = lc(oc, rl)
+        likelihood_cov: float = 1.0 / rl
         return likelihood_rl * likelihood_model * likelihood_cov
 
     def l_flanking_read_given_genotype(self, oc: int, rl: int, gt_idx: int) -> float:
         """ This wants to be eq. 6 in https://doi.org/10.1093/bioinformatics/bty791 for flanking reads"""
-
-        def lc(oc, rl):  # basically returns 1/rl with some inherited confusion numbers
-            return 1.0 / float(max(0, +(rl - 5 + oc)) - max(0, -(rl - 7 - oc)))  # This never made sense anyway
-
         likelihood_rl: float = self.read_dist[rl]
 
         partial_likelihood = 0.0
         number_of_options = 0
         for true_length in list(range(oc, self.max_rep)):
-            likelihood_model: float = self.models[gt_idx][true_length]  # I think this is supposed to be other way
-            likelihood_cov: float = lc(true_length, rl)
+            likelihood_model: float = self.models[gt_idx][true_length]
+            likelihood_cov: float = 1.0 / rl
 
             partial_likelihood += likelihood_model * likelihood_cov
             number_of_options += 1
