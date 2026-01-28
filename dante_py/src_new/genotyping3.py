@@ -63,11 +63,7 @@ class Model:
     # construct_mprobs
     L_OTHERS = 1.0
     L_EXP = 1.01
-    L_BCKG_MODEL_OPEN = 0.5
-
-    # l_read_given_one_genotype and l_read_given_two_genotypes
-    L_BCKG_OPEN = 0.01
-    L_BCKG_CLOSED = 0.001  # L_BCKG_OPEN / 10
+    L_BKG = 0.01
 
     # model_full
     P_DEL1, P_DEL2 = 0.0001, 0.0001
@@ -93,7 +89,7 @@ class Model:
         for i in range(max_rep + 1):
             mprobs.append(Model.L_OTHERS)
         mprobs.append(Model.L_EXP)
-        mprobs.append(Model.L_BCKG_MODEL_OPEN)
+        mprobs.append(Model.L_BKG)
         return mprobs
 
     @staticmethod
@@ -150,43 +146,28 @@ class Model:
         """ P(OC, RL, SF | G1, G2) """
         m_lh = 0.0
         for oc, rl, sf in zip(obs_counts, read_lengths, is_spanning):
-            bkground_likelihood = self.L_BCKG_CLOSED if sf else self.L_BCKG_OPEN
-            bg_idx = self.bkg_idx
-            bckgrnd_l = bkground_likelihood * self.l_read_given_genotype(oc, rl, sf, bg_idx)
-            allele1_l = self.mprobs[g1_idx] * self.l_read_given_genotype(oc, rl, sf, g1_idx)
-            allele2_l = self.mprobs[g2_idx] * self.l_read_given_genotype(oc, rl, sf, g2_idx)
-            value = bckgrnd_l + allele1_l + allele2_l
-            m_lh += np.log(value)
+            bckgrnd_l = self.l_read_given_genotype(oc, rl, sf, self.bkg_idx)
+            allele1_l = self.l_read_given_genotype(oc, rl, sf, g1_idx)
+            allele2_l = self.l_read_given_genotype(oc, rl, sf, g2_idx)
+            m_lh += np.log(bckgrnd_l + allele1_l + allele2_l)
         return m_lh
 
     @functools.lru_cache()
     def l_read_given_genotype(self, oc: int, rl: int, is_spanning: bool, gt_idx: int) -> float:
-        if is_spanning:
-            return self.l_spanning_read_given_genotype(oc, rl, gt_idx)
-        else:
-            return self.l_flanking_read_given_genotype(oc, rl, gt_idx)
-
-    def l_spanning_read_given_genotype(self, oc: int, rl: int, gt_idx: int) -> float:
         """ This wants to be eq. 6 in https://doi.org/10.1093/bioinformatics/bty791 """
-        likelihood_rl: float = self.read_dist[rl]
-        likelihood_model: float = self.models[gt_idx][oc]
-        likelihood_cov: float = 1.0 / rl
-        return likelihood_rl * likelihood_model * likelihood_cov
+        """ P(oc, rl, sf | G) """
+        lh_cover: float = 1.0 / rl              # P(b_i | a_i, r_i) # incorrect, but does something
+        lh_r_len: float = self.read_dist[rl]    # P(r_i)            # correct, but does nothing
+        lh_model: float                         # P(a_i | g_i)
+        lh_mprob: float = self.mprobs[gt_idx]   # P(g_i)
 
-    def l_flanking_read_given_genotype(self, oc: int, rl: int, gt_idx: int) -> float:
-        """ This wants to be eq. 6 in https://doi.org/10.1093/bioinformatics/bty791 for flanking reads"""
-        likelihood_rl: float = self.read_dist[rl]
+        if is_spanning:
+            lh_model = self.models[gt_idx][oc]
+        else:
+            lh_model = sum(self.models[gt_idx][oc:]) / len(self.models[gt_idx][oc:])
 
-        partial_likelihood = 0.0
-        number_of_options = 0
-        for true_length in list(range(oc, self.max_rep)):
-            likelihood_model: float = self.models[gt_idx][true_length]
-            likelihood_cov: float = 1.0 / rl
-
-            partial_likelihood += likelihood_model * likelihood_cov
-            number_of_options += 1
-
-        return likelihood_rl * partial_likelihood / float(number_of_options)
+        # print(f"{lh_cover:.4f} {lh_model:.4f} {lh_mprob:.4f} {lh_r_len:.4f}")
+        return lh_cover * lh_r_len * lh_model * lh_mprob
 # ---
 
 
