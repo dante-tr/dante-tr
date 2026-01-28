@@ -22,13 +22,16 @@ def genotype(
     obs_counts = spanning_observed_counts + flanking_observed_counts
     read_lengths = spanning_read_lengths + flanking_read_lengths
     is_spanning = [True] * len(spanning_observed_counts) + [False] * len(flanking_observed_counts)
-    max_rep = max(obs_counts) + 5
+    max_spanning_reps = max(spanning_observed_counts)
+    max_overall_reps = max(obs_counts)
 
+    # TODO: remove these constants, they are not strictly necessary
+    max_rep = max_overall_reps + 5
+    _max_rep = max_spanning_reps + 4
     model = Model(read_lengths, max_rep)
     likelihoods = model.evaluate(obs_counts, read_lengths, is_spanning, monoallelic_motif)
 
     _min_rep = get_min_rep(spanning_observed_counts)
-    _max_rep = get_max_rep(spanning_observed_counts)
     likelihoods = transform_to_old_format(likelihoods, _min_rep, _max_rep, model.exp_idx, model.bkg_idx)
     predicted_tmp = predict(likelihoods)
     raw_confidence = get_confidence(likelihoods, predicted_tmp, _max_rep, monoallelic_motif)
@@ -90,6 +93,8 @@ class Model:
             mprobs.append(Model.L_OTHERS)
         mprobs.append(Model.L_EXP)
         mprobs.append(Model.L_BKG)
+        # mprobs should sum to 1.0
+        # should be either uniform or from https://gnomad.broadinstitute.org/short-tandem-repeat/ATXN1
         return mprobs
 
     @staticmethod
@@ -97,8 +102,11 @@ class Model:
         models = []
         for i in range(max_rep + 1):  # inclusive 0, 1, ..., n
             models.append(Model.model_full(max_rep, i))
-        models.append(Model.model_full(max_rep, max_rep - 1))   # exp  this should be something else
-        models.append(Model.model_bckg(max_rep))                # bkg
+        # expansion should be sum i from (n+1) to (inf) model_full(n, i)
+        models.append(Model.model_full(max_rep, max_rep))   # exp
+        models.append(Model.model_bckg(max_rep))            # bkg
+        # models should contain max_spanning_count + 3 (0, 1, ..., n, E, B) 1darrays
+        # each 1darray needs length max_flanking_count + 1 (0, 1, ..., m)
         return models
 
     @staticmethod
@@ -110,7 +118,7 @@ class Model:
         p_del = clip(Model.P_DEL1 + Model.P_DEL2 * gt, 0.0, 1.0)
         deletes = binom.pmf(np.arange(gt + 1), gt, p_del)  # this should be geometric distribution
         p_ins = Model.P_INS
-        inserts = binom.pmf(np.arange(gt + 1), gt, p_ins)
+        inserts = binom.pmf(np.arange(gt + 1), gt, p_ins)  # this should be geometric distribution
 
         result = np.convolve(inserts, deletes[::-1])[:size]
         padding = np.zeros(size - len(result), dtype=float)
@@ -119,6 +127,7 @@ class Model:
     @staticmethod
     def model_bckg(size: int) -> np.ndarray:
         """Returns ndarray with length size"""
+        # representing microsatellite instability?
         return np.ones(size, dtype=float) / float(size)
     # ---
 
@@ -171,6 +180,7 @@ class Model:
 # ---
 
 
+# TODO: split this into somethings integratable to class and conversion to old
 def transform_to_old_format(lhoods, min_rep, max_rep, exp_idx, bkg_idx):
     likelihoods = np.zeros((max_rep, max_rep + 1))
     rng = slice(min_rep, max_rep)
@@ -262,7 +272,3 @@ OVERHEAD = 3
 
 def get_min_rep(spanning_obs_counts: list[int]) -> int:
     return max(MIN_REPETITIONS, min(spanning_obs_counts) - OVERHEAD)  # inclusive
-
-
-def get_max_rep(spanning_obs_counts: list[int]) -> int:
-    return max(spanning_obs_counts) + OVERHEAD + 1  # non-inclusive
