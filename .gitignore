@@ -3,3 +3,5 @@ target/
 data/
 example_giab/
 expected_results/
+dante_data
+dante_py/src_new/run_log.txt
