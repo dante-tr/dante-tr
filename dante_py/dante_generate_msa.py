@@ -27,167 +27,163 @@ BASE_MAPPING = {
 def main() -> None:
     input_tsvs = ["457-2025_WGS_FAME3/annotations.tsv"]
     input_jsons = ["457-2025_WGS_FAME3/data.json"]
-    is_male = True
-    cutoff_alignments = 5
     output_dir = "."
+    output_files = [f"{output_dir}/alignments/FAME3.html"]
+    is_male = True
 
-    for (f_tsv, f_json) in zip(input_tsvs, input_jsons):
-        with open(f_json, "r") as f:
-            data = json.load(f)
-
-        write_alignment_html(data, f_tsv, is_male, cutoff_alignments, output_dir)
-
+    for (tsv_file, json_file, output_file) in zip(input_tsvs, input_jsons, output_files):
+        # os.makedirs(motif_dir, exist_ok=True)  # create output directory for alignments?
+        write_alignment_html(json_file, tsv_file, output_file, is_male)
     copy_includes(output_dir)
 
 
-def copy_includes(output_dir: str) -> None:
-    include_dir = os.path.dirname(sys.argv[0]) + "/includes"
-    os.makedirs(f'{output_dir}/includes', exist_ok=True)
-    shutil.copy2(f'{include_dir}/msa.min.gz.js',            f'{output_dir}/includes/msa.min.gz.js')
-    shutil.copy2(f'{include_dir}/plotly-2.14.0.min.js',     f'{output_dir}/includes/plotly-2.14.0.min.js')
-    shutil.copy2(f'{include_dir}/jquery-3.6.1.min.js',      f'{output_dir}/includes/jquery-3.6.1.min.js')
-    shutil.copy2(f'{include_dir}/datatables.min.js',        f'{output_dir}/includes/datatables.min.js')
-    shutil.copy2(f'{include_dir}/styles.css',               f'{output_dir}/includes/styles.css')
-    shutil.copy2(f'{include_dir}/w3.css',                   f'{output_dir}/includes/w3.css')
-    shutil.copy2(f'{include_dir}/jquery.dataTables.css',    f'{output_dir}/includes/jquery.dataTables.css')
+def write_alignment_html(json_file, tsv_file, output_file, is_male) -> None:
+    with open(json_file, "r") as f:
+        data_json = json.load(f)
 
+    df = pd.read_csv(tsv_file, sep='\t')
 
-def write_alignment_html(data_json, input_tsv, male, cutoff_alignments, output_dir) -> None:
-    motif = create_motif(pd.read_csv(input_tsv, sep='\t'), male)
+    motif = create_motif(df, is_male)
+    mt = motif.dir_name()
     seq = motif.modules_str(include_flanks=True)
     motif_desc = motif.name
-
-    script_dir = os.path.dirname(sys.argv[0]) + "/templates"
-    min_gt = []
-    min_ph = []
+    data = []
     for motif_data in data_json["motifs"]:
-        if motif_data["motif_id"] != motif_desc:
-            continue
+        assert motif_data["motif_id"] == motif_desc, "Some incompatible input"
 
-        for mod in motif_data["modules"]:
-            min_gt.append((mod["id"][0], (mod["allele_1"][0], mod["allele_2"][0])))
+        for module in motif_data["modules"]:
+            mod_id = module["id"][0]
+            a1 = int(module["allele_1"][0]) if isinstance(module["allele_1"][0], int) else None
+            a2 = int(module["allele_2"][0]) if isinstance(module["allele_2"][0], int) else None
+            fastas = gen_single_fastas(tsv_file, is_male, mod_id, a1, a2)
+            data.append(format_single_msas(mod_id, seq, motif_desc, a1, a2, fastas))
 
         for phasing in motif_data["phasings"]:
-            min_ph.append((phasing["ids"][1], phasing["ids"][0]))
+            md1_id = phasing["ids"][0]
+            md1_id = phasing["ids"][1]
+            fastas = gen_phased_fastas(tsv_file, is_male, md1_id, md1_id)
+            data.append(format_phased_msas(md1_id, md1_id, seq, motif_desc, fastas))
 
-    data2 = []
-    for gt in min_gt:
-        (module_number, predicted) = gt
-
-        suffix = str(module_number)
-        highlight = list(map(int, str(module_number).split('_')))
-        sequence, _subpart = highlight_subpart(seq, highlight)
-        motif_name_part1 = f'{motif_desc.replace("/", "_")}'
-        motif_name_part2 = f'{",".join(map(str, highlight)) if highlight is not None else "mot"}'
-        motif_name = f'{motif_name_part1}_{motif_name_part2}'
-        motif_clean = re.sub(r'[^\w_]', '', motif_name)
-        motif_id = motif_clean.split('_')[0]
-
-        a1 = int(predicted[0]) if isinstance(predicted[0], int) else None
-        a2 = int(predicted[1]) if isinstance(predicted[1], int) else None
-
-        data = []
-
-        if a1 is not None and a1 > 0:
-            name = f'{motif_clean}_{str(a1)}'
-            display_text = f'Allele 1 ({str(a1):2s}) alignment visualization'
-            fasta2 = generate_msa_fasta(input_tsv, "spanning", male, module_number, a1, cutoff_after=cutoff_alignments)
-            seq_logo = 'true'
-            data.append((name, display_text, fasta2, seq_logo))
-
-        if a2 is not None and a2 != a1 and a2 != 0:
-            name = f'{motif_clean}_{str(a2)}'
-            display_text = f'Allele 2 ({str(a2):2s}) alignment visualization'
-            fasta2 = generate_msa_fasta(input_tsv, "spanning", male, module_number, a2, cutoff_after=cutoff_alignments)
-            seq_logo = 'true'
-            data.append((name, display_text, fasta2, seq_logo))
-
-        name = motif_clean
-        display_text = 'Spanning reads alignment visualization'
-        fasta2 = generate_msa_fasta(
-            input_tsv, "spanning", male, module_number, index_rep2=None, cutoff_after=cutoff_alignments)
-        seq_logo = 'true'
-        data.append((name, display_text, fasta2, seq_logo))
-
-        name = motif_clean + '_filtered'
-        display_text = 'Partial reads alignment visualization'
-        fasta2 = generate_msa_fasta(
-            input_tsv, "flanking", male, module_number, index_rep2=None, cutoff_after=cutoff_alignments)
-        seq_logo = 'false'
-        data.append((name, display_text, fasta2, seq_logo))
-
-        name = motif_clean + '_filtered_left'
-        display_text = 'Left flank reads alignment visualization'
-        fasta2 = generate_msa_fasta(
-            input_tsv, "flanking_left", male, module_number, index_rep2=None, cutoff_after=cutoff_alignments)
-        seq_logo = 'true'
-        data.append((name, display_text, fasta2, seq_logo))
-
-        name = motif_clean + '_filtered_right'
-        display_text = 'Right flank reads alignment visualization'
-        fasta2 = generate_msa_fasta(input_tsv, "flanking_right", male, module_number,
-                                    index_rep2=None, cutoff_after=cutoff_alignments, right_align=True)
-        seq_logo = 'true'
-        data.append((name, display_text, fasta2, seq_logo))
-
-        data2.append((sequence, motif_id, data))
-
-    for ph in min_ph:
-        (module_number, prev_module_num) = ph
-
-        suffix = f'{prev_module_num}_{module_number}'
-
-        highlight = list(map(int, str(suffix).split('_')))
-        sequence, _subpart = highlight_subpart(seq, highlight)
-        motif_name_part1 = f'{motif_desc.replace("/", "_")}'
-        motif_name_part2 = f'{",".join(map(str, highlight)) if highlight is not None else "mot"}'
-        motif_name = f'{motif_name_part1}_{motif_name_part2}'
-        motif_clean = re.sub(r'[^\w_]', '', motif_name)
-        motif_id = motif_clean.split('_')[0]
-
-        data = []
-
-        name = motif_clean
-        display_text = 'Spanning reads alignment visualization'
-        fasta2 = generate_msa_fasta(input_tsv, "two_good", male, prev_module_num,
-                                    index_rep2=module_number, cutoff_after=cutoff_alignments)
-        seq_logo = 'true'
-        data.append((name, display_text, fasta2, seq_logo))
-
-        name = motif_clean + '_filtered'
-        display_text = 'Partial reads alignment visualization'
-        fasta2 = generate_msa_fasta(input_tsv, "one_good", male, prev_module_num,
-                                    index_rep2=module_number, cutoff_after=cutoff_alignments)
-        seq_logo = 'true'
-        data.append((name, display_text, fasta2, seq_logo))
-
-        name = motif_clean + '_filtered_left'
-        display_text = 'Left flank reads alignment visualization'
-        fasta2 = generate_msa_fasta(input_tsv, "one_good_left", male, prev_module_num,
-                                    index_rep2=module_number, cutoff_after=cutoff_alignments)
-        seq_logo = 'true'
-        data.append((name, display_text, fasta2, seq_logo))
-
-        name = motif_clean + '_filtered_right'
-        display_text = 'Right flank reads alignment visualization'
-        fasta2 = generate_msa_fasta(input_tsv, "one_good_right", male, prev_module_num,
-                                    index_rep2=module_number, cutoff_after=cutoff_alignments, right_align=True)
-        seq_logo = 'true'
-        data.append((name, display_text, fasta2, seq_logo))
-
-        data2.append((sequence, motif_id, data))
-
-    mt = motif.dir_name()
-    motif_dir = f'{output_dir}/alignments'
-    os.makedirs(motif_dir, exist_ok=True)
-
+    script_dir = os.path.dirname(sys.argv[0]) + "/templates"
     env = Environment(loader=FileSystemLoader([script_dir]))
     template = env.get_template("alignments_template.html")
-    output = template.render(sample=mt, motif_desc=motif_desc, data2=data2)
-    with open(f"{output_dir}/alignments/{mt}.html", "w") as f:
+    output = template.render(sample=mt, motif_desc=motif_desc, data2=data)
+    with open(output_file, "w") as f:
         f.write(output)
 
     return
+
+
+def gen_single_fastas(input_tsv, is_male, m_idx, a1, a2) -> list[str]:
+    result: list[str] = [
+        gen_msa(input_tsv, "spanning", is_male, m_idx, a1, None, None, False),
+        gen_msa(input_tsv, "spanning", is_male, m_idx, a2, None, None, False),
+        gen_msa(input_tsv, "spanning", is_male, m_idx, None, None, None, False),
+        gen_msa(input_tsv, "flanking", is_male, m_idx, None, None, None, False),
+        gen_msa(input_tsv, "flanking_left", is_male, m_idx, None, None, None, False),
+        gen_msa(input_tsv, "flanking_right", is_male, m_idx, None, None, None, True),
+    ]
+    return result
+
+
+def gen_phased_fastas(input_tsv, is_male, m1_idx, m2_idx) -> list[str]:
+    result: list[str] = [
+        gen_msa(input_tsv, "two_good", is_male, m1_idx, None, m2_idx, None, False),
+        gen_msa(input_tsv, "one_good", is_male, m1_idx, None, m2_idx, None, False),
+        gen_msa(input_tsv, "one_good_left", is_male, m1_idx, None, m2_idx, None, False),
+        gen_msa(input_tsv, "one_good_right", is_male, m1_idx, None, m2_idx, None, True),
+    ]
+    return result
+
+
+def format_single_msas(m_, seq, motif_desc, a1, a2, fastas) -> tuple:
+    data = []
+    highlight = list(map(int, str(m_).split('_')))
+    sequence, _subpart = highlight_subpart(seq, highlight)
+    motif_name_part1 = f'{motif_desc.replace("/", "_")}'
+    motif_name_part2 = f'{",".join(map(str, highlight)) if highlight is not None else "mot"}'
+    motif_name = f'{motif_name_part1}_{motif_name_part2}'
+    motif_clean = re.sub(r'[^\w_]', '', motif_name)
+    motif_id = motif_clean.split('_')[0]
+
+    if a1 is not None and a1 > 0:
+        name = f'{motif_clean}_{str(a1)}'
+        display_text = f'Allele 1 ({str(a1):2s}) alignment visualization'
+        fasta2 = fastas[0]
+        seq_logo = 'true'
+        data.append((name, display_text, fasta2, seq_logo))
+
+    if a2 is not None and a2 != a1 and a2 != 0:
+        name = f'{motif_clean}_{str(a2)}'
+        display_text = f'Allele 2 ({str(a2):2s}) alignment visualization'
+        fasta2 = fastas[1]
+        seq_logo = 'true'
+        data.append((name, display_text, fasta2, seq_logo))
+
+    name = motif_clean
+    display_text = 'Spanning reads alignment visualization'
+    fasta2 = fastas[2]
+    seq_logo = 'true'
+    data.append((name, display_text, fasta2, seq_logo))
+
+    name = motif_clean + '_filtered'
+    display_text = 'Partial reads alignment visualization'
+    fasta2 = fastas[3]
+    seq_logo = 'false'
+    data.append((name, display_text, fasta2, seq_logo))
+
+    name = motif_clean + '_filtered_left'
+    display_text = 'Left flank reads alignment visualization'
+    fasta2 = fastas[4]
+    seq_logo = 'true'
+    data.append((name, display_text, fasta2, seq_logo))
+
+    name = motif_clean + '_filtered_right'
+    display_text = 'Right flank reads alignment visualization'
+    fasta2 = fastas[5]
+    seq_logo = 'true'
+    data.append((name, display_text, fasta2, seq_logo))
+
+    return (sequence, motif_id, data)
+
+
+def format_phased_msas(m1, m2, seq, motif_desc, fastas2) -> tuple:
+    data = []
+
+    suffix = f'{m1}_{m2}'
+    highlight = list(map(int, str(suffix).split('_')))
+    sequence, _subpart = highlight_subpart(seq, highlight)
+    motif_name_part1 = f'{motif_desc.replace("/", "_")}'
+    motif_name_part2 = f'{",".join(map(str, highlight)) if highlight is not None else "mot"}'
+    motif_name = f'{motif_name_part1}_{motif_name_part2}'
+    motif_clean = re.sub(r'[^\w_]', '', motif_name)
+    motif_id = motif_clean.split('_')[0]
+
+    name = motif_clean
+    display_text = 'Spanning reads alignment visualization'
+    fasta2 = fastas2[0]
+    seq_logo = 'true'
+    data.append((name, display_text, fasta2, seq_logo))
+
+    name = motif_clean + '_filtered'
+    display_text = 'Partial reads alignment visualization'
+    fasta2 = fastas2[1]
+    seq_logo = 'true'
+    data.append((name, display_text, fasta2, seq_logo))
+
+    name = motif_clean + '_filtered_left'
+    display_text = 'Left flank reads alignment visualization'
+    fasta2 = fastas2[2]
+    seq_logo = 'true'
+    data.append((name, display_text, fasta2, seq_logo))
+
+    name = motif_clean + '_filtered_right'
+    display_text = 'Right flank reads alignment visualization'
+    fasta2 = fastas2[3]
+    seq_logo = 'true'
+    data.append((name, display_text, fasta2, seq_logo))
+
+    return (sequence, motif_id, data)
 
 
 class Motif:
@@ -342,53 +338,24 @@ def highlight_subpart(seq: str, highlight: int | list[int]) -> tuple[str, str]:
     return ''.join(split), ''.join(str_part)
 
 
-def generate_msa_fasta(
-        input_tsv: str, filter_type: str, male: bool,
-        index_rep: int, allele: int | None = None,
-        index_rep2: int | None = None, allele2: int | None = None,
-        cutoff_after: int | None = None, right_align: bool = False
+def gen_msa(
+    input_tsv: str,
+    filter_type: str, is_male: bool,
+    m1: int,
+    a1: int | None,
+    m2: int | None,
+    a2: int | None,
+    right_align: bool
 ) -> str:
-    motif_table = pd.read_csv(input_tsv, sep='\t')
-    motif = create_motif(motif_table, male)
-    annotations = create_annotations(motif_table, motif)
+    print(input_tsv, filter_type, is_male, m1, a1, m2, a2, right_align)
+    df = pd.read_csv(input_tsv, sep='\t')
 
-    postfilter = PostFilter()
-    anns_spanning, rest = postfilter.get_filtered(motif, annotations, index_rep, both_primers=True)
-    anns_flanking, anns_filtered = postfilter.get_filtered(motif, rest, index_rep, both_primers=False)
-    del rest
-
-    if index_rep2 is not None:
-        mod_nums = [index_rep, index_rep2]
-        anns_2good, _filtered = postfilter.get_filtered_list(motif, annotations, mod_nums, both_primers=[True, True])
-        _left_good, _left_bad = postfilter.get_filtered_list(motif, _filtered, mod_nums, both_primers=[False, True])
-        _right_good, anns_0good = postfilter.get_filtered_list(motif, _left_bad, mod_nums, both_primers=[True, False])
-        anns_1good = _left_good + _right_good
-        del _filtered, _left_good, _left_bad, _right_good
-
-    if filter_type == "spanning":
-        annotations = select_annotation(anns_spanning, allele, allele2, index_rep, index_rep2)
-    elif filter_type == "flanking":
-        annotations = select_annotation(anns_flanking, allele, allele2, index_rep, index_rep2)
-    elif filter_type == "flanking_left":
-        anns_flanking_left = [a for a in anns_flanking if a.module_bases[0] > 0]
-        annotations = select_annotation(anns_flanking_left, allele, allele2, index_rep, index_rep2)
-    elif filter_type == "flanking_right":
-        anns_flanking_right = [a for a in anns_flanking if a.module_bases[-1] > 0]
-        annotations = select_annotation(anns_flanking_right, allele, allele2, index_rep, index_rep2)
-    elif filter_type == "two_good":
-        annotations = select_annotation(anns_2good, allele, allele2, index_rep, index_rep2)
-    elif filter_type == "one_good":
-        annotations = select_annotation(anns_1good, allele, allele2, index_rep, index_rep2)
-    elif filter_type == "one_good_left":
-        anns_1good_left = [a for a in anns_1good if a.module_bases[0] > 0]
-        annotations = select_annotation(anns_1good_left, allele, allele2, index_rep, index_rep2)
-    elif filter_type == "one_good_right":
-        anns_1good_right = [a for a in anns_1good if a.module_bases[-1] > 0]
-        annotations = select_annotation(anns_1good_right, allele, allele2, index_rep, index_rep2)
+    annotations = select_relevant_annotations(df, is_male, m1, m2, filter_type, a1, a2)
+    print(len(annotations))
 
     # apply cutoff
-    if cutoff_after is not None:
-        annotations = [a.get_shortened_annotation(cutoff_after, motif) for a in annotations]
+    motif = create_motif(df, is_male)
+    annotations = [a.get_shortened_annotation(5, motif) for a in annotations]
 
     # setup alignments
     alignments, states = setup_alignments(annotations)
@@ -396,14 +363,14 @@ def generate_msa_fasta(
     # sort according to motif count:
     left_flank = np.array([-(ann.module_bases[0] + ann.left_flank_len) for ann in annotations])
     left_flank_exist = np.array([-(ann.module_repetitions[0]) if not right_align else 0 for ann in annotations])
-    if index_rep2 is not None:
+    if m2 is not None:
         # sorting first with 1st allele then with second
-        reps1 = np.array([-ann.module_bases[index_rep] for ann in annotations])
-        reps2 = np.array([-ann.module_bases[index_rep2] for ann in annotations])
+        reps1 = np.array([-ann.module_bases[m1] for ann in annotations])
+        reps2 = np.array([-ann.module_bases[m2] for ann in annotations])
         # sort by existence of left flank, first allele, second, left flank len.
         sort_inds = np.lexsort((left_flank, reps2, reps1, left_flank_exist))
     else:
-        reps = np.array([-ann.module_bases[index_rep] for ann in annotations])
+        reps = np.array([-ann.module_bases[m1] for ann in annotations])
         sort_inds = np.lexsort((left_flank, reps, left_flank_exist))
     annotations = np.array(annotations)[sort_inds]
     alignments = list(np.array(alignments)[sort_inds])
@@ -442,6 +409,62 @@ def generate_msa_fasta(
     return string
 
 
+def select_relevant_annotations(df, is_male, m1, m2, filter_type, a1, a2):
+    # df["cls_left"] = df["module_classes"].apply(lambda x: x.split(",")[0])
+    # df["cls"] = df["module_classes"].apply(lambda x: x.split(",")[1])
+    # df["cls_right"] = df["module_classes"].apply(lambda x: x.split(",")[2])
+
+    motif = create_motif(df, is_male)
+    annotations = create_annotations(df, motif)
+
+    postfilter = PostFilter()
+    anns_spanning, rest = postfilter.get_filtered(motif, annotations, m1, both_primers=True)
+    anns_flanking, anns_filtered = postfilter.get_filtered(motif, rest, m1, both_primers=False)
+    del rest
+
+    anns_flank_lt = [a for a in anns_flanking if a.module_bases[0] > 0]
+    anns_flank_rt = [a for a in anns_flanking if a.module_bases[-1] > 0]
+
+    if m2 is not None:
+        mod_nums = [m1, m2]
+        anns_good_two, _filtered = postfilter.get_filtered_list(motif, annotations, mod_nums, both_primers=[True, True])
+        _left_good, _left_bad = postfilter.get_filtered_list(motif, _filtered, mod_nums, both_primers=[False, True])
+        _right_good, anns_0good = postfilter.get_filtered_list(motif, _left_bad, mod_nums, both_primers=[True, False])
+        anns_good_one = _left_good + _right_good
+        del _filtered, _left_good, _left_bad, _right_good
+
+        anns_1good_lt = [a for a in anns_good_one if a.module_bases[0] > 0]
+        anns_1good_rt = [a for a in anns_good_one if a.module_bases[-1] > 0]
+
+    if filter_type == "spanning":
+        annotations = select_annotation(anns_spanning, a1, a2, m1, m2)
+        # annotations = anns_spanning
+    elif filter_type == "flanking":
+        annotations = select_annotation(anns_flanking, a1, a2, m1, m2)
+        # annotations = anns_flanking
+    elif filter_type == "flanking_left":
+        annotations = select_annotation(anns_flank_lt, a1, a2, m1, m2)
+        # annotations = anns_flank_lt
+    elif filter_type == "flanking_right":
+        annotations = select_annotation(anns_flank_rt, a1, a2, m1, m2)
+        # annotations = anns_flank_rt
+    elif filter_type == "two_good":
+        annotations = select_annotation(anns_good_two, a1, a2, m1, m2)
+        # annotations = anns_good_two
+    elif filter_type == "one_good":
+        annotations = select_annotation(anns_good_one, a1, a2, m1, m2)
+        # annotations = anns_good_one
+    elif filter_type == "one_good_left":
+        annotations = select_annotation(anns_1good_lt, a1, a2, m1, m2)
+        # annotations = anns_1good_lt
+    elif filter_type == "one_good_right":
+        annotations = select_annotation(anns_1good_rt, a1, a2, m1, m2)
+        # annotations = anns_1good_rt
+
+    print(len(annotations))
+    return annotations
+
+
 class ChromEnum(enum.Enum):
     X = 'X'
     Y = 'Y'
@@ -461,16 +484,18 @@ def chrom_from_string(chrom_str: str) -> ChromEnum:
     )
 
 
-def select_annotation(annotations, allele, allele2, index_rep, index_rep2):
-    if allele is None:
+def select_annotation(annotations, allele1, allele2, index_rep1, index_rep2):
+    print(len(annotations))
+    if allele1 is None:
         return annotations
     if allele2 is None or index_rep2 is None:
-        return [a for a in annotations if a.module_repetitions[index_rep] == allele]
+        return [a for a in annotations if a.module_repetitions[index_rep1] == allele1]
 
-    return [
-        a for a in annotations
-        if a.module_repetitions[index_rep] == allele and a.module_repetitions[index_rep2] == allele2
-    ]
+    result = []
+    for a in annotations:
+        if a.module_repetitions[index_rep1] == allele1 and a.module_repetitions[index_rep2] == allele2:
+            result.append(a)
+    return result
 
 
 def get_left_flank(states) -> int:
@@ -841,18 +866,13 @@ class Annotation:
         return nomenclature
 
     def get_shortened_annotation(self, shorten_length: int, motif: Motif) -> Annotation:
-        """
-        Get shortened annotation with specified shorten length beyond annotated modules.
-        :param shorten_length: int - how many bases to keep beyond modules
-        :return: Annotation - shortened annotation
-        """
-
         # search for start
         start = -1
         for i in range(len(self.states)):
             if self.states[i] != '-':
                 start = i
                 break
+        start = max(start - shorten_length, 0)
 
         # search for end
         end = -1
@@ -860,14 +880,13 @@ class Annotation:
             if self.states[i] != '-':
                 end = i
                 break
-
-        # adjust start and end for shorten length
-        start = max(start - shorten_length, 0)
         end = min(end + 1 + shorten_length, len(self.states))  # +1 for use as list range
 
         # return shortened Annotation
-        return Annotation(self.read_id, self.mate_order, self.read_seq[start:end], self.expected_seq[start:end],
-                          self.states[start:end], self.probability, motif)
+        return Annotation(
+            self.read_id, self.mate_order, self.read_seq[start:end], self.expected_seq[start:end],
+            self.states[start:end], self.probability, motif
+        )
 
 
 def create_motif(df: pd.DataFrame, is_male: bool) -> Motif:
@@ -1017,6 +1036,18 @@ def setup_alignments(annotations: list[Annotation]) -> tuple[list[str], list[str
                 alignments[i] += '_'
 
     return alignments, states
+
+
+def copy_includes(output_dir: str) -> None:
+    include_dir = os.path.dirname(sys.argv[0]) + "/includes"
+    os.makedirs(f'{output_dir}/includes', exist_ok=True)
+    shutil.copy2(f'{include_dir}/msa.min.gz.js',            f'{output_dir}/includes/msa.min.gz.js')
+    shutil.copy2(f'{include_dir}/plotly-2.14.0.min.js',     f'{output_dir}/includes/plotly-2.14.0.min.js')
+    shutil.copy2(f'{include_dir}/jquery-3.6.1.min.js',      f'{output_dir}/includes/jquery-3.6.1.min.js')
+    shutil.copy2(f'{include_dir}/datatables.min.js',        f'{output_dir}/includes/datatables.min.js')
+    shutil.copy2(f'{include_dir}/styles.css',               f'{output_dir}/includes/styles.css')
+    shutil.copy2(f'{include_dir}/w3.css',                   f'{output_dir}/includes/w3.css')
+    shutil.copy2(f'{include_dir}/jquery.dataTables.css',    f'{output_dir}/includes/jquery.dataTables.css')
 
 
 if __name__ == '__main__':
