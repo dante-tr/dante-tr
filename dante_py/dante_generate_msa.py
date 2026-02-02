@@ -1,5 +1,6 @@
 from __future__ import annotations  # mute typechecking of classes declared later than used
 from jinja2 import Environment, FileSystemLoader  # type: ignore
+from typing import TypeAlias  # Any
 import pandas as pd
 import numpy as np
 import shutil
@@ -25,10 +26,10 @@ BASE_MAPPING = {
 
 
 def main() -> None:
-    input_tsvs = ["457-2025_WGS_FAME3/annotations.tsv"]
-    input_jsons = ["457-2025_WGS_FAME3/data.json"]
+    input_tsvs = ["457-2025_WGS_FAME3/annotations.tsv", "432-2025_WGS_DM2/annotations.tsv"]
+    input_jsons = ["457-2025_WGS_FAME3/data.json", "432-2025_WGS_DM2/data.json"]
     output_dir = "."
-    output_files = [f"{output_dir}/alignments/FAME3.html"]
+    output_files = [f"{output_dir}/alignments/FAME3.html", f"{output_dir}/alignments/DM2.html"]
     is_male = True
 
     for (tsv_file, json_file, output_file) in zip(input_tsvs, input_jsons, output_files):
@@ -60,8 +61,8 @@ def write_alignment_html(json_file, tsv_file, output_file, is_male) -> None:
 
         for phasing in motif_data["phasings"]:
             md1_id = phasing["ids"][0]
-            md1_id = phasing["ids"][1]
-            fastas = gen_phased_fastas(tsv_file, is_male, md1_id, md1_id)
+            md2_id = phasing["ids"][1]
+            fastas = gen_phased_fastas(tsv_file, is_male, md1_id, md2_id)
             data.append(format_phased_msas(md1_id, md1_id, seq, motif_desc, fastas))
 
     script_dir = os.path.dirname(sys.argv[0]) + "/templates"
@@ -72,28 +73,6 @@ def write_alignment_html(json_file, tsv_file, output_file, is_male) -> None:
         f.write(output)
 
     return
-
-
-def gen_single_fastas(input_tsv, is_male, m_idx, a1, a2) -> list[str]:
-    result: list[str] = [
-        gen_msa(input_tsv, "spanning", is_male, m_idx, a1, None, None, False),
-        gen_msa(input_tsv, "spanning", is_male, m_idx, a2, None, None, False),
-        gen_msa(input_tsv, "spanning", is_male, m_idx, None, None, None, False),
-        gen_msa(input_tsv, "flanking", is_male, m_idx, None, None, None, False),
-        gen_msa(input_tsv, "flanking_left", is_male, m_idx, None, None, None, False),
-        gen_msa(input_tsv, "flanking_right", is_male, m_idx, None, None, None, True),
-    ]
-    return result
-
-
-def gen_phased_fastas(input_tsv, is_male, m1_idx, m2_idx) -> list[str]:
-    result: list[str] = [
-        gen_msa(input_tsv, "two_good", is_male, m1_idx, None, m2_idx, None, False),
-        gen_msa(input_tsv, "one_good", is_male, m1_idx, None, m2_idx, None, False),
-        gen_msa(input_tsv, "one_good_left", is_male, m1_idx, None, m2_idx, None, False),
-        gen_msa(input_tsv, "one_good_right", is_male, m1_idx, None, m2_idx, None, True),
-    ]
-    return result
 
 
 def format_single_msas(m_, seq, motif_desc, a1, a2, fastas) -> tuple:
@@ -186,6 +165,7 @@ def format_phased_msas(m1, m2, seq, motif_desc, fastas2) -> tuple:
     return (sequence, motif_id, data)
 
 
+# --- classes
 class Motif:
     """
     Class to represent DNA motifs.
@@ -317,230 +297,6 @@ class Motif:
             start += len(seq) * rep
 
         return start, start + len(self.modules[index][0]) * self.modules[index][1]
-
-
-def highlight_subpart(seq: str, highlight: int | list[int]) -> tuple[str, str]:
-    """
-    Highlights subpart of a motif sequence
-    :param seq: str - motif sequence
-    :param highlight: int/list(int) - part ot highlight
-    :return: str, str - motif sequence with highlighted subpart, highlighted subpart
-    """
-    if highlight is None:
-        return seq, ''
-
-    str_part = []
-    highlight1 = np.array(highlight)
-    split = [f'{s}]' for s in seq.split(']') if s != '']
-    for h in highlight1:
-        str_part.append(split[h])
-        split[h] = f'<b><u>{split[h]}</u></b>'
-    return ''.join(split), ''.join(str_part)
-
-
-def gen_msa(
-    input_tsv: str,
-    filter_type: str, is_male: bool,
-    m1: int,
-    a1: int | None,
-    m2: int | None,
-    a2: int | None,
-    right_align: bool
-) -> str:
-    print(input_tsv, filter_type, is_male, m1, a1, m2, a2, right_align)
-    df = pd.read_csv(input_tsv, sep='\t')
-
-    annotations = select_relevant_annotations(df, is_male, m1, m2, filter_type, a1, a2)
-    print(len(annotations))
-
-    # apply cutoff
-    motif = create_motif(df, is_male)
-    annotations = [a.get_shortened_annotation(5, motif) for a in annotations]
-
-    # setup alignments
-    alignments, states = setup_alignments(annotations)
-
-    # sort according to motif count:
-    left_flank = np.array([-(ann.module_bases[0] + ann.left_flank_len) for ann in annotations])
-    left_flank_exist = np.array([-(ann.module_repetitions[0]) if not right_align else 0 for ann in annotations])
-    if m2 is not None:
-        # sorting first with 1st allele then with second
-        reps1 = np.array([-ann.module_bases[m1] for ann in annotations])
-        reps2 = np.array([-ann.module_bases[m2] for ann in annotations])
-        # sort by existence of left flank, first allele, second, left flank len.
-        sort_inds = np.lexsort((left_flank, reps2, reps1, left_flank_exist))
-    else:
-        reps = np.array([-ann.module_bases[m1] for ann in annotations])
-        sort_inds = np.lexsort((left_flank, reps, left_flank_exist))
-    annotations = np.array(annotations)[sort_inds]
-    alignments = list(np.array(alignments)[sort_inds])
-
-    # for every alignment, shift the left flank right
-    end = get_left_flank(states)
-    if end != -1:
-        for i in range(len(alignments)):
-            alignments[i] = move_right(alignments[i], 0, end)
-
-    # for every alignment, shift the first module right
-    start0, end0 = get_range(states, '0')
-    if start0 != -1:
-        for i in range(len(alignments)):
-            alignments[i] = move_right(alignments[i], start0, end0)
-
-    # in addition, those that have only '_' in state '0' (missing left flank), shift right also '1' state
-    start1, end1 = get_range(states, '1')
-    first_zero_idx = len(alignments)
-    for i in range(len(alignments)):
-        if start1 != -1 and (start0 == -1 or alignments[i][start0:end0].count('_') == end0 - start0 or right_align):
-            first_zero_idx = min(first_zero_idx, i)
-            alignments[i] = move_right(alignments[i], start1, end1)
-
-    # add empty line if we have some alignments without left flank
-    annot_names = [annot.read_id for annot in annotations]
-    if first_zero_idx != len(alignments) and not right_align:
-        alignments = alignments[:first_zero_idx] + ['_' * len(alignments[0])] + alignments[first_zero_idx:]
-        annot_names = annot_names[:first_zero_idx] + ['empty_line'] + annot_names[first_zero_idx:]
-
-    string_tmp = []
-    for annot_name, align in zip(annot_names, alignments):
-        string_tmp.append(f">{annot_name}\n{align}\n")
-    string = "".join(string_tmp)
-
-    return string
-
-
-def select_relevant_annotations(df, is_male, m1, m2, filter_type, a1, a2):
-    # df["cls_left"] = df["module_classes"].apply(lambda x: x.split(",")[0])
-    # df["cls"] = df["module_classes"].apply(lambda x: x.split(",")[1])
-    # df["cls_right"] = df["module_classes"].apply(lambda x: x.split(",")[2])
-
-    motif = create_motif(df, is_male)
-    annotations = create_annotations(df, motif)
-
-    postfilter = PostFilter()
-    anns_spanning, rest = postfilter.get_filtered(motif, annotations, m1, both_primers=True)
-    anns_flanking, anns_filtered = postfilter.get_filtered(motif, rest, m1, both_primers=False)
-    del rest
-
-    anns_flank_lt = [a for a in anns_flanking if a.module_bases[0] > 0]
-    anns_flank_rt = [a for a in anns_flanking if a.module_bases[-1] > 0]
-
-    if m2 is not None:
-        mod_nums = [m1, m2]
-        anns_good_two, _filtered = postfilter.get_filtered_list(motif, annotations, mod_nums, both_primers=[True, True])
-        _left_good, _left_bad = postfilter.get_filtered_list(motif, _filtered, mod_nums, both_primers=[False, True])
-        _right_good, anns_0good = postfilter.get_filtered_list(motif, _left_bad, mod_nums, both_primers=[True, False])
-        anns_good_one = _left_good + _right_good
-        del _filtered, _left_good, _left_bad, _right_good
-
-        anns_1good_lt = [a for a in anns_good_one if a.module_bases[0] > 0]
-        anns_1good_rt = [a for a in anns_good_one if a.module_bases[-1] > 0]
-
-    if filter_type == "spanning":
-        annotations = select_annotation(anns_spanning, a1, a2, m1, m2)
-        # annotations = anns_spanning
-    elif filter_type == "flanking":
-        annotations = select_annotation(anns_flanking, a1, a2, m1, m2)
-        # annotations = anns_flanking
-    elif filter_type == "flanking_left":
-        annotations = select_annotation(anns_flank_lt, a1, a2, m1, m2)
-        # annotations = anns_flank_lt
-    elif filter_type == "flanking_right":
-        annotations = select_annotation(anns_flank_rt, a1, a2, m1, m2)
-        # annotations = anns_flank_rt
-    elif filter_type == "two_good":
-        annotations = select_annotation(anns_good_two, a1, a2, m1, m2)
-        # annotations = anns_good_two
-    elif filter_type == "one_good":
-        annotations = select_annotation(anns_good_one, a1, a2, m1, m2)
-        # annotations = anns_good_one
-    elif filter_type == "one_good_left":
-        annotations = select_annotation(anns_1good_lt, a1, a2, m1, m2)
-        # annotations = anns_1good_lt
-    elif filter_type == "one_good_right":
-        annotations = select_annotation(anns_1good_rt, a1, a2, m1, m2)
-        # annotations = anns_1good_rt
-
-    print(len(annotations))
-    return annotations
-
-
-class ChromEnum(enum.Enum):
-    X = 'X'
-    Y = 'Y'
-    NORM = 'NORM'
-
-
-def chrom_from_string(chrom_str: str) -> ChromEnum:
-    """
-    Converts a string to a ChromEnum object.
-    :param chrom_str: str - the string to convert to a ChromEnum object
-    :return ChromEnum - enum object representing the chromosome
-    """
-    return (
-        ChromEnum.X if chrom_str in ['chrX', 'NC_000023'] else
-        ChromEnum.Y if chrom_str in ['chrY', 'NC_000024'] else
-        ChromEnum.NORM
-    )
-
-
-def select_annotation(annotations, allele1, allele2, index_rep1, index_rep2):
-    print(len(annotations))
-    if allele1 is None:
-        return annotations
-    if allele2 is None or index_rep2 is None:
-        return [a for a in annotations if a.module_repetitions[index_rep1] == allele1]
-
-    result = []
-    for a in annotations:
-        if a.module_repetitions[index_rep1] == allele1 and a.module_repetitions[index_rep2] == allele2:
-            result.append(a)
-    return result
-
-
-def get_left_flank(states) -> int:
-    """
-    Get range of a left flank.
-    :return: int - (one after) nd of the left flank before module '0'
-    """
-    for i, state in enumerate(states):
-        if state != '-':
-            return i
-    return -1
-
-
-def move_right(alignment: str, start: int, end: int) -> str:
-    """
-    Shift first part of the alignment to the right.
-    :param alignment: str - alignment of the read
-    :param start: int - start idx for shift
-    :param end: int - one after end idx for a shift
-    :return: str - alignment, where first part is shifted to right
-    """
-    align_part = alignment[start:end]
-    # find last empty:
-    idx = 0
-    for idx in reversed(range(len(align_part))):
-        if align_part[idx] != '_':
-            break
-    idx += 1
-
-    # return shifted alignment
-    return alignment[:start] + ('_' * (len(align_part) - idx)) + align_part[:idx] + alignment[end:]
-
-
-def get_range(states, symbol: str) -> tuple[int, int]:
-    """
-    Get range of a module
-    :param symbol: str - symbol for state to get range for
-    :return: int, int - start and (one after) end range coordinates
-    """
-    try:
-        first_idx = states.index(symbol)
-        last_idx = len(states) - states[-1::-1].index(symbol) - 1
-        return first_idx, last_idx + 1
-    except ValueError:
-        return -1, -1
 
 
 class Annotation:
@@ -889,25 +645,6 @@ class Annotation:
         )
 
 
-def create_motif(df: pd.DataFrame, is_male: bool) -> Motif:
-    motif_str = df[MOTIF_COLUMN_NAME].iloc[0]
-    name = None if 'name' not in df.columns or df.iloc[0]['name'] in ['None', ''] else df.iloc[0]['name']
-    motif_class = Motif(motif_str, name)
-    motif_class.monoallelic = is_male and chrom_from_string(motif_class.chrom) in [ChromEnum.X, ChromEnum.Y]
-    return motif_class
-
-
-def create_annotations(df: pd.DataFrame, motif: Motif) -> list[Annotation]:
-    annotations: list[Annotation] = []
-    for _, row in df.iterrows():
-        ann = Annotation(
-            row['read_id'], row['mate_order'], row['read'], row['reference'],
-            row['modules'], row['log_likelihood'], motif
-        )
-        annotations.append(ann)
-    return annotations
-
-
 class PostFilter:
     """
     Class that encapsulates post-filtering.
@@ -1001,6 +738,232 @@ class PostFilter:
         return quality_annotations, filtered_annotations
 
 
+class ChromEnum(enum.Enum):
+    X = 'X'
+    Y = 'Y'
+    NORM = 'NORM'
+
+
+class FilterType(enum.Enum):
+    SPANNING = "spanning"
+    SPAN_AL1 = "span_al1"
+    SPAN_AL2 = "span_al2"
+    FLANKING = "flanking"
+    FLANK_LT = "flanking_left"
+    FLANK_RT = "flanking_right"
+    GOOD_TWO = "two_good"
+    GOOD1_LT = "one_good"
+    GOOD1_RT = "one_good_left"
+    GOOD_ONE = "one_good_right"
+# --- end classes
+
+
+def gen_single_fastas(input_tsv, is_male, m_idx, all1, all2) -> list[str]:
+    result: list[str] = [
+        gen_msa(input_tsv, FilterType.SPAN_AL1, is_male, m_idx, all1, None, None, False),
+        gen_msa(input_tsv, FilterType.SPAN_AL2, is_male, m_idx, all2, None, None, False),
+        gen_msa(input_tsv, FilterType.SPANNING, is_male, m_idx, None, None, None, False),
+        gen_msa(input_tsv, FilterType.FLANKING, is_male, m_idx, None, None, None, False),
+        gen_msa(input_tsv, FilterType.FLANK_LT, is_male, m_idx, None, None, None, False),
+        gen_msa(input_tsv, FilterType.FLANK_RT, is_male, m_idx, None, None, None, True),
+    ]
+    return result
+
+
+def gen_phased_fastas(input_tsv, is_male, m1_idx, m2_idx) -> list[str]:
+    result: list[str] = [
+        gen_msa(input_tsv, FilterType.GOOD_TWO, is_male, m1_idx, None, m2_idx, None, False),
+        gen_msa(input_tsv, FilterType.GOOD_ONE, is_male, m1_idx, None, m2_idx, None, False),
+        gen_msa(input_tsv, FilterType.GOOD1_LT, is_male, m1_idx, None, m2_idx, None, False),
+        gen_msa(input_tsv, FilterType.GOOD1_RT, is_male, m1_idx, None, m2_idx, None, True),
+    ]
+    return result
+
+
+def gen_msa(
+    input_tsv: str, filter_type: FilterType, is_male: bool,
+    m1: int, a1: int | None, m2: int | None, a2: int | None, right_align: bool
+) -> str:
+    df = pd.read_csv(input_tsv, sep='\t')
+    mask = create_filter(df, filter_type, m1, m2, a1, a2)
+    df_new = df[mask]
+    motif = create_motif(df, is_male)
+
+    msa = gen_msa_3(df_new, motif, m1, m2, right_align)
+
+    string_tmp = []
+    for annot_name, align in msa:
+        string_tmp.append(f">{annot_name}\n{align}\n")
+    string = "".join(string_tmp)
+    return string
+
+
+MSA: TypeAlias = list[tuple[str, str]]
+
+
+def gen_msa_3(df_new: pd.DataFrame, motif: Motif, m1: int, m2: int | None, right_align: bool):
+    annotations = create_annotations(df_new, motif)
+    annotations = [a.get_shortened_annotation(5, motif) for a in annotations]
+    alignments, states = setup_alignments(annotations)
+
+    # sort according to motif count:
+    left_flank = np.array([-(ann.module_bases[0] + ann.left_flank_len) for ann in annotations])
+    left_flank_exist = np.array([-(ann.module_repetitions[0]) if not right_align else 0 for ann in annotations])
+    if m2 is not None:
+        # sorting first with 1st allele then with second
+        reps1 = np.array([-ann.module_bases[m1] for ann in annotations])
+        reps2 = np.array([-ann.module_bases[m2] for ann in annotations])
+        # sort by existence of left flank, first allele, second, left flank len.
+        sort_inds = np.lexsort((left_flank, reps2, reps1, left_flank_exist))
+    else:
+        reps = np.array([-ann.module_bases[m1] for ann in annotations])
+        sort_inds = np.lexsort((left_flank, reps, left_flank_exist))
+    annotations = np.array(annotations)[sort_inds]
+    alignments = list(np.array(alignments)[sort_inds])
+
+    # for every alignment, shift the left flank right
+    end = get_left_flank(states)
+    if end != -1:
+        for i in range(len(alignments)):
+            alignments[i] = move_right(alignments[i], 0, end)
+
+    # for every alignment, shift the first module right
+    start0, end0 = get_range(states, '0')
+    if start0 != -1:
+        for i in range(len(alignments)):
+            alignments[i] = move_right(alignments[i], start0, end0)
+
+    # in addition, those that have only '_' in state '0' (missing left flank), shift right also '1' state
+    start1, end1 = get_range(states, '1')
+    first_zero_idx = len(alignments)
+    for i in range(len(alignments)):
+        if start1 != -1 and (start0 == -1 or alignments[i][start0:end0].count('_') == end0 - start0 or right_align):
+            first_zero_idx = min(first_zero_idx, i)
+            alignments[i] = move_right(alignments[i], start1, end1)
+
+    # add empty line if we have some alignments without left flank
+    annot_names = [annot.read_id for annot in annotations]
+    if first_zero_idx != len(alignments) and not right_align:
+        alignments = alignments[:first_zero_idx] + ['_' * len(alignments[0])] + alignments[first_zero_idx:]
+        annot_names = annot_names[:first_zero_idx] + ['empty_line'] + annot_names[first_zero_idx:]
+
+    return list(zip(annot_names, alignments))
+
+
+def create_filter(df: pd.DataFrame, filter_type, m1, m2, a1, a2) -> pd.Series:
+    if filter_type == FilterType.SPANNING:
+        mask = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
+    if filter_type == FilterType.SPAN_AL1:
+        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
+        tmp2 = (df["module_repetitions"].apply(lambda x: int(x.split(",")[m1])) == a1)
+        mask = tmp1 & tmp2
+    if filter_type == FilterType.SPAN_AL2:
+        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
+        tmp2 = (df["module_repetitions"].apply(lambda x: int(x.split(",")[m1])) == a1)
+        mask = tmp1 & tmp2
+    if filter_type == FilterType.FLANKING:
+        mask = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Flanking")
+    if filter_type == FilterType.FLANK_LT:
+        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Flanking")
+        tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m1+1]) == "Missing")
+        mask = tmp1 & tmp2
+    if filter_type == FilterType.FLANK_RT:
+        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Flanking")
+        tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m1-1]) == "Missing")
+        mask = tmp1 & tmp2
+    if filter_type == FilterType.GOOD_TWO:
+        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
+        tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m2]) == "Spanning")
+        mask = tmp1 & tmp2
+    if filter_type == FilterType.GOOD1_LT:
+        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
+        tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m2]) == "Flanking")
+        mask = tmp1 & tmp2
+    if filter_type == FilterType.GOOD1_RT:
+        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Flanking")
+        tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m2]) == "Spanning")
+        mask = tmp1 & tmp2
+    if filter_type == FilterType.GOOD_ONE:
+        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
+        tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m2]) == "Flanking")
+        tmp3 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Flanking")
+        tmp4 = (df["module_classes"].apply(lambda x: x.split(",")[m2]) == "Spanning")
+        mask = (tmp1 & tmp2) | (tmp3 & tmp4)
+    return mask
+
+
+def chrom_from_string(chrom_str: str) -> ChromEnum:
+    return (
+        ChromEnum.X if chrom_str in ['chrX', 'NC_000023'] else
+        ChromEnum.Y if chrom_str in ['chrY', 'NC_000024'] else
+        ChromEnum.NORM
+    )
+
+
+def get_left_flank(states) -> int:
+    """
+    Get range of a left flank.
+    :return: int - (one after) nd of the left flank before module '0'
+    """
+    for i, state in enumerate(states):
+        if state != '-':
+            return i
+    return -1
+
+
+def move_right(alignment: str, start: int, end: int) -> str:
+    """
+    Shift first part of the alignment to the right.
+    :param alignment: str - alignment of the read
+    :param start: int - start idx for shift
+    :param end: int - one after end idx for a shift
+    :return: str - alignment, where first part is shifted to right
+    """
+    align_part = alignment[start:end]
+    # find last empty:
+    idx = 0
+    for idx in reversed(range(len(align_part))):
+        if align_part[idx] != '_':
+            break
+    idx += 1
+
+    # return shifted alignment
+    return alignment[:start] + ('_' * (len(align_part) - idx)) + align_part[:idx] + alignment[end:]
+
+
+def get_range(states, symbol: str) -> tuple[int, int]:
+    """
+    Get range of a module
+    :param symbol: str - symbol for state to get range for
+    :return: int, int - start and (one after) end range coordinates
+    """
+    try:
+        first_idx = states.index(symbol)
+        last_idx = len(states) - states[-1::-1].index(symbol) - 1
+        return first_idx, last_idx + 1
+    except ValueError:
+        return -1, -1
+
+
+def create_motif(df: pd.DataFrame, is_male: bool) -> Motif:
+    motif_str = df[MOTIF_COLUMN_NAME].iloc[0]
+    name = None if 'name' not in df.columns or df.iloc[0]['name'] in ['None', ''] else df.iloc[0]['name']
+    motif_class = Motif(motif_str, name)
+    motif_class.monoallelic = is_male and chrom_from_string(motif_class.chrom) in [ChromEnum.X, ChromEnum.Y]
+    return motif_class
+
+
+def create_annotations(df: pd.DataFrame, motif: Motif) -> list[Annotation]:
+    annotations: list[Annotation] = []
+    for _, row in df.iterrows():
+        ann = Annotation(
+            row['read_id'], row['mate_order'], row['read'], row['reference'],
+            row['modules'], row['log_likelihood'], motif
+        )
+        annotations.append(ann)
+    return annotations
+
+
 def setup_alignments(annotations: list[Annotation]) -> tuple[list[str], list[str]]:
     alignments = [''] * len(annotations)  # alignment strings
     align_inds = np.zeros(len(annotations), dtype=int)  # indices of annotations that were processed
@@ -1036,6 +999,19 @@ def setup_alignments(annotations: list[Annotation]) -> tuple[list[str], list[str
                 alignments[i] += '_'
 
     return alignments, states
+
+
+def highlight_subpart(seq: str, highlight: int | list[int]) -> tuple[str, str]:
+    if highlight is None:
+        return seq, ''
+
+    str_part = []
+    highlight1 = np.array(highlight)
+    split = [f'{s}]' for s in seq.split(']') if s != '']
+    for h in highlight1:
+        str_part.append(split[h])
+        split[h] = f'<b><u>{split[h]}</u></b>'
+    return ''.join(split), ''.join(str_part)
 
 
 def copy_includes(output_dir: str) -> None:
