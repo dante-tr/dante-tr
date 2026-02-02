@@ -23,6 +23,7 @@ BASE_MAPPING = {
     'V': '[ACG]', 'H': '[ACT]', 'D': '[AGT]', 'B': '[CGT]',
     'N': '[ACGT]'
 }
+MSA: TypeAlias = list[tuple[str, str]]
 
 
 def main() -> None:
@@ -789,6 +790,7 @@ def gen_msa(
     df_new = df[mask]
     motif = create_motif(df, is_male)
 
+    # print(filter_type, m1, m2, right_align)
     msa = gen_msa_3(df_new, motif, m1, m2, right_align)
 
     string_tmp = []
@@ -798,10 +800,52 @@ def gen_msa(
     return string
 
 
-MSA: TypeAlias = list[tuple[str, str]]
+def create_filter(df: pd.DataFrame, filter_type, m1, m2, a1, a2) -> pd.Series:
+    if filter_type == FilterType.SPANNING:
+        mask = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
+    if filter_type == FilterType.SPAN_AL1:
+        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
+        tmp2 = (df["module_repetitions"].apply(lambda x: int(x.split(",")[m1])) == a1)
+        mask = tmp1 & tmp2
+    if filter_type == FilterType.SPAN_AL2:
+        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
+        tmp2 = (df["module_repetitions"].apply(lambda x: int(x.split(",")[m1])) == a1)
+        mask = tmp1 & tmp2
+    if filter_type == FilterType.FLANKING:
+        mask = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Flanking")
+    if filter_type == FilterType.FLANK_LT:
+        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Flanking")
+        tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m1+1]) == "Missing")
+        mask = tmp1 & tmp2
+    if filter_type == FilterType.FLANK_RT:
+        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Flanking")
+        tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m1-1]) == "Missing")
+        mask = tmp1 & tmp2
+    if filter_type == FilterType.GOOD_TWO:
+        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
+        tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m2]) == "Spanning")
+        mask = tmp1 & tmp2
+    if filter_type == FilterType.GOOD1_LT:
+        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
+        tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m2]) == "Flanking")
+        mask = tmp1 & tmp2
+    if filter_type == FilterType.GOOD1_RT:
+        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Flanking")
+        tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m2]) == "Spanning")
+        mask = tmp1 & tmp2
+    if filter_type == FilterType.GOOD_ONE:
+        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
+        tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m2]) == "Flanking")
+        tmp3 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Flanking")
+        tmp4 = (df["module_classes"].apply(lambda x: x.split(",")[m2]) == "Spanning")
+        mask = (tmp1 & tmp2) | (tmp3 & tmp4)
+    return mask
 
 
-def gen_msa_3(df_new: pd.DataFrame, motif: Motif, m1: int, m2: int | None, right_align: bool):
+def gen_msa_3(df_new: pd.DataFrame, motif: Motif, m1: int, m2: int | None, right_align: bool) -> MSA:
+    if m2 is None and right_align:
+        return gen_msa_right_one_seq(df_new, motif, m1)
+
     annotations = create_annotations(df_new, motif)
     annotations = [a.get_shortened_annotation(5, motif) for a in annotations]
     alignments, states = setup_alignments(annotations)
@@ -850,61 +894,43 @@ def gen_msa_3(df_new: pd.DataFrame, motif: Motif, m1: int, m2: int | None, right
     return list(zip(annot_names, alignments))
 
 
-def create_filter(df: pd.DataFrame, filter_type, m1, m2, a1, a2) -> pd.Series:
-    if filter_type == FilterType.SPANNING:
-        mask = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
-    if filter_type == FilterType.SPAN_AL1:
-        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
-        tmp2 = (df["module_repetitions"].apply(lambda x: int(x.split(",")[m1])) == a1)
-        mask = tmp1 & tmp2
-    if filter_type == FilterType.SPAN_AL2:
-        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
-        tmp2 = (df["module_repetitions"].apply(lambda x: int(x.split(",")[m1])) == a1)
-        mask = tmp1 & tmp2
-    if filter_type == FilterType.FLANKING:
-        mask = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Flanking")
-    if filter_type == FilterType.FLANK_LT:
-        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Flanking")
-        tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m1+1]) == "Missing")
-        mask = tmp1 & tmp2
-    if filter_type == FilterType.FLANK_RT:
-        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Flanking")
-        tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m1-1]) == "Missing")
-        mask = tmp1 & tmp2
-    if filter_type == FilterType.GOOD_TWO:
-        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
-        tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m2]) == "Spanning")
-        mask = tmp1 & tmp2
-    if filter_type == FilterType.GOOD1_LT:
-        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
-        tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m2]) == "Flanking")
-        mask = tmp1 & tmp2
-    if filter_type == FilterType.GOOD1_RT:
-        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Flanking")
-        tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m2]) == "Spanning")
-        mask = tmp1 & tmp2
-    if filter_type == FilterType.GOOD_ONE:
-        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
-        tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m2]) == "Flanking")
-        tmp3 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Flanking")
-        tmp4 = (df["module_classes"].apply(lambda x: x.split(",")[m2]) == "Spanning")
-        mask = (tmp1 & tmp2) | (tmp3 & tmp4)
-    return mask
+def gen_msa_right_one_seq(df_new: pd.DataFrame, motif: Motif, m1: int) -> MSA:
+    if len(df_new) == 0:
+        print(f"{m1=} has 0 reads")
+        return []
+
+    n = list(df_new["n_modules"])[0]
+    raligns = [True] * n
+    result = gen_msa_new_way(df_new, raligns)
+    return result
 
 
-def chrom_from_string(chrom_str: str) -> ChromEnum:
-    return (
-        ChromEnum.X if chrom_str in ['chrX', 'NC_000023'] else
-        ChromEnum.Y if chrom_str in ['chrY', 'NC_000024'] else
-        ChromEnum.NORM
-    )
+def gen_msa_new_way(df: pd.DataFrame, raligns: list[bool]) -> MSA:
+    n = len(raligns)
+    maximums = [0] * n
+    for i, row in df.iterrows():
+        parts = row["module_sequences"].split(",")
+        for j in range(n):
+            maximums[j] = max(len(parts[j]), maximums[j])
+
+    msa = []
+    for i, row in df.iterrows():
+        parts = row["module_sequences"].split(",")
+        aligned_parts = []
+        for j in range(n):
+            if raligns[j]:
+                x = "{0:->{w}}".format(parts[j], w=maximums[j])
+            else:
+                x = "{0:-<{w}}".format(parts[j], w=maximums[j])
+            aligned_parts.append(x)
+        msa_seq = "-".join(aligned_parts)
+        item = (row["read_id"], msa_seq)
+        msa.append(item)
+
+    return sorted(msa, key=lambda x: x[1], reverse=True)
 
 
 def get_left_flank(states) -> int:
-    """
-    Get range of a left flank.
-    :return: int - (one after) nd of the left flank before module '0'
-    """
     for i, state in enumerate(states):
         if state != '-':
             return i
@@ -912,13 +938,7 @@ def get_left_flank(states) -> int:
 
 
 def move_right(alignment: str, start: int, end: int) -> str:
-    """
-    Shift first part of the alignment to the right.
-    :param alignment: str - alignment of the read
-    :param start: int - start idx for shift
-    :param end: int - one after end idx for a shift
-    :return: str - alignment, where first part is shifted to right
-    """
+    """ Move only first part of the alignment right """
     align_part = alignment[start:end]
     # find last empty:
     idx = 0
@@ -932,36 +952,12 @@ def move_right(alignment: str, start: int, end: int) -> str:
 
 
 def get_range(states, symbol: str) -> tuple[int, int]:
-    """
-    Get range of a module
-    :param symbol: str - symbol for state to get range for
-    :return: int, int - start and (one after) end range coordinates
-    """
     try:
         first_idx = states.index(symbol)
         last_idx = len(states) - states[-1::-1].index(symbol) - 1
         return first_idx, last_idx + 1
     except ValueError:
         return -1, -1
-
-
-def create_motif(df: pd.DataFrame, is_male: bool) -> Motif:
-    motif_str = df[MOTIF_COLUMN_NAME].iloc[0]
-    name = None if 'name' not in df.columns or df.iloc[0]['name'] in ['None', ''] else df.iloc[0]['name']
-    motif_class = Motif(motif_str, name)
-    motif_class.monoallelic = is_male and chrom_from_string(motif_class.chrom) in [ChromEnum.X, ChromEnum.Y]
-    return motif_class
-
-
-def create_annotations(df: pd.DataFrame, motif: Motif) -> list[Annotation]:
-    annotations: list[Annotation] = []
-    for _, row in df.iterrows():
-        ann = Annotation(
-            row['read_id'], row['mate_order'], row['read'], row['reference'],
-            row['modules'], row['log_likelihood'], motif
-        )
-        annotations.append(ann)
-    return annotations
 
 
 def setup_alignments(annotations: list[Annotation]) -> tuple[list[str], list[str]]:
@@ -1012,6 +1008,33 @@ def highlight_subpart(seq: str, highlight: int | list[int]) -> tuple[str, str]:
         str_part.append(split[h])
         split[h] = f'<b><u>{split[h]}</u></b>'
     return ''.join(split), ''.join(str_part)
+
+
+def create_annotations(df: pd.DataFrame, motif: Motif) -> list[Annotation]:
+    annotations: list[Annotation] = []
+    for _, row in df.iterrows():
+        ann = Annotation(
+            row['read_id'], row['mate_order'], row['read'], row['reference'],
+            row['modules'], row['log_likelihood'], motif
+        )
+        annotations.append(ann)
+    return annotations
+
+
+def create_motif(df: pd.DataFrame, is_male: bool) -> Motif:
+    motif_str = df[MOTIF_COLUMN_NAME].iloc[0]
+    name = None if 'name' not in df.columns or df.iloc[0]['name'] in ['None', ''] else df.iloc[0]['name']
+    motif_class = Motif(motif_str, name)
+    motif_class.monoallelic = is_male and chrom_from_string(motif_class.chrom) in [ChromEnum.X, ChromEnum.Y]
+    return motif_class
+
+
+def chrom_from_string(chrom_str: str) -> ChromEnum:
+    return (
+        ChromEnum.X if chrom_str in ['chrX', 'NC_000023'] else
+        ChromEnum.Y if chrom_str in ['chrY', 'NC_000024'] else
+        ChromEnum.NORM
+    )
 
 
 def copy_includes(output_dir: str) -> None:
