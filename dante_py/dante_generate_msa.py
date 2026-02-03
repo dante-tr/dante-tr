@@ -39,6 +39,14 @@ def main() -> None:
     copy_includes(output_dir)
 
 
+# def main() -> None:
+#     json_file = sys.argv[2]
+#     tsv_file = sys.argv[1]
+#     output_file = sys.argv[3]
+#     print(f"{tsv_file} + {json_file} -> {output_file}")
+#     write_alignment_html(json_file, tsv_file, output_file, False)
+
+
 def write_alignment_html(json_file, tsv_file, output_file, is_male) -> None:
     with open(json_file, "r") as f:
         data_json = json.load(f)
