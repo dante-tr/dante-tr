@@ -57,13 +57,13 @@ def write_alignment_html(json_file, tsv_file, output_file, is_male) -> None:
             mod_id = module["id"][0]
             a1 = int(module["allele_1"][0]) if isinstance(module["allele_1"][0], int) else None
             a2 = int(module["allele_2"][0]) if isinstance(module["allele_2"][0], int) else None
-            fastas = gen_single_fastas(tsv_file, is_male, mod_id, a1, a2)
+            fastas = gen_single_fastas(tsv_file, mod_id, a1, a2)
             data.append(format_single_msas(mod_id, seq, motif_desc, a1, a2, fastas))
 
         for phasing in motif_data["phasings"]:
             md1_id = phasing["ids"][0]
             md2_id = phasing["ids"][1]
-            fastas = gen_phased_fastas(tsv_file, is_male, md1_id, md2_id)
+            fastas = gen_phased_fastas(tsv_file, md1_id, md2_id)
             data.append(format_phased_msas(md1_id, md1_id, seq, motif_desc, fastas))
 
     script_dir = os.path.dirname(sys.argv[0]) + "/templates"
@@ -74,6 +74,34 @@ def write_alignment_html(json_file, tsv_file, output_file, is_male) -> None:
         f.write(output)
 
     return
+
+
+def gen_single_fastas(input_tsv, m_idx, all1, all2) -> list[str]:
+    result: list[str] = [
+        # These functions look similar, but are subtly different.
+        # I think it is better to keep them separate, to make reasoning within them easier - less cases to keep in mind.
+        # Also, their interface is simple - given pandas DataFrame in tsv and module, they return str representing MSA.
+        gen_spann_al_msa(input_tsv, m_idx, all1),
+        gen_spann_al_msa(input_tsv, m_idx, all2),
+        gen_spanning_msa(input_tsv, m_idx),
+        gen_flanking_msa(input_tsv, m_idx),
+        gen_flank_lt_msa(input_tsv, m_idx),
+        gen_flank_rt_msa(input_tsv, m_idx)
+    ]
+    return result
+
+
+def gen_phased_fastas(input_tsv, m1_idx, m2_idx) -> list[str]:
+    result: list[str] = [
+        # These functions look similar, but are subtly different.
+        # I think it is better to keep them separate, to make reasoning within them easier - less cases to keep in mind.
+        # Also, their interface is simple - given pandas DataFrame in tsv and module, they return str representing MSA.
+        gen_two_good_msa(input_tsv, m1_idx, m2_idx),
+        gen_one_good_msa(input_tsv, m1_idx, m2_idx),
+        gen_1good_lt_msa(input_tsv, m1_idx, m2_idx),
+        gen_1good_rt_msa(input_tsv, m1_idx, m2_idx)
+    ]
+    return result
 
 
 def format_single_msas(m_, seq, motif_desc, a1, a2, fastas) -> tuple:
@@ -109,7 +137,7 @@ def format_single_msas(m_, seq, motif_desc, a1, a2, fastas) -> tuple:
     name = motif_clean + '_filtered'
     display_text = 'Partial reads alignment visualization'
     fasta2 = fastas[3]
-    seq_logo = 'false'
+    seq_logo = 'true'
     data.append((name, display_text, fasta2, seq_logo))
 
     name = motif_clean + '_filtered_left'
@@ -300,499 +328,161 @@ class Motif:
         return start, start + len(self.modules[index][0]) * self.modules[index][1]
 
 
-class Annotation:
-    """
-    Encapsulate sequence of states from HMM and provide its readable representation and filters
-    """
-
-    def __init__(
-        self, read_id: str, mate_order: int, read_seq: str, expected_seq: str,
-        states: str, probability: float, motif: Motif
-    ):
-        """
-        :param read_id: str - read ID
-        :param read_seq: str - read sequence
-        :param mate_order: int - mate order (0 - unpaired, 1 - left pair, 2 - right pair)
-        :param expected_seq: str - expected sequence as in motif
-        :param states: str - sequence of states (numbers of modules)
-        :param probability: Probability of generating sequence by the most likely sequence of HMM states
-        :param motif: Sequence of tuples (sequence, repeats) as specified by user
-        """
-
-        # Store arguments into instance variables
-        self.read_id = read_id
-        self.mate_order = mate_order
-        self.read_seq = read_seq
-        self.expected_seq = expected_seq
-        self.states = states
-        self.probability = probability
-        self.n_modules = len(motif.modules)
-
-        # Calculate insertion/deletion/mismatch string
-        self.mismatches_string = self.__get_errors()
-
-        # Calculate number of insertions, deletions and normal bases
-        self.n_insertions = self.mismatches_string.count('I')
-        self.n_deletions = self.mismatches_string.count('D')
-        self.n_mismatches = self.mismatches_string.count('M')
-
-        # Number of STR motif repetitions and sequences of modules
-        self.module_bases = self.__get_bases_per_module()
-        self.module_repetitions = self.__get_module_repetitions(motif)
-        self.module_sequences = self.__get_module_sequences()
-
-        # get left flank length
-        self.left_flank_len = self.__get_left_flank()
-
-    def __str__(self) -> str:
-        """
-        Return the annotation.
-        :return: str - annotation
-        """
-        return '\n'.join([f'{self.read_id} {str(self.module_bases)} {str(self.module_repetitions)}', self.read_seq,
-                          self.expected_seq, self.states, self.mismatches_string])
-
-    def __get_errors(self) -> str:
-        """
-        Count errors in annotation and the error line.
-        :return: str - error line
-        """
-        err_line = []
-        for exp, read in zip(self.expected_seq.upper(), self.read_seq.upper()):
-            if exp == '-' or read in BASE_MAPPING.get(exp, ''):
-                err_line.append('_')
-            elif read == '_':
-                err_line.append('D')
-            elif exp == '_':
-                err_line.append('I')
-            else:
-                err_line.append('M')
-
-        return ''.join(err_line)
-
-    def __get_bases_per_module(self) -> tuple[int, ...]:
-        """
-        List of integers, each value corresponds to number of bases of input sequence that were generated by the module
-        :return: Number of bases generated by each module
-        """
-        # Count the module states
-        return tuple(self.states.count(chr(ord('0') + i)) for i in range(self.n_modules))
-
-    def __get_left_flank(self) -> int:
-        """
-        Get length of a left flank.
-        :return: int - number of bases of left flank before module '0' (usually module '0' is still left flank)
-        """
-        for i, state in enumerate(self.states):
-            if state != '-':
-                return i
-        return len(self.states)
-
-    def __get_module_repetitions(self, motif: Motif) -> tuple[int, ...]:
-        """
-        List of integers, each value corresponds to number of repetitions of module in annotation
-        :return: Number of repetitions generated by each module
-        """
-        # Count the module states
-        repetitions = self.__get_bases_per_module()
-
-        # Divide by the module length where applicable
-        # TODO: this is not right for grey ones, where only closed ones should be counted, so round is not right.
-        return tuple(
-            1 if reps == 1 and cnt > 0 else round(cnt / len(seq))
-            for (seq, reps), cnt in zip(motif.modules, repetitions)
-        )
-
-    def __get_module_sequences(self) -> tuple[str, ...]:
-        """
-        List of sequences, each per module
-        :return: list(str)
-        """
-        sequences = [''] * self.n_modules
-        for i in range(self.n_modules):
-            state_char = chr(ord('0') + i)
-            first = self.states.find(state_char)
-            if first > -1:
-                last = self.states.rfind(state_char)
-                sequences[i] = self.read_seq[first:last + 1]
-        return tuple(sequences)
-
-    def get_module_errors(self, motif: Motif, module_num: int, overhang: int | None = None) -> tuple[int, int, int]:
-        """
-        Get the number of insertions and deletions or mismatches in a certain module.
-        If overhang is specified, look at specified number of bases around the module as well.
-        :param module_num: int - 0-based module number to count errors
-        :param overhang: int - how long to look beyond module, if None, one length of STR module
-        :return: int, int, int - number of insertions and deletions, mismatches, length of the interval
-        """
-        # get overhang as module length
-        if overhang is None:
-            seq, _ = motif.modules[module_num]
-            overhang = len(seq)
-
-        # define module character
-        char_to_search = chr(ord('0') + module_num)
-
-        # if the annotation does not have this module, return 0
-        if char_to_search not in self.states:
-            return 0, 0, 0
-
-        # search for the annotation of the module
-        start = max(0, self.states.find(char_to_search) - overhang)
-        end = min(self.states.rfind(char_to_search) + overhang + 1, len(self.states))
-
-        # count errors
-        indels = self.mismatches_string[start:end].count('I') + self.mismatches_string[start:end].count('D')
-        mismatches = self.mismatches_string[start:end].count('M')
-
-        # return indels, mismatches, and length
-        return indels, mismatches, end - start
-
-    def has_less_errors(self, max_errors: float | int | None, relative=False) -> bool:
-        """
-        Check if this annotation has fewer errors than max_errors.
-        Make it relative to the annotated length if relative is set.
-        :param max_errors: int/float - number of max_errors (relative if relative is set)
-        :param relative: bool - if the errors are relative to the annotated length
-        :return: bool - True if the number of errors is less than allowed
-        """
-        errors = self.n_deletions + self.n_insertions + self.n_mismatches
-
-        if max_errors is None or errors == 0:
-            return True
-
-        if relative:
-            return errors / float(sum(self.module_bases)) <= max_errors
-        return errors <= max_errors
-
-    def primers(self, index_rep: int) -> int:
-        """
-        Count how any primers it has on repetition index.
-        :param index_rep: int - index of the repetition, that we are looking at
-        :return: int - number of primers (0-2)
-        """
-        primers = 0
-        if index_rep > 0 and self.module_repetitions[index_rep - 1] > 0:
-            primers += 1
-        if index_rep + 1 < len(self.module_repetitions) and self.module_repetitions[index_rep + 1] > 0:
-            primers += 1
-        return primers
-
-    def is_annotated_right(self) -> bool:
-        """
-        Is it annotated in a way that it is interesting?
-        More than one module annotated + modules are not missing in the middle.
-        :return: bool - annotated right?
-        """
-
-        # remove those that starts/ends in background but don't have a neighbour module
-        starts_background = self.states[0] in '_-'
-        ends_background = self.states[-1] in '_-'
-        if starts_background and self.module_repetitions[0] == 0:
-            return False
-        if ends_background and self.module_repetitions[-1] == 0:
-            return False
-
-        # remove those with jumping modules
-        started = False
-        ended = False
-        for repetition in self.module_repetitions:
-            if repetition > 0:
-                started = True
-                if ended:
-                    return False
-            if repetition == 0 and started:
-                ended = True
-
-        # pass?
-        return True
-
-    def get_str_repetitions(self, index_str: int) -> tuple[bool, int] | None:
-        """
-        Get the number of str repetitions for a particular index.
-        :param index_str: int - index of a str
-        :return: (bool, int) - closed?, number of str repetitions
-        """
-        if self.is_annotated_right():
-            primer1 = index_str > 0 and self.module_repetitions[index_str - 1] > 0
-            primer2 = index_str + 1 < len(self.module_repetitions) and self.module_repetitions[index_str + 1] > 0
-            if primer1 or primer2:
-                return primer1 and primer2, self.module_repetitions[index_str]
-        return None
-
-    @staticmethod
-    def find_with_regex(read_sequence: str, motif_sequence: str, search_pos: int = 0) -> int:
-        """
-        Find the first occurrence of a motif sequence in the read sequence using regular expressions.
-        :param read_sequence: The sequence to search in.
-        :param motif_sequence: The motif sequence (as a regex) to search for.
-        :param search_pos: The position to start the search from.
-        :return: int - The start position of the first occurrence of the motif sequence. Returns -1 if not found.
-        """
-        # convert motif sequence to regex
-        motif_regex = ''.join(BASE_MAPPING[char] for char in motif_sequence)
-
-        # compile the regular expression pattern
-        pattern = re.compile(motif_regex)
-
-        # search for the pattern in the read sequence starting from search_pos
-        match = pattern.search(read_sequence, search_pos)
-
-        # return the start position if a match is found, else return -1
-        return match.start() if match else -1
-
-    def get_nomenclature(
-        self, motif: Motif, index_rep: int | None = None, index_rep2: int | None = None, include_flanking: bool = True
-    ) -> str:
-        """
-        Get HGVS nomenclature.
-        :param index_rep: int - index of the first repetition (None if include all)
-        :param index_rep2: int - index of the second repetition (None if include all)
-        :param include_flanking: boolean - include flanking regions (i.e. first and last module)
-        :return: str - HGVS nomenclature string
-        """
-        # prepare data
-        if index_rep is not None:
-            if index_rep2 is not None:
-                data = zip(
-                    [self.module_repetitions[index_rep], self.module_repetitions[index_rep2]],
-                    [motif[index_rep], motif[index_rep2]],
-                    [self.module_sequences[index_rep], self.module_sequences[index_rep2]]
-                )
-            else:
-                data = zip(
-                    [self.module_repetitions[index_rep]],
-                    [motif[index_rep]],
-                    [self.module_sequences[index_rep]]
-                )
-        elif include_flanking:
-            data = zip(self.module_repetitions, motif.modules, self.module_sequences)
-        else:
-            data = zip(self.module_repetitions[1:-1], motif.modules[1:-1], self.module_sequences[1:-1])
-
-        # iterate and build the nomenclature string
-        nomenclatures = []
-        for repetitions, (motif_sequence, _), read_sequence in data:
-            nomenclature = self.build_nomenclature_string(repetitions, motif_sequence, read_sequence)
-            nomenclatures.append(nomenclature)
-
-        return '\t'.join(nomenclatures)
-
-    def build_nomenclature_string(self, repetitions, motif_sequence, read_sequence) -> str:
-        nomenclature = ''
-        if repetitions == 1:
-            if len(read_sequence) > 0:
-                nomenclature += f'{read_sequence}[1]'
-            return nomenclature
-
-        reps = 0
-        search_pos = 0
-        found_rep_seq = ''
-        while True:
-            search_found = self.find_with_regex(read_sequence, motif_sequence, search_pos)
-            if search_found == search_pos:
-                # setup current rep. sequence
-                if reps == 0:
-                    found_rep_seq = read_sequence[search_found:search_found + len(motif_sequence)]
-
-                if read_sequence[search_found:search_found + len(motif_sequence)] == found_rep_seq:
-                    # regular continuation
-                    reps += 1
-                else:
-                    # interruption, but in line with searched motif
-                    nomenclature += f'{found_rep_seq}[{reps}]'
-                    found_rep_seq = read_sequence[search_found:search_found + len(motif_sequence)]
-                    reps = 1
-            elif search_found == -1:
-                # the end, we did not find any other STRs
-                if reps > 0:
-                    nomenclature += f'{found_rep_seq}[{reps}]'
-                if len(read_sequence[search_pos:]) > 0:
-                    nomenclature += f'{read_sequence[search_pos:]}[1]'
-                break
-            else:
-                # some interruption
-                if reps > 0:
-                    nomenclature += f'{found_rep_seq}[{reps}]'
-                if len(read_sequence[search_pos:search_found]) > 0:
-                    nomenclature += f'{read_sequence[search_pos:search_found]}[1]'
-                found_rep_seq = read_sequence[search_found:search_found + len(motif_sequence)]
-                reps = 1
-            # update search pos and iterate
-            search_pos = search_found + len(motif_sequence)
-        return nomenclature
-
-    def get_shortened_annotation(self, shorten_length: int, motif: Motif) -> Annotation:
-        # search for start
-        start = -1
-        for i in range(len(self.states)):
-            if self.states[i] != '-':
-                start = i
-                break
-        start = max(start - shorten_length, 0)
-
-        # search for end
-        end = -1
-        for i in range(len(self.states) - 1, -1, -1):
-            if self.states[i] != '-':
-                end = i
-                break
-        end = min(end + 1 + shorten_length, len(self.states))  # +1 for use as list range
-
-        # return shortened Annotation
-        return Annotation(
-            self.read_id, self.mate_order, self.read_seq[start:end], self.expected_seq[start:end],
-            self.states[start:end], self.probability, motif
-        )
-
-
-class PostFilter:
-    """
-    Class that encapsulates post-filtering.
-    """
-
-    def __init__(self):
-        self.min_flank_len = MIN_FLANK_LEN
-        self.min_rep_len = MIN_REP_LEN
-        self.min_rep_cnt = MIN_REP_CNT
-        self.max_rel_error = MAX_REL_ERROR
-        self.max_abs_error = MAX_ABS_ERROR
-
-    def quality_annotation(self, motif: Motif, ann: Annotation, module_number: int, both_primers: bool = True) -> bool:
-        """
-        Is this annotation good?
-        :param ann: Annotation - annotation to be evaluated
-        :param module_number: int - module number
-        :param both_primers: bool - do we require both primers to be present
-        :return: bool - quality annotation?
-        """
-        is_right = ann.is_annotated_right()
-
-        primers = ann.primers(module_number)
-        has_primers = primers == 2 if both_primers else primers >= 1
-
-        has_less_errors = (
-            ann.has_less_errors(self.max_rel_error, relative=True)
-            and ann.has_less_errors(self.max_abs_error, relative=False)
-        )
-
-        left_flank = sum(ann.module_bases[module_number + 1:]) >= self.min_flank_len
-        right_flank = sum(ann.module_bases[:module_number]) >= self.min_flank_len
-        has_flanks = left_flank and right_flank if both_primers else left_flank or right_flank
-
-        has_repetitions = (
-            ann.module_bases[module_number] >= self.min_rep_len
-            and ann.module_repetitions[module_number] >= self.min_rep_cnt
-        )
-
-        _seq, reps = motif.modules[module_number]
-
-        return is_right and has_primers and has_less_errors and has_flanks and (has_repetitions or reps == 1)
-
-    def get_filtered_list(
-        self, motif: Motif, annotations: list[Annotation],
-        module_number: list[int], both_primers: list[bool] | None = None
-    ) -> tuple[list[Annotation], list[Annotation]]:
-        """
-        Get filtered annotations (list of modules).
-        :param annotations: list(Annotation) - annotations
-        :param module_number: list(int) - module numbers
-        :param both_primers: list(bool) or None - do we require both primers to be present
-        :return: list(Annotation), list(Annotation) - quality annotations, non-quality annotations
-        """
-        # adjust input if needed
-        if both_primers is None:
-            both_primers = [True] * len(module_number)
-        assert len(both_primers) == len(module_number)
-
-        # filter annotations
-        quality_annotations = [
-            an for an in annotations
-            if all((
-                self.quality_annotation(motif, an, mn, both_primers=bp) for mn, bp in zip(module_number, both_primers)
-            ))
-        ]
-        filtered_annotations = [an for an in annotations if an not in quality_annotations]
-
-        return quality_annotations, filtered_annotations
-
-    # TODO: is this just a specialized version of the previous method? Do we need this?
-    def get_filtered(
-        self, motif: Motif, annotations: list[Annotation], module_number: int, both_primers: bool = True
-    ) -> tuple[list[Annotation], list[Annotation]]:
-        """
-        Get filtered annotations.
-        :param annotations: list(Annotation) - annotations
-        :param module_number: int - module number
-        :param both_primers: bool - do we require both primers to be present
-        :return: list(Annotation), list(Annotation) - quality annotations, non-quality annotations
-        """
-        # pick quality annotations
-        quality_annotations = []
-        filtered_annotations = []
-        for an in annotations:
-            if self.quality_annotation(motif, an, module_number, both_primers):
-                quality_annotations.append(an)
-            else:
-                filtered_annotations.append(an)
-
-        return quality_annotations, filtered_annotations
-
-
 class ChromEnum(enum.Enum):
     X = 'X'
     Y = 'Y'
     NORM = 'NORM'
-
-
-class FilterType(enum.Enum):
-    SPANNING = "spanning"
-    SPAN_AL1 = "span_al1"
-    SPAN_AL2 = "span_al2"
-    FLANKING = "flanking"
-    FLANK_LT = "flanking_left"
-    FLANK_RT = "flanking_right"
-    GOOD_TWO = "two_good"
-    GOOD1_LT = "one_good"
-    GOOD1_RT = "one_good_left"
-    GOOD_ONE = "one_good_right"
 # --- end classes
 
 
-def gen_single_fastas(input_tsv, is_male, m_idx, all1, all2) -> list[str]:
-    result: list[str] = [
-        gen_msa(input_tsv, FilterType.SPAN_AL1, is_male, m_idx, all1, None, None, False),
-        gen_msa(input_tsv, FilterType.SPAN_AL2, is_male, m_idx, all2, None, None, False),
-        gen_msa(input_tsv, FilterType.SPANNING, is_male, m_idx, None, None, None, False),
-        gen_msa(input_tsv, FilterType.FLANKING, is_male, m_idx, None, None, None, False),
-        gen_msa(input_tsv, FilterType.FLANK_LT, is_male, m_idx, None, None, None, False),
-        gen_msa(input_tsv, FilterType.FLANK_RT, is_male, m_idx, None, None, None, True),
-    ]
-    return result
-
-
-def gen_phased_fastas(input_tsv, is_male, m1_idx, m2_idx) -> list[str]:
-    result: list[str] = [
-        gen_msa(input_tsv, FilterType.GOOD_TWO, is_male, m1_idx, None, m2_idx, None, False),
-        gen_msa(input_tsv, FilterType.GOOD_ONE, is_male, m1_idx, None, m2_idx, None, False),
-        gen_msa(input_tsv, FilterType.GOOD1_LT, is_male, m1_idx, None, m2_idx, None, False),
-        gen_msa(input_tsv, FilterType.GOOD1_RT, is_male, m1_idx, None, m2_idx, None, True),
-    ]
-    return result
-
-
-def gen_msa(
-    input_tsv: str, filter_type: FilterType, is_male: bool,
-    m1: int, a1: int | None, m2: int | None, a2: int | None, right_align: bool
-) -> str:
+def gen_spanning_msa(input_tsv: str, m1: int) -> str:
     df = pd.read_csv(input_tsv, sep='\t')
-    mask = create_filter(df, filter_type, m1, m2, a1, a2)
-    df_new = df[mask]
-    motif = create_motif(df, is_male)
+    n_modules = list(df["n_modules"])[0]
 
-    # print(filter_type, m1, m2, right_align)
-    msa = gen_msa_3(df_new, motif, m1, m2, right_align)
+    mask = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
+    new_df = df[mask]
+    if len(new_df) == 0:
+        return ""
+    raligns = [True] * m1 + [False] * (n_modules - m1)
+    realigned_seqs = realign_sequences(new_df, raligns)  # This already contains all information, rest is formatting
 
+    tmp1 = sorted(realigned_seqs, key=lambda x: x[1], reverse=True)
+    tmp2 = sorted(tmp1, key=lambda x: x[1][m1].count("-"))
+    msa = [(x[0], "-".join(x[1])) for x in tmp2]
+
+    result = msa_to_str(msa)
+    return result
+
+
+def gen_spann_al_msa(input_tsv: str, m1: int, a1: int) -> str:
+    df = pd.read_csv(input_tsv, sep='\t')
+    msa = _gen_msa_spanning_allele(df, m1, a1)
+    result = msa_to_str(msa)
+    return result
+
+
+def gen_flank_lt_msa(input_tsv: str, m1: int) -> str:
+    df = pd.read_csv(input_tsv, sep='\t')
+    msa = _gen_msa_flanking_left(df, m1)
+    result = msa_to_str(msa)
+    return result
+
+
+def gen_flank_rt_msa(input_tsv: str, m1: int) -> str:
+    df = pd.read_csv(input_tsv, sep='\t')
+    msa = _gen_msa_flanking_right(df, m1)
+    result = msa_to_str(msa)
+    return result
+
+
+def gen_flanking_msa(input_tsv: str, m1: int) -> str:
+    df = pd.read_csv(input_tsv, sep='\t')
+    n_modules = list(df["n_modules"])[0]
+
+    tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Flanking")
+    tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m1-1]) == "Missing")
+    mask_left = tmp1 & tmp2
+    new_df_left = df[mask_left]
+    max_left = get_max_widths(new_df_left, n_modules)
+
+    tmp3 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Flanking")
+    tmp4 = (df["module_classes"].apply(lambda x: x.split(",")[m1+1]) == "Missing")
+    mask_right = tmp3 & tmp4
+    new_df_right = df[mask_right]
+    max_right = get_max_widths(new_df_right, n_modules)
+
+    maximums = [max(x, y) for x, y in zip(max_left, max_right)]
+    maximums[m1] = max_left[m1] + max_right[m1]
+
+    raligns = [True] * (m1 + 1) + [False] * (n_modules - m1 - 1)
+    realigned_seqs_left = []
+    for i, row in new_df_left.iterrows():
+        aligned_parts = get_aligned_parts(row, raligns, maximums, n_modules)
+        item = (row["read_id"], aligned_parts)
+        realigned_seqs_left.append(item)
+    tmp11 = sorted(realigned_seqs_left, key=lambda x: x[1], reverse=True)
+    tmp21 = sorted(tmp11, key=lambda x: x[1][m1].count("-"))
+    aln_r = [(x[0], "-".join(x[1])) for x in tmp21]
+
+    raligns = [True] * m1 + [False] * (n_modules - m1)
+    realigned_seqs_right = []
+    for i, row in new_df_right.iterrows():
+        aligned_parts = get_aligned_parts(row, raligns, maximums, n_modules)
+        item = (row["read_id"], aligned_parts)
+        realigned_seqs_right.append(item)
+    tmp31 = sorted(realigned_seqs_right, key=lambda x: x[1], reverse=True)
+    tmp41 = sorted(tmp31, key=lambda x: x[1][m1].count("-"))
+    aln_l = [(x[0], "-".join(x[1])) for x in tmp41]
+
+    msa = aln_l + [("", "")] + aln_r
+    result = msa_to_str(msa)
+    return result
+
+
+def gen_two_good_msa(input_tsv: str, m1: int, m2: int) -> str:
+    df = pd.read_csv(input_tsv, sep='\t')
+    msa = _gen_msa_two_good(df, m1, m2)
+    result = msa_to_str(msa)
+    return result
+
+
+def gen_1good_lt_msa(input_tsv: str, m1: int, m2: int) -> str:
+    df = pd.read_csv(input_tsv, sep='\t')
+    msa = _gen_msa_one_good_left(df, m1, m2)
+    result = msa_to_str(msa)
+    return result
+
+
+def gen_1good_rt_msa(input_tsv: str, m1: int, m2: int) -> str:
+    df = pd.read_csv(input_tsv, sep='\t')
+    msa = _gen_msa_one_good_right(df, m1, m2)
+    result = msa_to_str(msa)
+    return result
+
+
+def gen_one_good_msa(input_tsv: str, m1: int, m2: int) -> str:
+    df = pd.read_csv(input_tsv, sep='\t')
+    n_modules = list(df["n_modules"])[0]
+
+    tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
+    tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m2]) == "Flanking")
+    mask_left = tmp1 & tmp2
+    new_df_left = df[mask_left]
+    max_left = get_max_widths(new_df_left, n_modules)
+
+    tmp3 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Flanking")
+    tmp4 = (df["module_classes"].apply(lambda x: x.split(",")[m2]) == "Spanning")
+    mask_right = tmp3 & tmp4
+    new_df_right = df[mask_right]
+    max_right = get_max_widths(new_df_right, n_modules)
+
+    maximums = [max(x, y) for x, y in zip(max_left, max_right)]
+    raligns = [True] * (m1 + 1) + [False] * (n_modules - m1 - 1)
+
+    realigned_seqs_right = []
+    for i, row in new_df_right.iterrows():
+        aligned_parts = get_aligned_parts(row, raligns, maximums, n_modules)
+        item = (row["read_id"], aligned_parts)
+        realigned_seqs_right.append(item)
+    tmp31 = sorted(realigned_seqs_right, key=lambda x: x[1], reverse=True)
+    tmp41 = sorted(tmp31, key=lambda x: x[1][m1].count("-"))
+    aln_l = [(x[0], "-".join(x[1])) for x in tmp41]
+
+    realigned_seqs_left = []
+    for i, row in new_df_left.iterrows():
+        aligned_parts = get_aligned_parts(row, raligns, maximums, n_modules)
+        item = (row["read_id"], aligned_parts)
+        realigned_seqs_left.append(item)
+    tmp11 = sorted(realigned_seqs_left, key=lambda x: x[1], reverse=True)
+    tmp21 = sorted(tmp11, key=lambda x: x[1][m2].count("-"))
+    aln_r = [(x[0], "-".join(x[1])) for x in tmp21]
+
+    msa = aln_l + [("", "")] + aln_r
+    result = msa_to_str(msa)
+    return result
+
+
+def msa_to_str(msa: MSA) -> str:
     string_tmp = []
     for annot_name, align in msa:
         string_tmp.append(f">{annot_name}\n{align}\n")
@@ -800,201 +490,146 @@ def gen_msa(
     return string
 
 
-def create_filter(df: pd.DataFrame, filter_type, m1, m2, a1, a2) -> pd.Series:
-    if filter_type == FilterType.SPANNING:
-        mask = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
-    if filter_type == FilterType.SPAN_AL1:
-        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
-        tmp2 = (df["module_repetitions"].apply(lambda x: int(x.split(",")[m1])) == a1)
-        mask = tmp1 & tmp2
-    if filter_type == FilterType.SPAN_AL2:
-        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
-        tmp2 = (df["module_repetitions"].apply(lambda x: int(x.split(",")[m1])) == a1)
-        mask = tmp1 & tmp2
-    if filter_type == FilterType.FLANKING:
-        mask = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Flanking")
-    if filter_type == FilterType.FLANK_LT:
-        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Flanking")
-        tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m1+1]) == "Missing")
-        mask = tmp1 & tmp2
-    if filter_type == FilterType.FLANK_RT:
-        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Flanking")
-        tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m1-1]) == "Missing")
-        mask = tmp1 & tmp2
-    if filter_type == FilterType.GOOD_TWO:
-        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
-        tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m2]) == "Spanning")
-        mask = tmp1 & tmp2
-    if filter_type == FilterType.GOOD1_LT:
-        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
-        tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m2]) == "Flanking")
-        mask = tmp1 & tmp2
-    if filter_type == FilterType.GOOD1_RT:
-        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Flanking")
-        tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m2]) == "Spanning")
-        mask = tmp1 & tmp2
-    if filter_type == FilterType.GOOD_ONE:
-        tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
-        tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m2]) == "Flanking")
-        tmp3 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Flanking")
-        tmp4 = (df["module_classes"].apply(lambda x: x.split(",")[m2]) == "Spanning")
-        mask = (tmp1 & tmp2) | (tmp3 & tmp4)
-    return mask
-
-
-def gen_msa_3(df_new: pd.DataFrame, motif: Motif, m1: int, m2: int | None, right_align: bool) -> MSA:
-    if m2 is None and right_align:
-        return gen_msa_right_one_seq(df_new, motif, m1)
-
-    annotations = create_annotations(df_new, motif)
-    annotations = [a.get_shortened_annotation(5, motif) for a in annotations]
-    alignments, states = setup_alignments(annotations)
-
-    # sort according to motif count:
-    left_flank = np.array([-(ann.module_bases[0] + ann.left_flank_len) for ann in annotations])
-    left_flank_exist = np.array([-(ann.module_repetitions[0]) if not right_align else 0 for ann in annotations])
-    if m2 is not None:
-        # sorting first with 1st allele then with second
-        reps1 = np.array([-ann.module_bases[m1] for ann in annotations])
-        reps2 = np.array([-ann.module_bases[m2] for ann in annotations])
-        # sort by existence of left flank, first allele, second, left flank len.
-        sort_inds = np.lexsort((left_flank, reps2, reps1, left_flank_exist))
-    else:
-        reps = np.array([-ann.module_bases[m1] for ann in annotations])
-        sort_inds = np.lexsort((left_flank, reps, left_flank_exist))
-    annotations = np.array(annotations)[sort_inds]
-    alignments = list(np.array(alignments)[sort_inds])
-
-    # for every alignment, shift the left flank right
-    end = get_left_flank(states)
-    if end != -1:
-        for i in range(len(alignments)):
-            alignments[i] = move_right(alignments[i], 0, end)
-
-    # for every alignment, shift the first module right
-    start0, end0 = get_range(states, '0')
-    if start0 != -1:
-        for i in range(len(alignments)):
-            alignments[i] = move_right(alignments[i], start0, end0)
-
-    # in addition, those that have only '_' in state '0' (missing left flank), shift right also '1' state
-    start1, end1 = get_range(states, '1')
-    first_zero_idx = len(alignments)
-    for i in range(len(alignments)):
-        if start1 != -1 and (start0 == -1 or alignments[i][start0:end0].count('_') == end0 - start0 or right_align):
-            first_zero_idx = min(first_zero_idx, i)
-            alignments[i] = move_right(alignments[i], start1, end1)
-
-    # add empty line if we have some alignments without left flank
-    annot_names = [annot.read_id for annot in annotations]
-    if first_zero_idx != len(alignments) and not right_align:
-        alignments = alignments[:first_zero_idx] + ['_' * len(alignments[0])] + alignments[first_zero_idx:]
-        annot_names = annot_names[:first_zero_idx] + ['empty_line'] + annot_names[first_zero_idx:]
-
-    return list(zip(annot_names, alignments))
-
-
-def gen_msa_right_one_seq(df_new: pd.DataFrame, motif: Motif, m1: int) -> MSA:
-    if len(df_new) == 0:
-        print(f"{m1=} has 0 reads")
+def _gen_msa_spanning_allele(df: pd.DataFrame, m1: int, a1: int) -> MSA:
+    n_modules = list(df["n_modules"])[0]
+    tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
+    tmp2 = (df["module_repetitions"].apply(lambda x: int(x.split(",")[m1])) == a1)
+    mask = tmp1 & tmp2
+    new_df = df[mask]
+    if len(new_df) == 0:
         return []
+    raligns = [True] * m1 + [False] * (n_modules - m1)
+    realigned_seqs = realign_sequences(new_df, raligns)  # This already contains all information, rest is formatting
 
-    n = list(df_new["n_modules"])[0]
-    raligns = [True] * n
-    result = gen_msa_new_way(df_new, raligns)
+    tmp11 = sorted(realigned_seqs, key=lambda x: x[1], reverse=True)
+    tmp21 = sorted(tmp11, key=lambda x: x[1][m1].count("-"))
+    result = [(x[0], "-".join(x[1])) for x in tmp21]
     return result
 
 
-def gen_msa_new_way(df: pd.DataFrame, raligns: list[bool]) -> MSA:
+def _gen_msa_flanking_left(df: pd.DataFrame, m1: int) -> MSA:
+    n_modules = list(df["n_modules"])[0]
+    tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Flanking")
+    tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m1+1]) == "Missing")
+    mask = tmp1 & tmp2
+    new_df = df[mask]
+    if len(new_df) == 0:
+        return []
+    raligns = [True] * m1 + [False] * (n_modules - m1)
+    realigned_seqs = realign_sequences(new_df, raligns)
+
+    tmp1 = sorted(realigned_seqs, key=lambda x: x[1], reverse=True)
+    tmp2 = sorted(tmp1, key=lambda x: x[1][m1].count("-"))
+    result = [(x[0], "-".join(x[1])) for x in tmp2]
+    return result
+
+
+def _gen_msa_flanking_right(df: pd.DataFrame, m1: int) -> MSA:
+    n_modules = list(df["n_modules"])[0]
+    tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Flanking")
+    tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m1-1]) == "Missing")
+    mask = tmp1 & tmp2
+    new_df = df[mask]
+    if len(new_df) == 0:
+        return []
+    raligns = [True] * (m1 + 1) + [False] * (n_modules - m1 - 1)
+    realigned_seqs = realign_sequences(new_df, raligns)
+
+    tmp1 = sorted(realigned_seqs, key=lambda x: x[1], reverse=True)
+    tmp2 = sorted(tmp1, key=lambda x: x[1][m1].count("-"))
+    result = [(x[0], "-".join(x[1])) for x in tmp2]
+    return result
+
+
+def _gen_msa_flanking(df: pd.DataFrame, m1: int) -> MSA:
+    aln_r = _gen_msa_flanking_right(df, m1)
+    aln_l = _gen_msa_flanking_left(df, m1)
+    return aln_r + [("", "")] + aln_l
+
+
+def _gen_msa_two_good(df: pd.DataFrame, m1: int, m2: int) -> MSA:
+    n_modules = list(df["n_modules"])[0]
+    tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
+    tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m2]) == "Spanning")
+    mask = tmp1 & tmp2
+    new_df = df[mask]
+    if len(new_df) == 0:
+        return []
+    raligns = [True] * m1 + [False] * (n_modules - m1)
+    realigned_seqs = realign_sequences(new_df, raligns)
+
+    tmp1 = sorted(realigned_seqs, key=lambda x: x[1], reverse=True)
+    tmp2 = sorted(tmp1, key=lambda x: x[1][m2].count("-"))
+    tmp3 = sorted(tmp2, key=lambda x: x[1][m1].count("-"))
+    result = [(x[0], "-".join(x[1])) for x in tmp3]
+    return result
+
+
+def _gen_msa_one_good_left(df: pd.DataFrame, m1: int, m2: int) -> MSA:
+    n_modules = list(df["n_modules"])[0]
+    tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Spanning")
+    tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m2]) == "Flanking")
+    mask = tmp1 & tmp2
+    new_df = df[mask]
+    if len(new_df) == 0:
+        return []
+    raligns = [True] * m1 + [False] * (n_modules - m1)
+    realigned_seqs = realign_sequences(new_df, raligns)  # This already contains all information, rest is formatting
+
+    tmp1 = sorted(realigned_seqs, key=lambda x: x[1], reverse=True)
+    tmp2 = sorted(tmp1, key=lambda x: x[1][m1].count("-"))
+    result = [(x[0], "-".join(x[1])) for x in tmp2]
+    return result
+
+
+def _gen_msa_one_good_right(df: pd.DataFrame, m1: int, m2: int) -> MSA:
+    n_modules = list(df["n_modules"])[0]
+    tmp1 = (df["module_classes"].apply(lambda x: x.split(",")[m1]) == "Flanking")
+    tmp2 = (df["module_classes"].apply(lambda x: x.split(",")[m2]) == "Spanning")
+    mask = tmp1 & tmp2
+    new_df = df[mask]
+    if len(new_df) == 0:
+        return []
+    raligns = [True] * m2 + [False] * (n_modules - m2)
+    realigned_seqs = realign_sequences(new_df, raligns)  # This already contains all information, rest is formatting
+
+    tmp1 = sorted(realigned_seqs, key=lambda x: x[1], reverse=True)
+    tmp2 = sorted(tmp1, key=lambda x: x[1][m2].count("-"))
+    result = [(x[0], "-".join(x[1])) for x in tmp2]
+    return result
+
+
+def realign_sequences(df: pd.DataFrame, raligns: list[bool]):
     n = len(raligns)
+    maximums = get_max_widths(df, n)
+    result = []
+    for i, row in df.iterrows():
+        aligned_parts = get_aligned_parts(row, raligns, maximums, n)
+        item = (row["read_id"], aligned_parts)
+        result.append(item)
+
+    return result
+
+
+def get_aligned_parts(row: pd.Series, raligns: list[bool], max_widths: list[int], n: int) -> list[str]:
+    aligned_parts = []
+    parts = row["module_sequences"].split(",")
+    for j in range(n):
+        if raligns[j]:
+            x = "{0:->{w}}".format(parts[j], w=max_widths[j])
+        else:
+            x = "{0:-<{w}}".format(parts[j], w=max_widths[j])
+        aligned_parts.append(x)
+    return aligned_parts
+
+
+def get_max_widths(df: pd.DataFrame, n: int) -> list[int]:
     maximums = [0] * n
     for i, row in df.iterrows():
         parts = row["module_sequences"].split(",")
         for j in range(n):
             maximums[j] = max(len(parts[j]), maximums[j])
-
-    msa = []
-    for i, row in df.iterrows():
-        parts = row["module_sequences"].split(",")
-        aligned_parts = []
-        for j in range(n):
-            if raligns[j]:
-                x = "{0:->{w}}".format(parts[j], w=maximums[j])
-            else:
-                x = "{0:-<{w}}".format(parts[j], w=maximums[j])
-            aligned_parts.append(x)
-        msa_seq = "-".join(aligned_parts)
-        item = (row["read_id"], msa_seq)
-        msa.append(item)
-
-    return sorted(msa, key=lambda x: x[1], reverse=True)
-
-
-def get_left_flank(states) -> int:
-    for i, state in enumerate(states):
-        if state != '-':
-            return i
-    return -1
-
-
-def move_right(alignment: str, start: int, end: int) -> str:
-    """ Move only first part of the alignment right """
-    align_part = alignment[start:end]
-    # find last empty:
-    idx = 0
-    for idx in reversed(range(len(align_part))):
-        if align_part[idx] != '_':
-            break
-    idx += 1
-
-    # return shifted alignment
-    return alignment[:start] + ('_' * (len(align_part) - idx)) + align_part[:idx] + alignment[end:]
-
-
-def get_range(states, symbol: str) -> tuple[int, int]:
-    try:
-        first_idx = states.index(symbol)
-        last_idx = len(states) - states[-1::-1].index(symbol) - 1
-        return first_idx, last_idx + 1
-    except ValueError:
-        return -1, -1
-
-
-def setup_alignments(annotations: list[Annotation]) -> tuple[list[str], list[str]]:
-    alignments = [''] * len(annotations)  # alignment strings
-    align_inds = np.zeros(len(annotations), dtype=int)  # indices of annotations that were processed
-    states = []  # has numbers of states in the final multiple alignment
-
-    while True:
-        # get minimal state:
-        min_comp = (True, 'Z', -1)
-        total_done = 0
-        for i, (annot, ai) in enumerate(zip(annotations, align_inds)):
-            if ai >= len(annot.states):
-                total_done += 1
-                continue
-            state = annot.states[ai]
-            comparator = (state != 'I', state, i)
-            min_comp = min(comparator, min_comp)
-
-        # if we have done every state, end:
-        if total_done >= len(alignments):
-            break
-
-        states.append(min_comp[1])
-
-        # now print all states, that are minimal:
-        for i, (annot, ai) in enumerate(zip(annotations, align_inds)):
-            if ai >= len(annot.states):
-                alignments[i] += '_'  # put ends of each alignment to be of same length
-                continue
-            if annot.states[ai] == min_comp[1]:
-                alignments[i] += annot.read_seq[ai]
-                align_inds[i] += 1
-            else:
-                alignments[i] += '_'
-
-    return alignments, states
+    return maximums
 
 
 def highlight_subpart(seq: str, highlight: int | list[int]) -> tuple[str, str]:
@@ -1008,17 +643,6 @@ def highlight_subpart(seq: str, highlight: int | list[int]) -> tuple[str, str]:
         str_part.append(split[h])
         split[h] = f'<b><u>{split[h]}</u></b>'
     return ''.join(split), ''.join(str_part)
-
-
-def create_annotations(df: pd.DataFrame, motif: Motif) -> list[Annotation]:
-    annotations: list[Annotation] = []
-    for _, row in df.iterrows():
-        ann = Annotation(
-            row['read_id'], row['mate_order'], row['read'], row['reference'],
-            row['modules'], row['log_likelihood'], motif
-        )
-        annotations.append(ann)
-    return annotations
 
 
 def create_motif(df: pd.DataFrame, is_male: bool) -> Motif:
