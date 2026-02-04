@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import TextIO, Iterator, TypeAlias, Any
 from collections import Counter
 from jinja2 import Environment, FileSystemLoader
+from src_new.dante_generate_msa import write_alignment_html as write_alignment_html2
 # from pprint import pprint
 
 import csv
@@ -101,9 +102,12 @@ def main() -> None:
     print(f'Copying includes: {datetime.now():%Y-%m-%d %H:%M:%S}')
     copy_includes(args.output_dir)
 
-    for tsv in args.input_tsv:
-        print(f'Writing alignment htmls: {datetime.now():%Y-%m-%d %H:%M:%S}')
-        write_alignment_html(data_json, tsv, args.male, args.cutoff_alignments, args.output_dir)
+    os.makedirs(f"{args.output_dir}/alignments", exist_ok=True)
+    for (tsv_file, json_file) in zip(args.input_tsv, args.input_jsons):
+        motif = os.path.basename(tsv_file).split(".")[0]
+        output_file = f"{args.output_dir}/alignments/{motif}.html"
+        print(f'Writing alignment htmls: {json_file} + {tsv_file} -> {output_file}')
+        write_alignment_html2(json_file, tsv_file, output_file, args.male)
 
     # next lines assume joined tsv file
     # print(f'Writing tsv output: {datetime.now():%Y-%m-%d %H:%M:%S}')
