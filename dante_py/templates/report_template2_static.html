@@ -14,6 +14,7 @@
 
 <body class="valo v-app">
     {% set vars = data %}
+    {% set max_noms = 5 %}
     {% set post_bases = vars.postfilter_params[0] %}
     {% set post_reps = vars.postfilter_params[1] %}
     {% set errors = vars.postfilter_params[2] %}
@@ -119,7 +120,7 @@
         Global nomenclatures:<br>
         <table class="nomtg">
             <tbody>
-                {% for nomenclature in motif.nomenclatures %}
+                {% for nomenclature in motif.nomenclatures[:max_noms] %}
                 <tr>
                     <td>{{ nomenclature.count }}x</td>
                     <td>{{ nomenclature.ref }}</td>
@@ -137,7 +138,7 @@
             Nomenclatures:<br>
             <table class="nomtg">
                 <tbody>
-                    {% for nomenclature in row.nomenclatures %}
+                    {% for nomenclature in row.nomenclatures[:max_noms] %}
                     <tr>
                         <td>{{ nomenclature.count }}x</td>
                         <td>{{ nomenclature.ref }}</td>
@@ -311,7 +312,7 @@
             Nomenclatures:<br>
             <table class="nomtg">
                 <tbody>
-                    {% for nomenclature in row.nomenclatures %}
+                    {% for nomenclature in row.nomenclatures[:max_noms] %}
                     <tr>
                         <td>{{ nomenclature.count }}x</td>
                         <td>{{ nomenclature.ref }}</td>
