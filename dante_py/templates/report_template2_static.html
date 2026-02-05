@@ -177,22 +177,35 @@
                 {% set inread = read_counts[2] %}
                 <script>
                     {
+                        // https://plotly.com/javascript/reference/bar/
+                        let spanning_counts = {{ spanning }};
+                        let flanking_counts = {{ flanking }};
+
+                        let all_counts = spanning_counts.map((v, i) => v + flanking_counts[i]);
+                        let spanning_text = spanning_counts.map(v => v === 0 ? "" : String(v));
+                        let flanking_text = flanking_counts.map(v => v === 0 ? "" : String(v));
+
                         let hist_data = {
-                            "data":[
-                                {"y":{{ spanning }},"name":"Full reads",
-                                    "marker":{"color":"#636EFA"},"textfont":{"color":"#636EFA","size":7},"type":"bar","hover":"true"},
-                                {"y":{{ flanking }},"name":"Partial reads",
-                                    "marker":{"color":"#CCCCCC"},"textfont":{"color":"#CCCCCC","size":7},"type":"bar","hover":"true"},
-                                {"y":{{ inread }},"name":"Inread reads",
-                                    "marker":{"color":"#FF6600"},"textfont":{"color":"#FF6600","size":7},"type":"bar","hover":"true"}
-                            ],
+                            "data":[{
+                                "y":all_counts,
+                                "text":flanking_text,
+                                "type":"bar", "name":"Partial reads", "marker":{"color":"#CCCCCC"},
+                                "textfont":{"color":"#CCCCCC","size":14}, "textposition":"outside",
+                                "texttemplate":"%{text}", "hoverinfo":"text"
+                            }, {
+                                "y":spanning_counts,
+                                "text":spanning_text,
+                                "type":"bar", "name":"Full reads", "marker":{"color":"#636EFA"},
+                                "textfont":{"color":"#636EFA","size":14}, "textposition":"outside",
+                                "texttemplate":"%{text}", "hoverinfo":"text"
+                            }],
                             "layout":{
                                 "title":{"text":"Histogram of repetitions"},
                                 "xaxis":{"title":{"text":"STR repetitions"},"tickmode":"array","tickvals":[5,10,15,20,25,30,35,40],"ticktext":[5,10,15,20,25,30,35,40]},
                                 "yaxis": {"fixedrange":true,"title":{"text":"Read counts"}},
                                 "legend": {"x": 0.85, "y": 0.85 },
-                                "barmode":"stack",
-                                "hovermode":"x",
+                                "barmode":"overlay",
+                                "hovermode":"x"
                             }
                         };
 
