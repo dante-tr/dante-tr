@@ -27,23 +27,14 @@ def genotype(
 
     model = Model(read_lengths, max_spanning_reps, max_overall_reps)
     likelihoods = model.evaluate(obs_counts, read_lengths, is_spanning, monoallelic_motif)
-    # print(likelihoods.shape)
-    # print(likelihoods)
-    x = model.predict(likelihoods)
-    print(f"new predicted fn: {x}")
-    y = model.predict_sym(likelihoods, monoallelic_motif)
-    print(f"new predict_sym fn: {y}")
-    # return likelihoods, y, (0, 0, 0, 0, 0, 0, 0)
+    pred_sym = model.predict_sym(likelihoods, monoallelic_motif)
+    confidences = model.get_conf(likelihoods, monoallelic_motif)
 
-    # _max_rep = max_spanning_reps + model.OVERHEAD
     _max_rep = model.max_rep + 1
     _min_rep = get_min_rep(spanning_observed_counts)
     likelihoods = transform_to_old_format(likelihoods, _min_rep, _max_rep, model.exp_idx, model.bkg_idx)
-    predicted_tmp = predict(likelihoods)
-    raw_confidence = get_confidence(likelihoods, predicted_tmp, _max_rep, monoallelic_motif)
-    prediction = convert_to_sym(_max_rep, predicted_tmp, monoallelic_motif)
 
-    return likelihoods, prediction, raw_confidence
+    return likelihoods, pred_sym, confidences
 
 
 # All other objects below this line are considered internal a should not be used
@@ -78,15 +69,11 @@ class Model:
     P_DEL1, P_DEL2 = 0.0001, 0.0001
     P_INS = 0.0001
 
-    # __init__
-    # OVERHEAD = 4
-    OVERHEAD = 0
-
     def __init__(self, read_lengths: list[int], max_spanning_rep: int, max_flanking_rep: int):
         """ Initialization of the Inference class + setup of all models and their probabilities. """
         self.read_dist: np.ndarray = np.bincount(read_lengths, minlength=100) / len(read_lengths)
-        self.max_rep: int = max_spanning_rep + self.OVERHEAD
-        self.max_frep: int = max_flanking_rep + self.OVERHEAD
+        self.max_rep: int = max_spanning_rep
+        self.max_frep: int = max_flanking_rep
 
         self.exp_idx: int = self.max_rep + 1
         self.bkg_idx: int = self.max_rep + 2
@@ -110,11 +97,8 @@ class Model:
         models = []
         for i in range(max_rep + 1):  # inclusive 0, 1, ..., n
             models.append(Model.model_full(max_flanking_rep + 1, i))
-        # expansion should be sum i from (n+1) to (inf) model_full(n, i)
-        models.append(Model.model_full(max_flanking_rep + 1, max_rep + 1))  # exp
+        models.append(Model.model_expn(max_flanking_rep + 1, max_rep + 1))  # exp
         models.append(Model.model_bckg(max_flanking_rep + 1))               # bkg
-        # models should contain max_spanning_count + 3 (0, 1, ..., n, E, B) 1darrays
-        # each 1darray needs length max_flanking_count + 1 (0, 1, ..., m)
         return models
 
     @staticmethod
@@ -131,6 +115,16 @@ class Model:
         result = np.convolve(inserts, deletes[::-1])[:size]
         padding = np.zeros(size - len(result), dtype=float)
         return np.concatenate([result, padding])
+
+    @staticmethod
+    def model_expn(size: int, gt_min: int) -> np.ndarray:
+        """Returns ndarray with length size"""
+        # expansion should be sum i from (n+1) to (inf) model_full(n, i)
+        result = np.zeros(size, dtype=float)
+        for i in range(gt_min, size + 1):
+            result += Model.model_full(size, i)
+        result /= (size - gt_min + 1)
+        return result
 
     @staticmethod
     def model_bckg(size: int) -> np.ndarray:
@@ -185,6 +179,7 @@ class Model:
 
         # print(f"{lh_cover:.4f} {lh_model:.4f} {lh_mprob:.4f} {lh_r_len:.4f}")
         return lh_cover * lh_r_len * lh_model * lh_mprob
+    # ---
 
     @staticmethod
     def predict(llmatrix: np.ndarray) -> tuple[int, int]:
@@ -201,21 +196,46 @@ class Model:
         if is_monoallelic:
             sym_prediction = (sym_prediction[0], 'X')
         return sym_prediction
+
+    def get_conf(self, llmatrix: np.ndarray, is_monoallelic: bool) -> tuple[float, ...]:
+        """ Returns seven floats representing different confidences """
+        # This trick is needed, because exp of large negative is zero in floats.
+        llmatrix = llmatrix - np.max(llmatrix)
+        # print(llmatrix / np.log(10.0))  # log-ratios in base 10
+        # llmatrix = llmatrix / 100       # temperature scaling
+        prob = np.exp(llmatrix)/np.sum(np.exp(llmatrix))  # softmax
+        # print(prob)
+
+        pred = self.predict(llmatrix)
+        conf_pred: float = prob[pred[0], pred[1]]
+        conf_al_1: float = np.sum(prob[pred[0], :]) + np.sum(prob[:, pred[0]]) - prob[pred[0], pred[0]]
+        conf_al_2: float = np.sum(prob[pred[1], :]) + np.sum(prob[:, pred[1]]) - prob[pred[1], pred[1]]
+        if is_monoallelic:
+            conf_al_2 = float("nan")
+
+        bkg = self.bkg_idx
+        conf_bckg: float = prob[bkg, bkg]
+        conf_bg_t: float = np.sum(prob[bkg, :]) + np.sum(prob[:, bkg]) - prob[bkg, bkg]
+
+        exp = self.exp_idx
+        conf_expn: float = prob[exp, exp]
+        conf_ex_t: float = np.sum(prob[exp, :]) + np.sum(prob[:, exp]) - prob[exp, exp]
+
+        return (conf_pred, conf_al_1, conf_al_2, conf_bckg, conf_bg_t, conf_expn, conf_ex_t)
 # ---
 
 
-def predict(lh_array: np.ndarray) -> tuple[int, int]:
-    ind_good = lh_array != -np.inf
-    if len(lh_array[ind_good]) == 0:
-        return 0, 0
-    best = sorted(np.unravel_index(np.argmax(lh_array), lh_array.shape))
-    prediction = (int(best[0]), int(best[1]))
+MIN_REPETITIONS = 1
+OVERHEAD = 3
 
-    return prediction
+
+def get_min_rep(spanning_obs_counts: list[int]) -> int:
+    return max(MIN_REPETITIONS, min(spanning_obs_counts) - OVERHEAD)  # inclusive
 
 
 # TODO: split this into somethings integratable to class and conversion to old
 def transform_to_old_format(lhoods, min_rep, max_rep, exp_idx, bkg_idx):
+    print(lhoods.shape)
     likelihoods = np.zeros((max_rep, max_rep + 1))
     rng = slice(min_rep, max_rep)
     # rng = slice(min_rep, exp_idx)
@@ -226,74 +246,5 @@ def transform_to_old_format(lhoods, min_rep, max_rep, exp_idx, bkg_idx):
     likelihoods[0, rng] = lhoods[rng, bkg_idx]
     ind_good = (likelihoods < 0.0) & (likelihoods > -1e10) & (likelihoods != np.nan)
     likelihoods[~ind_good] = -np.inf
+    print(likelihoods.shape)
     return likelihoods
-
-
-def convert_to_sym(max_rep, best: tuple[int, int], monoallelic: bool) -> tuple[int | str, int | str]:
-    """ Convert numeric alleles to their symbolic representations. """
-    def fn1(x):
-        return 'E' if x == max_rep else 'B' if x == 0 else x
-
-    if best[0] == 0 and best[1] == max_rep:
-        best_sym = ('E', 'E')
-    else:
-        best_sym = tuple(map(fn1, best))
-
-    # if mono-allelic return 'X' as second allele symbol
-    if monoallelic:
-        best_sym = (best_sym[0], 'X')
-
-    return best_sym
-
-
-def get_confidence(lh_array: np.ndarray, predicted: tuple[int, int], max_rep: int, monoallelic: bool) -> Confidences:
-    """ Get confidence of a prediction. """
-    lh_corr_array = lh_array - np.max(lh_array)
-    lh_sum = np.sum(np.exp(lh_corr_array))
-
-    confidence: float = np.exp(lh_corr_array[predicted[0], predicted[1]]) / lh_sum
-    confidence1: float
-    confidence2: float
-    if predicted[0] == predicted[1]:  # same alleles - we compute the probability per allele
-        confidence1 = np.sum(np.exp(lh_corr_array[predicted[0], :])) / lh_sum
-        confidence2 = np.sum(np.exp(lh_corr_array[:, predicted[1]])) / lh_sum
-    elif predicted[1] == lh_corr_array.shape[0]:  # expanded allele - expanded is only on one side of the array
-        confidence1 = (
-            np.sum(np.exp(lh_corr_array[predicted[0], :]))
-            + np.sum(np.exp(lh_corr_array[:, predicted[0]]))
-            - np.exp(lh_corr_array[predicted[0], predicted[0]])
-        ) / lh_sum
-        confidence2 = np.sum(np.exp(lh_corr_array[:, predicted[1]])) / lh_sum
-    else:  # normal behavior - different alleles , no expanded, compute all likelihoods of the alleles
-        confidence1 = (
-            np.sum(np.exp(lh_corr_array[predicted[0], :]))
-            + np.sum(np.exp(lh_corr_array[:, predicted[0]]))
-            - np.exp(lh_corr_array[predicted[0], predicted[0]])
-        ) / lh_sum
-        confidence2 = (
-            np.sum(np.exp(lh_corr_array[:, predicted[1]]))
-            + np.sum(np.exp(lh_corr_array[predicted[1], :]))
-            - np.exp(lh_corr_array[predicted[1], predicted[1]])
-        ) / lh_sum
-
-    confidence_back: float = np.exp(lh_corr_array[0, 0]) / lh_sum
-    confidence_back_all: float = np.sum(np.exp(lh_corr_array[0, :])) / lh_sum
-    confidence_exp: float = np.exp(lh_corr_array[0, max_rep]) / lh_sum
-    confidence_exp_all: float = np.sum(np.exp(lh_corr_array[:, max_rep])) / lh_sum
-
-    if monoallelic:
-        confidence2 = np.nan
-
-    result = (
-        confidence, confidence1, confidence2,
-        confidence_back, confidence_back_all, confidence_exp, confidence_exp_all
-    )
-    return result
-
-
-MIN_REPETITIONS = 1
-OVERHEAD = 3
-
-
-def get_min_rep(spanning_obs_counts: list[int]) -> int:
-    return max(MIN_REPETITIONS, min(spanning_obs_counts) - OVERHEAD)  # inclusive
