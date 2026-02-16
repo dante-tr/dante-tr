@@ -15,7 +15,7 @@ import textwrap
 import numpy as np
 import pandas as pd
 
-from src_new.genotyping3 import genotype
+from src_new.genotyping4 import genotype
 
 
 VERSION = "0.13.0"
@@ -66,8 +66,6 @@ def convert_to_old_json(json):
 
 
 def analyse_motif(input_tsv: str, male: bool, sample: str):
-    output_motif_table(input_tsv)
-
     pf = PostFilter()
     main_json: dict[str, Any] = {}
     main_json["dante_version"] = VERSION
@@ -75,15 +73,6 @@ def analyse_motif(input_tsv: str, male: bool, sample: str):
     main_json["sample"] = sample
     main_json["motifs"] = generate_motifs(input_tsv, male)
     return main_json
-
-
-def output_motif_table(input_tsv: str):
-    motif_table = pd.read_csv(input_tsv, sep='\t')
-    f = open(input_tsv + ".dbg", "w")
-    for _, mt_row in motif_table.iterrows():
-        for idx, val in mt_row.items():
-            f.write(f"{idx}\t{val}\n")
-        f.write("\n")
 
 
 def generate_motifs(input_tsv: str, male: bool) -> list:

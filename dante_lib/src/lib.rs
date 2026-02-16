@@ -4,6 +4,7 @@ use noodles::bam::io::Writer;
 use noodles::sam::Header;
 use noodles::bgzf as bgzf;
 use rayon::prelude::*;
+use polars::prelude::*;
 use std::fmt;
 use std::fs::File;
 use std::io::BufRead;
@@ -14,6 +15,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::ops::Range;
 use std::str;
+use std::error::Error;
 
 mod bam_index;
 mod hmm;
@@ -49,40 +51,74 @@ pub fn run_v2(bam_file: &Path, motif_file: &Path, output: &Path, out_bam_flag: b
             // TODO: sort bam + create bai index
         }
 
-        // build HMM and annotate reads
+        // build HMM and annotate reads - polars alternative
         let model = Hmm::from(&get_modules(left_flank, repeat, right_flank)).log();
-        let (annotation, _) = annotate_reads(relevant_reads.iter(), model, repeat, None, false);
+        let mut annotation_df = annotate_reads(relevant_reads.iter(), model, repeat);
 
-        // write resulting csv
+        // write results to tsv
         let out_tsv_file = output.join(name.to_owned() + ".annotations.tsv");
-        let mut out_tsv = init_tsv(&out_tsv_file.to_string_lossy());
-        out_tsv.write_all(annotation.as_bytes()).expect("Cannot write to output file.");
+        println!("{:?}", out_tsv_file);
+        let mut file = File::create(out_tsv_file).expect("Cannot create file");
+        CsvWriter::new(&mut file)
+            .with_separator(b'\t')
+            .finish(&mut annotation_df)
+            .expect("Unable to write dataframe");
+
+        let out_tsv_file = output.join(name.to_owned() + ".annotations.dbg.txt");
+        print_dbg_file(&annotation_df, &out_tsv_file).expect("Failed writing dbg file.");
     });
 
     println!("Annotation finished successfully.");
 }
 
-fn annotate_reads<T>(reads: T, model: Hmm, repeat: &TandemRepeat, score: Option<char>, print_quality: bool)
-    -> (String, Vec<bam::Record>)
+fn print_dbg_file(df: &DataFrame, p: &Path) -> Result<(), Box<dyn Error>>{
+    // use polars::frame::row::Row;
+    // let mut row = Row::default();
+    let mut file = File::create(p)?;
+
+    for i in 0..df.height() {
+        let row = df.get_row(i)?.0;
+        let col_names = df.columns();
+        for (name, value) in std::iter::zip(col_names, row) {
+            writeln!(file, "{}\t{}", name.name(), value)?;
+        }
+        writeln!(file)?;
+    }
+    return Ok(());
+}
+
+fn annotate_reads<T>(in_reads: T, model: Hmm, repeat: &TandemRepeat) -> DataFrame
 where
     T: Iterator<Item = bam::Record>,
 {
-    let mut annotation_str = String::new();
-    let mut annotated_reads = Vec::<bam::Record>::new();
-    for (i, read) in reads.enumerate() {
-
-        annotated_reads.push(read.clone());
-
+    // TODO: refactor this
+    let mut names = Vec::new();
+    let mut motifs = Vec::new();
+    let mut read_sns = Vec::new();
+    let mut read_ids = Vec::new();
+    let mut mate_orders = Vec::new();
+    let mut reads = Vec::new();
+    let mut references = Vec::new();
+    let mut moduleses = Vec::new();
+    let mut qualities = Vec::new();
+    let mut log_likelihoods = Vec::new();
+    let mut left_bgs = Vec::new();
+    let mut right_bgs = Vec::new();
+    let mut n_moduleses = Vec::new();
+    let mut module_baseses = Vec::new();
+    let mut module_repetitionses = Vec::new();
+    let mut module_sequenceses = Vec::new();
+    let mut module_nomenclatureses = Vec::new();
+    let mut n_deletionses = Vec::new();
+    let mut n_insertionses = Vec::new();
+    let mut n_mismatcheses = Vec::new();
+    let mut mismatches_strs = Vec::new();
+    let mut module_classeses = Vec::new();
+    for (i, read) in in_reads.enumerate() {
         let seq: Vec<_> = read.sequence().iter().collect();
         let qual: Vec<_> = read.quality_scores().as_ref().iter().map(|x| x + 33).collect();
-
-        let qual_mod =
-            if let Some(x) = score { vec![x as u8; seq.len()] } 
-            else { qual.clone() };
-
-        let qual_str =
-            if print_quality { qual.clone() }
-            else { "No quality".bytes().collect() };
+        let qual_mod = qual.clone();
+        let qual_str: Vec<_> = "No quality".bytes().collect();
 
         let (likelihood, annotation) = model.log_predict(&seq, &qual_mod);
         let (partition, mod_ids) = model.partition_to_units(&annotation);
@@ -90,34 +126,46 @@ where
         let reconstructed_reference = model.reconstruct_sequence(&new_annot);
         let mods = model.reconstruct_mod_ids(&new_annot);
 
-        // b"name\tmotif\tread_sn\tread_id\tmate_order\tread\treference\tmodules\tquality\tlog_likelihood\n"
         let name: String = match &repeat.name {
             Some(x) => x.to_string(),
             None    => "None".to_string(),
         };
-        let motif = repeat;
+        names.push(name);
+        let motif = repeat.to_string();
+        motifs.push(motif);
         let read_sn = i;
+        read_sns.push(read_sn as u64);
         let read_id = str::from_utf8(read.name().unwrap().as_bytes()).unwrap();
+        read_ids.push(read_id.to_string());
         let mate_order = mate_order(&read);
+        mate_orders.push(mate_order);
         let read = str::from_utf8(&reconstructed_read).unwrap();
+        reads.push(read.to_string());
         let reference = str::from_utf8(&reconstructed_reference).unwrap();
+        references.push(reference.to_string());
         let modules = str::from_utf8(&mods).unwrap();
+        moduleses.push(modules.to_string());
         let quality = str::from_utf8(&qual_str).unwrap();
+        qualities.push(quality.to_string());
         let log_likelihood = likelihood;
-
+        log_likelihoods.push(log_likelihood);
         let mlen = mods.len();
         let mut left_bg = 0;
         while left_bg < mlen && mods[left_bg] == b'-' { left_bg += 1; }
+        left_bgs.push(left_bg as u64);
         let mut right_bg = 0;
         while right_bg < mlen && mods[(mlen - 1) - right_bg] == b'-' { right_bg += 1; }
-
+        right_bgs.push(right_bg as u64);
         let mismatches_str = generate_mismatches(&reconstructed_read, &reconstructed_reference);
+        mismatches_strs.push(mismatches_str.clone());
         let n_deletions = mismatches_str.bytes().filter(|x| *x == b'D').count();
+        n_deletionses.push(n_deletions as u64);
         let n_insertions = mismatches_str.bytes().filter(|x| *x == b'I').count();
+        n_insertionses.push(n_insertions as u64);
         let n_mismatches = mismatches_str.bytes().filter(|x| *x == b'M').count();
-
+        n_mismatcheses.push(n_mismatches as u64);
         let n_modules = repeat.copy_number.len() + 2;
-
+        n_moduleses.push(n_modules as u64);
         let mut module_sequences: Vec<String> = Vec::with_capacity(n_modules);
         let mut module_nomenclatures: Vec<String> = Vec::with_capacity(n_modules);
         let mut module_bases: Vec<usize> = Vec::with_capacity(n_modules);
@@ -133,41 +181,45 @@ where
             module_repetitions.push(mr);
         }
         let module_classes = get_module_classes(left_bg, &module_bases, right_bg);
-
         let module_bases = module_bases.into_iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
+        module_baseses.push(module_bases);
         let module_repetitions = module_repetitions.into_iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
+        module_repetitionses.push(module_repetitions);
         let module_sequences = module_sequences.join(",");
+        module_sequenceses.push(module_sequences);
         let module_nomenclatures = module_nomenclatures.join(",");
+        module_nomenclatureses.push(module_nomenclatures);
         let module_classes = module_classes.into_iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
-
-
-        let line = format!("\
-            {name}\t{motif}\t\
-            {read_sn}\t{read_id}\t{mate_order}\t{quality}\t{log_likelihood}\t\
-            {read}\t\
-            {reference}\t\
-            {n_modules}\t{left_bg}\t{module_bases}\t{right_bg}\t{module_repetitions}\t\
-            {module_sequences}\t{module_nomenclatures}\t\
-            {modules}\t\
-            {n_deletions}\t{n_insertions}\t{n_mismatches}\t\
-            {mismatches_str}\t{module_classes}\n\
-            "
-        );
-        // let line = format!("\
-        //     {name}\t{motif}\t{read_id}\n\
-        //     {read}\n\
-        //     {reference}\n\
-        //     {modules}\n\
-        //     {mismatches_str}\n\
-        //     {read_sn}\t{mate_order}\t{quality}\t{log_likelihood}\n\
-        //     {n_modules}\t{left_bg}\t{module_bases}\t{right_bg}\t{module_repetitions}\t{module_sequences}\n\
-        //     {n_deletions}\t{n_insertions}\t{n_mismatches}\n\
-        //     "
-        // );
-        annotation_str.push_str(&line);
+        module_classeses.push(module_classes);
     }
-    return (annotation_str, annotated_reads);
+
+    let result = df![
+        "name"                 => names,
+        "motif"                => motifs,
+        "read_sn"              => read_sns,
+        "read_id"              => read_ids,
+        "mate_order"           => mate_orders,
+        "quality"              => qualities,
+        "log_likelihood"       => log_likelihoods,
+        "read"                 => reads,
+        "reference"            => references,
+        "n_modules"            => n_moduleses,
+        "left_bg"              => left_bgs,
+        "module_bases"         => module_baseses,
+        "right_bg"             => right_bgs,
+        "module_repetitions"   => module_repetitionses,
+        "module_sequences"     => module_sequenceses,
+        "module_nomenclatures" => module_nomenclatureses,
+        "modules"              => moduleses,
+        "n_deletions"          => n_deletionses,
+        "n_insertions"         => n_insertionses,
+        "n_mismatches"         => n_mismatcheses,
+        "mismatches_str"       => mismatches_strs,
+        "module_classes"       => module_classeses,
+    ].expect("Cannot create dataframe");
+    return result;
 }
+
 
 #[derive(Clone)]
 enum AClass {
@@ -309,23 +361,6 @@ fn get_module_bases(mods: &[u8], idx: usize) -> usize {
     let idx: u8 = (idx + ASCII_ZERO).try_into().unwrap();
     let count = mods.iter().filter(|&&x| x == idx).count();
     return count;
-}
-
-fn init_tsv(filename: &str) -> File {
-    let mut out = File::create(filename).unwrap_or_else(|e| panic!("TSV file {:?} not found: {}", filename, e));
-    let line = b"\
-    name\tmotif\t\
-    read_sn\tread_id\tmate_order\tquality\tlog_likelihood\t\
-    read\t\
-    reference\t\
-    n_modules\tleft_bg\tmodule_bases\tright_bg\tmodule_repetitions\tmodule_sequences\tmodule_nomenclatures\t\
-    modules\t\
-    n_deletions\tn_insertions\tn_mismatches\t\
-    mismatches_str\tmodule_classes\n\
-    ";
-
-    out.write_all(line).expect("Cannot write to output file.");
-    return out;
 }
 
 fn init_bam(tsv_file: &str, header: &Header) -> Writer<bgzf::Writer<File>> {
