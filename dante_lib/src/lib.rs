@@ -1,5 +1,6 @@
 mod annotation;
 mod bam_index;
+mod genotyping;
 mod hmm;
 mod io;
 mod motif_correction;
