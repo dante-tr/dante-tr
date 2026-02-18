@@ -1,12 +1,76 @@
 #![allow(dead_code)]
 
-use std::f64;
-
 use itertools::izip;
 
+use polars::prelude::*;
 use statrs::{distribution::{Binomial, Discrete}, statistics::Statistics};
 use ndarray::{self, s, Array};
 
+#[test]
+fn test_genotyping_from_dataframe() {
+    use std::path::PathBuf;
+    use crate::annotation::parse_tsv_file;
+
+    // /home/balaz/data/projects/STRs3/tools/remastr_dev/dante_lib/DM2.annotations.tsv
+    let tsv_file = PathBuf::from("/home/balaz/data/projects/STRs3/tools/remastr_dev/dante_lib/DM2.annotations.tsv");
+    let df: DataFrame = parse_tsv_file(&tsv_file).unwrap();
+    let result = genotype(df);
+    println!("{:?}", result);
+}
+
+fn genotype(df: DataFrame) -> usize {
+    fn read_to_length(col: &Column) -> Vec<usize> {
+        let f = |x: Option<&str>| x.unwrap().len();
+        col.str().unwrap().into_iter().map(f).collect()
+    }
+
+    fn module_repetitions_to_counts(col: &Column, i: usize) -> Vec<u64> {
+        let f = |x: Option<&str>| x.unwrap().split(",").collect::<Vec<_>>()[i].parse().unwrap();
+        col.str().unwrap().into_iter().map(f).collect()
+    }
+
+    fn module_classes_to_is_spanning(col: &Column, i: usize) -> Vec<String> {
+        let f = |x: Option<&str>| x.unwrap().split(",").collect::<Vec<_>>()[i].to_string();
+        col.str().unwrap().into_iter().map(f).collect()
+    }
+
+    fn create_mask(col: &Column) -> BooleanChunked {
+        col.str().unwrap().into_iter().map(|x| x.unwrap() == "Spanning" || x.unwrap() == "Flanking").collect()
+        // col.is_not_null()
+    }
+
+    let n_modules: usize = df["n_modules"].get(0).unwrap().try_extract().unwrap();
+    for i in 1..(n_modules-1) {
+
+        let mut new_columns: Vec<Column> = Vec::new();
+        let lengths: Vec<u64> = read_to_length(&df["read"]).iter().map(|&x| x as u64).collect();
+        new_columns.push(Column::new("lengths".into(), lengths));
+
+        let name = "counts".to_string();
+        let counts: Vec<u64> = module_repetitions_to_counts(&df["module_repetitions"], i);
+        new_columns.push(Column::new(name.into(), counts));
+
+        let name = "classes".to_string();
+        let classes: Vec<String> = module_classes_to_is_spanning(&df["module_classes"], i);
+        new_columns.push(Column::new(name.into(), classes));
+
+        let df_new = DataFrame::new_infer_height(new_columns).unwrap();
+        let mask = create_mask(&df_new["classes"]);
+        let df_new2 = df_new.filter(&mask);
+        // println!("{:?}", df_new);
+        // println!("{:?}", df_new2);
+
+        // let is_spanning: Vec<bool> = module_classes_to_is_spanning(&df["module_classes"], 1);
+        let max_spanning_reps: u64;
+        let max_overall_reps: u64;
+
+    }
+    return 0;
+    // "name", "motif", "read_sn", "read_id", "mate_order", "quality", "log_likelihood",
+    // "read", "reference", "n_modules", "left_bg", "module_bases", "right_bg",
+    // "module_repetitions", "module_sequences", "module_nomenclatures", "modules",
+    // "n_deletions", "n_insertions", "n_mismatches", "mismatches_str", "module_classes"
+}
 
 #[test]
 #[allow(non_snake_case)]
@@ -25,11 +89,11 @@ fn test_genotyping_ALS_motif() {
     let is_monoa = obj["monoallelic_motif"].as_bool().unwrap();
     let prediction = obj["prediction"].as_array().unwrap();
 
-    let lengths = [sp_lengths, fl_lengths].concat();
-    let is_spanning = [vec![true; sp_counts.len()], vec![false; fl_counts.len()]].concat();
-    let max_spanning_reps = *sp_counts.iter().max().unwrap();
-    let counts = [sp_counts, fl_counts].concat();
-    let max_overall_reps = *counts.iter().max().unwrap();
+    let lengths: Vec<u64> = [sp_lengths, fl_lengths].concat();
+    let is_spanning: Vec<bool> = [vec![true; sp_counts.len()], vec![false; fl_counts.len()]].concat();
+    let max_spanning_reps: u64 = *sp_counts.iter().max().unwrap();
+    let counts: Vec<u64> = [sp_counts, fl_counts].concat();
+    let max_overall_reps: u64 = *counts.iter().max().unwrap();
 
     // println!("{:?}", counts);
     // println!("{:?}", lengths);

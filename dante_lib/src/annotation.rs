@@ -21,6 +21,13 @@ pub fn print_tsv_file(df: &mut DataFrame, p: &Path) -> Result<(), Box<dyn Error>
     return Ok(());
 }
 
+pub fn parse_tsv_file(p: &Path) -> Result<DataFrame, Box<dyn Error>> {
+    let file = File::open(p)?;
+    let opts = CsvReadOptions::default().with_parse_options(CsvParseOptions::default().with_separator(b'\t'));
+    let df = CsvReader::new(file).with_options(opts).finish()?;
+    return Ok(df);
+}
+
 pub fn print_dbg_file(df: &DataFrame, p: &Path) -> Result<(), Box<dyn Error>> {
     let mut file = File::create(p)?;
 
