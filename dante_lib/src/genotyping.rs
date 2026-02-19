@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use itertools::izip;
+use std::error::Error;
 
 use polars::prelude::*;
 use statrs::{distribution::{Binomial, Discrete}, statistics::Statistics};
@@ -14,62 +15,64 @@ fn test_genotyping_from_dataframe() {
     // /home/balaz/data/projects/STRs3/tools/remastr_dev/dante_lib/DM2.annotations.tsv
     let tsv_file = PathBuf::from("/home/balaz/data/projects/STRs3/tools/remastr_dev/dante_lib/DM2.annotations.tsv");
     let df: DataFrame = parse_tsv_file(&tsv_file).unwrap();
-    let result = genotype(df);
+    let result = genotype(df, false);
     println!("{:?}", result);
 }
 
-fn genotype(df: DataFrame) -> usize {
-    fn read_to_length(col: &Column) -> Vec<usize> {
-        let f = |x: Option<&str>| x.unwrap().len();
-        col.str().unwrap().into_iter().map(f).collect()
-    }
-
-    fn module_repetitions_to_counts(col: &Column, i: usize) -> Vec<u64> {
-        let f = |x: Option<&str>| x.unwrap().split(",").collect::<Vec<_>>()[i].parse().unwrap();
-        col.str().unwrap().into_iter().map(f).collect()
-    }
-
-    fn module_classes_to_is_spanning(col: &Column, i: usize) -> Vec<String> {
-        let f = |x: Option<&str>| x.unwrap().split(",").collect::<Vec<_>>()[i].to_string();
-        col.str().unwrap().into_iter().map(f).collect()
-    }
-
-    fn create_mask(col: &Column) -> BooleanChunked {
-        col.str().unwrap().into_iter().map(|x| x.unwrap() == "Spanning" || x.unwrap() == "Flanking").collect()
-        // col.is_not_null()
-    }
-
+fn genotype(df: DataFrame, is_monoa: bool) -> usize {
     let n_modules: usize = df["n_modules"].get(0).unwrap().try_extract().unwrap();
     for i in 1..(n_modules-1) {
+        let data = extract_from_df(&df, i).unwrap();
+        let (counts, lengths, is_spanning, max_spanning_reps, max_overall_reps) = data;
 
-        let mut new_columns: Vec<Column> = Vec::new();
-        let lengths: Vec<u64> = read_to_length(&df["read"]).iter().map(|&x| x as u64).collect();
-        new_columns.push(Column::new("lengths".into(), lengths));
+        let model = Model::new(&lengths, max_spanning_reps as usize, max_overall_reps as usize);
+        let likelihoods = model.evaluate(&counts, &lengths, &is_spanning, is_monoa);
+        let pred_sym = model.predict_sym(likelihoods.clone(), is_monoa);
+        let confidences = model.get_conf(likelihoods.clone(), is_monoa);
 
-        let name = "counts".to_string();
-        let counts: Vec<u64> = module_repetitions_to_counts(&df["module_repetitions"], i);
-        new_columns.push(Column::new(name.into(), counts));
-
-        let name = "classes".to_string();
-        let classes: Vec<String> = module_classes_to_is_spanning(&df["module_classes"], i);
-        new_columns.push(Column::new(name.into(), classes));
-
-        let df_new = DataFrame::new_infer_height(new_columns).unwrap();
-        let mask = create_mask(&df_new["classes"]);
-        let df_new2 = df_new.filter(&mask);
-        // println!("{:?}", df_new);
-        // println!("{:?}", df_new2);
-
-        // let is_spanning: Vec<bool> = module_classes_to_is_spanning(&df["module_classes"], 1);
-        let max_spanning_reps: u64;
-        let max_overall_reps: u64;
-
+        println!("{:?}", pred_sym);
+        let result = (likelihoods, pred_sym, confidences);
     }
+    // Somehow merge the results
     return 0;
-    // "name", "motif", "read_sn", "read_id", "mate_order", "quality", "log_likelihood",
-    // "read", "reference", "n_modules", "left_bg", "module_bases", "right_bg",
-    // "module_repetitions", "module_sequences", "module_nomenclatures", "modules",
-    // "n_deletions", "n_insertions", "n_mismatches", "mismatches_str", "module_classes"
+}
+
+#[allow(clippy::type_complexity)]
+fn extract_from_df(df: &DataFrame, idx: usize) -> Result<(Vec<u64>, Vec<u64>, Vec<bool>, u64, u64), Box<dyn Error>> {
+    // collect only relevant columns
+    let f = |s: &str| s.len().try_into().unwrap();
+    let lengths = df.column("read")?.str()?.iter().map(|o| o.map(f));
+    let lengths: Column = UInt64Chunked::from_iter_options("lengths".into(), lengths).into_series().into();
+
+    let f = |s: &str| s.split(",").nth(idx).unwrap().parse().unwrap();
+    let counts = df.column("module_repetitions")?.str()?.iter().map(|o| o.map(f));
+    let counts: Column = UInt64Chunked::from_iter_options("counts".into(), counts).into_series().into();
+
+    let f = |s: &str| s.split(",").nth(idx).unwrap().to_string();
+    let classes = df.column("module_classes")?.str()?.iter().map(|o| o.map(f));
+    let classes: Column = StringChunked::from_iter_options("classes".into(), classes).into_series().into();
+
+    let module_df = DataFrame::new_infer_height(vec![lengths, counts, classes])?;
+
+    // filter only relevant rows
+    let f = |o: Option<&str>| { let x = o.unwrap(); x == "Spanning" };
+    let mask: BooleanChunked = module_df.column("classes")?.str()?.iter().map(f).collect();
+    let spanning_df = module_df.filter(&mask)?;
+
+    let f = |o: Option<&str>| { let x = o.unwrap(); x == "Flanking" };
+    let mask: BooleanChunked = module_df.column("classes")?.str()?.iter().map(f).collect();
+    let flanking_df = module_df.filter(&mask)?;
+
+    let module_relevant_df = DataFrame::vstack(&spanning_df, &flanking_df)?;
+
+    // extract to required datastructures
+    let counts: Vec<u64>       = module_relevant_df["counts"].u64()?.iter().map(|x| x.unwrap()).collect();
+    let lengths: Vec<u64>      = module_relevant_df["lengths"].u64()?.iter().map(|x| x.unwrap()).collect();
+    let is_spanning: Vec<bool> = module_relevant_df["classes"].str()?.iter().map(|x| x.unwrap() == "Spanning").collect();
+    let max_spanning_reps: u64 = spanning_df["counts"].u64()?.iter().max().unwrap().unwrap();
+    let max_overall_reps: u64  = *counts.iter().max().unwrap();
+
+    return Ok((counts, lengths, is_spanning, max_spanning_reps, max_overall_reps));
 }
 
 #[test]
