@@ -15,9 +15,6 @@ import textwrap
 import numpy as np
 import pandas as pd
 
-from src_new.genotyping4 import genotype
-
-
 VERSION = "0.13.0"
 DANTE_DESCRIPTION = '''
             DANTE = Da Amazing NucleoTide Exposer (Remastered)
@@ -88,7 +85,7 @@ def generate_motifs(input_tsv: str, male: bool) -> list:
     print("generate_nomenclatures")
     motif_json["nomenclatures"] = generate_nomenclatures(motif, motif_table)
     print("generate_modules")
-    motif_json["modules"] = generate_modules(motif, motif_table)
+    motif_json["modules"] = generate_modules(motif, motif_table, input_tsv)
     print("generate_haplotypes")
     motif_json["phasings"] = generate_haplotypes(motif, motif_table)  # this shouldn't be independent of modules
     print("generate_phased_seqs")
@@ -155,17 +152,21 @@ def generate_nomenclatures(motif: Motif, motif_table: pd.DataFrame) -> list[dict
     return motif_nomenclatures
 
 
-def generate_modules(motif: Motif, motif_table: pd.DataFrame):
+def generate_modules(motif: Motif, motif_table: pd.DataFrame, input_tsv: str):
+    prediction_json = input_tsv[0:-len(".annotations.tsv")] + ".genotypes.json"
+    with open(prediction_json) as f:
+        predictions = json.load(f)
+
     modules = []
 
     seq = motif.modules_str(include_flanks=True)
     rep_mods = [(int(i), str(seq), int(num)) for i, (seq, num) in enumerate(motif.modules) if num > 1]
-    for module_number, _, _ in rep_mods:
+    for idx, (module_number, _, _) in enumerate(rep_mods):
         selected = motif_table[MOTIF_COLUMN_MOD_CLASS].apply(lambda x: x.split(",")[module_number])
         anns_spanning = [Annotation(row) for _, row in motif_table[selected == "Spanning"].iterrows()]
         anns_flanking = [Annotation(row) for _, row in motif_table[selected == "Flanking"].iterrows()]
 
-        heatmap_data, prediction, raw_confidence = do_full_prediction(motif, anns_spanning, anns_flanking, module_number)
+        heatmap_data, prediction, raw_confidence = do_full_prediction2(motif, anns_spanning, module_number, predictions, idx)
 
         raw_nomenclature = [annot.module_nomenclatures[module_number] for annot in anns_spanning]
         mod_nomenclatures = format_nomenclatures(raw_nomenclature, motif, None)
@@ -252,18 +253,25 @@ def generate_modules(motif: Motif, motif_table: pd.DataFrame):
     return modules
 
 
-def do_full_prediction(motif, anns_spanning, anns_flanking, module_number):
+def do_full_prediction2(
+    motif, anns_spanning, module_number, predictions, idx: int
+) -> tuple[None | ProbHeatmap, tuple[int | str, int | str], tuple[float, ...]]:
+    module = predictions["modules"][idx]  # keys: ['predictions_sym', 'predictions_num', 'confidences', 'likelihoods']
     spanning_observed_counts = [ann.module_repetitions[module_number] for ann in anns_spanning]
-    spanning_read_lengths = [len(ann.read_seq) for ann in anns_spanning]
-    flanking_observed_counts = [ann.module_repetitions[module_number] for ann in anns_flanking]
-    flanking_read_lengths = [len(ann.read_seq) for ann in anns_flanking]
-    monoallelic_motif = motif.monoallelic
 
-    likelihoods, prediction, raw_confidence = genotype(
-        spanning_observed_counts, spanning_read_lengths,
-        flanking_observed_counts, flanking_read_lengths,
-        monoallelic_motif, PostFilter.MIN_REP_CNT, PostFilter.MIN_FLANK_LEN, PostFilter.MIN_REP_LEN
-    )
+    if len(spanning_observed_counts) == 0:
+        likelihoods, prediction, raw_confidence = None, ('B', 'B'), (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    else:
+        likelihoods = parse_likelihoods(module["likelihoods"])
+        prediction = parse_prediction(module["predictions_sym"])
+        raw_confidence = module["confidences"]
+
+    max_spanning_reps = max(spanning_observed_counts)
+    _max_rep = max_spanning_reps + 1
+    _min_rep = get_min_rep(spanning_observed_counts)
+    exp_idx = likelihoods.shape[0] - 2
+    bkg_idx = likelihoods.shape[0] - 1
+    likelihoods = transform_to_old_format(likelihoods, _min_rep, _max_rep, exp_idx, bkg_idx)
 
     heatmap_data = None
     if likelihoods is not None:
@@ -277,6 +285,82 @@ def do_full_prediction(motif, anns_spanning, anns_flanking, module_number):
         print(f"Likelihood array is None for {motif.name}.")
 
     return heatmap_data, prediction, raw_confidence
+
+
+def parse_prediction(json_p_sym) -> tuple[int | str, int | str]:
+    a = int(json_p_sym[0]) if json_p_sym[0].isdigit() else json_p_sym[0]
+    b = int(json_p_sym[1]) if json_p_sym[1].isdigit() else json_p_sym[1]
+    return (a, b)
+
+
+def parse_likelihoods(json_likelihoods) -> np.ndarray:
+    x = np.array(json_likelihoods["data"])
+    y: np.ndarray = x.reshape(json_likelihoods["dim"]).astype(float)
+    y[np.isnan(y)] = -np.inf
+    return y
+
+
+# def do_full_prediction(motif, anns_spanning, anns_flanking, module_number):
+#     spanning_observed_counts = [ann.module_repetitions[module_number] for ann in anns_spanning]
+#     spanning_read_lengths = [len(ann.read_seq) for ann in anns_spanning]
+#     flanking_observed_counts = [ann.module_repetitions[module_number] for ann in anns_flanking]
+#     flanking_read_lengths = [len(ann.read_seq) for ann in anns_flanking]
+#     monoallelic_motif = motif.monoallelic
+#
+#     if len(spanning_observed_counts) == 0:
+#         likelihoods, prediction, raw_confidence = None, ('B', 'B'), (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+#     else:
+#         likelihoods, prediction, raw_confidence = genotype(
+#             spanning_observed_counts, spanning_read_lengths,
+#             flanking_observed_counts, flanking_read_lengths,
+#             monoallelic_motif, PostFilter.MIN_REP_CNT, PostFilter.MIN_FLANK_LEN, PostFilter.MIN_REP_LEN
+#         )
+#         print(prediction)
+#
+#     max_spanning_reps = max(spanning_observed_counts)
+#     _max_rep = max_spanning_reps + 1
+#     _min_rep = get_min_rep(spanning_observed_counts)
+#     exp_idx = likelihoods.shape[0] - 2
+#     bkg_idx = likelihoods.shape[0] - 1
+#     likelihoods = transform_to_old_format(likelihoods, _min_rep, _max_rep, exp_idx, bkg_idx)
+#
+#     heatmap_data = None
+#     if likelihoods is not None:
+#         my_min_rep = 1
+#         while np.isinf(likelihoods[my_min_rep][my_min_rep]):
+#             my_min_rep += 1
+#         my_max_rep = likelihoods.shape[0]
+#         my_max_with_e = likelihoods.shape[1]
+#         heatmap_data = draw_pcolor(likelihoods, motif.nomenclature, my_min_rep, my_max_rep, my_max_with_e)
+#     else:
+#         print(f"Likelihood array is None for {motif.name}.")
+#
+#     return heatmap_data, prediction, raw_confidence
+
+
+MIN_REPETITIONS = 1
+OVERHEAD = 3
+
+
+def get_min_rep(spanning_obs_counts: list[int]) -> int:
+    return max(MIN_REPETITIONS, min(spanning_obs_counts) - OVERHEAD)  # inclusive
+
+
+# TODO: split this into somethings integratable to class and conversion to old
+def transform_to_old_format(lhoods, min_rep, max_rep, exp_idx, bkg_idx):
+    # print(lhoods.shape)
+    likelihoods = np.zeros((max_rep, max_rep + 1))
+    rng = slice(min_rep, max_rep)
+    # rng = slice(min_rep, exp_idx)
+    likelihoods[rng, rng] = lhoods[rng, rng]
+    likelihoods[0, 0] = lhoods[bkg_idx, bkg_idx]
+    likelihoods[0, max_rep] = lhoods[exp_idx, exp_idx]
+    likelihoods[rng, max_rep] = lhoods[rng, exp_idx]
+    likelihoods[0, rng] = lhoods[rng, bkg_idx]
+    ind_good = (likelihoods < 0.0) & (likelihoods > -1e10) & (likelihoods != np.nan)
+    likelihoods[~ind_good] = -np.inf
+    # print(likelihoods.shape)
+    return likelihoods
 
 
 def generate_phased_seqs(motif: Motif, motif_table: pd.DataFrame, modules: dict, phasings: dict):
