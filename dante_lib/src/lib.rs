@@ -21,6 +21,7 @@ use noodles::sam::Header;
 
 // use crate::annotation::parse_tsv_file;
 use crate::annotation::{annotate_reads, print_dbg_file, print_tsv_file};
+use crate::genotyping::print_json_file;
 use crate::bam_index::check_bai;
 use crate::bam_ops::RelevantReads;
 use crate::hmm::{Module, Hmm};
@@ -52,6 +53,7 @@ pub fn run_v2(bam_file: &Path, motif_file: &Path, output: &Path, out_bam_flag: b
         // build HMM and annotate reads - polars alternative
         let model = Hmm::from(&get_modules(left_flank, repeat, right_flank)).log();
         let mut annotation_df /*: DataFrame */ = annotate_reads(relevant_reads.iter(), model, repeat);
+        let genotyping_result = crate::genotyping::genotype(&annotation_df, false);
 
         // write results to tsv
         let out_tsv_file = output.join(name.to_owned() + ".annotations.tsv");
@@ -65,11 +67,10 @@ pub fn run_v2(bam_file: &Path, motif_file: &Path, output: &Path, out_bam_flag: b
         // let out_tsv_file = output.join(name.to_owned() + ".annotations2.tsv");
         // print_tsv_file(&mut tmp_df, &out_tsv_file).expect("Failed writing tsv file.");
 
-        // let genotyping_result = genotype(annotation_df);
 
         // // write genotyping result to json
-        // let out_json_file = output.join(name.to_owned() + ".genotypes.json");
-        // print_json_file().expect("Failed to write genotyping file.");
+        let out_json_file = output.join(name.to_owned() + ".genotypes.json");
+        print_json_file(&genotyping_result, &out_json_file).expect("Failed writing json file.");
     });
 
     println!("Annotation finished successfully.");

@@ -2,10 +2,14 @@
 
 use itertools::izip;
 use std::error::Error;
+use std::path::Path;
+use std::fs::File;
+use std::io::Write;
 
 use polars::prelude::*;
 use statrs::{distribution::{Binomial, Discrete}, statistics::Statistics};
 use ndarray::{self, s, Array};
+use serde::{Serialize, Deserialize};
 
 #[test]
 fn test_genotyping_from_dataframe() {
@@ -15,26 +19,49 @@ fn test_genotyping_from_dataframe() {
     // /home/balaz/data/projects/STRs3/tools/remastr_dev/dante_lib/DM2.annotations.tsv
     let tsv_file = PathBuf::from("/home/balaz/data/projects/STRs3/tools/remastr_dev/dante_lib/DM2.annotations.tsv");
     let df: DataFrame = parse_tsv_file(&tsv_file).unwrap();
-    let result = genotype(df, false);
-    println!("{:?}", result);
+    let result = genotype(&df, false);
+    let json = serde_json::to_string(&result).unwrap();
+    println!("{}", json);
 }
 
-fn genotype(df: DataFrame, is_monoa: bool) -> usize {
+#[derive(Debug, Serialize, Deserialize)]
+struct ModuleResult {
+    predictions_sym: (String, String),
+    predictions_num: (usize, usize),
+    confidences: [f64; 7],
+    likelihoods: ndarray::Array2<f64>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct GenotypingResults {
+    modules: Vec<ModuleResult>
+}
+
+pub(crate) fn genotype(df: &DataFrame, is_monoa: bool) -> GenotypingResults {
     let n_modules: usize = df["n_modules"].get(0).unwrap().try_extract().unwrap();
+    let mut gt_result = Vec::new();
     for i in 1..(n_modules-1) {
-        let data = extract_from_df(&df, i).unwrap();
+        let data = extract_from_df(df, i).unwrap();
         let (counts, lengths, is_spanning, max_spanning_reps, max_overall_reps) = data;
 
         let model = Model::new(&lengths, max_spanning_reps as usize, max_overall_reps as usize);
         let likelihoods = model.evaluate(&counts, &lengths, &is_spanning, is_monoa);
-        let pred_sym = model.predict_sym(likelihoods.clone(), is_monoa);
+        let predictions_num = Model::predict(likelihoods.clone());
+        let predictions_sym = model.predict_sym(likelihoods.clone(), is_monoa);
         let confidences = model.get_conf(likelihoods.clone(), is_monoa);
 
-        println!("{:?}", pred_sym);
-        let result = (likelihoods, pred_sym, confidences);
+        let result = ModuleResult{predictions_sym, predictions_num, confidences, likelihoods};
+        gt_result.push(result);
     }
-    // Somehow merge the results
-    return 0;
+    let gt_result = GenotypingResults{modules: gt_result};
+    return gt_result;
+}
+
+pub(crate) fn print_json_file(gt_results: &GenotypingResults, p: &Path) -> Result<(), Box<dyn Error>> {
+    let mut file = File::create(p)?;
+    let json = serde_json::to_string(&gt_results)?;
+    write!(file, "{}", json)?;
+    return Ok(());
 }
 
 #[allow(clippy::type_complexity)]
@@ -63,14 +90,14 @@ fn extract_from_df(df: &DataFrame, idx: usize) -> Result<(Vec<u64>, Vec<u64>, Ve
     let mask: BooleanChunked = module_df.column("classes")?.str()?.iter().map(f).collect();
     let flanking_df = module_df.filter(&mask)?;
 
-    let module_relevant_df = DataFrame::vstack(&spanning_df, &flanking_df)?;
+    let relevant_df = DataFrame::vstack(&spanning_df, &flanking_df)?;
 
     // extract to required datastructures
-    let counts: Vec<u64>       = module_relevant_df["counts"].u64()?.iter().map(|x| x.unwrap()).collect();
-    let lengths: Vec<u64>      = module_relevant_df["lengths"].u64()?.iter().map(|x| x.unwrap()).collect();
-    let is_spanning: Vec<bool> = module_relevant_df["classes"].str()?.iter().map(|x| x.unwrap() == "Spanning").collect();
     let max_spanning_reps: u64 = spanning_df["counts"].u64()?.iter().max().unwrap().unwrap();
-    let max_overall_reps: u64  = *counts.iter().max().unwrap();
+    let max_overall_reps: u64  = relevant_df["counts"].u64()?.iter().max().unwrap().unwrap();
+    let counts: Vec<u64>       = relevant_df["counts"].u64()?.iter().map(|x| x.unwrap()).collect();
+    let lengths: Vec<u64>      = relevant_df["lengths"].u64()?.iter().map(|x| x.unwrap()).collect();
+    let is_spanning: Vec<bool> = relevant_df["classes"].str()?.iter().map(|x| x.unwrap() == "Spanning").collect();
 
     return Ok((counts, lengths, is_spanning, max_spanning_reps, max_overall_reps));
 }
