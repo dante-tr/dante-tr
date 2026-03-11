@@ -7,6 +7,7 @@ use std::ops::Range;
 use std::path::Path;
 use std::str;
 
+use itertools::izip;
 use polars::prelude::*;
 
 use nom::AsBytes;
@@ -48,16 +49,59 @@ pub fn annotate_reads<T>(in_reads: T, model: Hmm, repeat: &TandemRepeat) -> Data
 where
     T: Iterator<Item = bam::Record>,
 {
-    // TODO: refactor this
-    let mut names = Vec::new();
-    let mut motifs = Vec::new();
-    let mut read_sns = Vec::new();
+    let mut seqs = Vec::new();
+    let mut quals = Vec::new();
     let mut read_ids = Vec::new();
     let mut mate_orders = Vec::new();
+    for read in in_reads {
+        let seq: Vec<_> = read.sequence().iter().collect();
+        let qual: Vec<_> = read.quality_scores().as_ref().iter().map(|x| x + 33).collect();
+        let read_id = str::from_utf8(read.name().unwrap().as_bytes()).unwrap();
+        let mate_order = mate_order(&read);
+        if qual.is_empty() {
+            println!("Read {read_id} does not have sequence and quality.");
+            // should I do something else?
+            continue;
+        }
+        seqs.push(seq);
+        quals.push(qual);
+        read_ids.push(read_id.to_string());
+        mate_orders.push(mate_order);
+    }
+
+    let n = seqs.len();
+
+    let mut read_sns = Vec::new();
+    for i in 0..n {
+        let read_sn = i;
+        read_sns.push(read_sn as u64);
+    }
+
+    let mut names = Vec::new();
+    for _ in 0..n {
+        let name: String = match &repeat.name {
+            Some(x) => x.to_string(),
+            None    => "None".to_string(),
+        };
+        names.push(name);
+    }
+
+    let mut motifs = Vec::new();
+    for _ in 0..n {
+        let motif = repeat.to_string();
+        motifs.push(motif);
+    }
+
+    let mut qualities = Vec::new();
+    for _ in 0..n {
+        let qual_str: Vec<_> = "No quality".bytes().collect();
+        let quality = str::from_utf8(&qual_str).unwrap();
+        qualities.push(quality.to_string());
+    }
+
     let mut reads = Vec::new();
     let mut references = Vec::new();
     let mut moduleses = Vec::new();
-    let mut qualities = Vec::new();
     let mut log_likelihoods = Vec::new();
     let mut left_bgs = Vec::new();
     let mut right_bgs = Vec::new();
@@ -66,115 +110,122 @@ where
     let mut module_repetitionses = Vec::new();
     let mut module_sequenceses = Vec::new();
     let mut module_nomenclatureses = Vec::new();
+    let mut mismatches_strs = Vec::new();
+    let mut module_classeses = Vec::new();
+    for (seq, qual) in izip!(seqs, quals) {
+
+        let (log_likelihood, annotation) = model.log_predict(&seq, &qual);
+        let (new_annot, reconstructed_read) = model.realign(&annotation, &seq);
+        let reconstructed_reference = model.reconstruct_sequence(&new_annot);
+
+        let (partition, mod_ids) = model.partition_to_units(&annotation);
+        let mods = model.reconstruct_mod_ids(&new_annot);
+
+        reads.push(str::from_utf8(&reconstructed_read).unwrap().to_string());
+        references.push(str::from_utf8(&reconstructed_reference).unwrap().to_string());
+        moduleses.push(str::from_utf8(&mods).unwrap().to_string());
+        mismatches_strs.push(generate_mismatches(&reconstructed_read, &reconstructed_reference));
+        log_likelihoods.push(log_likelihood);
+
+        let left_bg = get_left_bg(&mods);
+        let right_bg = get_right_bg(&mods);
+        let n_modules = repeat.copy_number.len() + 2;
+
+        let mut module_sequences: Vec<String> = Vec::with_capacity(n_modules);
+        for i in 0..n_modules {
+            let ms = get_module_sequences(&seq, &partition, &mod_ids, i);
+            module_sequences.push(ms);
+        }
+
+        let mut module_nomenclatures: Vec<String> = Vec::with_capacity(n_modules);
+        for i in 0..n_modules {
+            let mn = get_module_nomenclature(&seq, &partition, &mod_ids, i);
+            module_nomenclatures.push(mn);
+        }
+
+        let mut module_bases: Vec<usize> = Vec::with_capacity(n_modules);
+        for i in 0..n_modules {
+            let mb = get_module_bases(&mods, i);
+            module_bases.push(mb);
+        }
+
+        let mut module_repetitions: Vec<usize> = Vec::with_capacity(n_modules);
+        for (i, &mb) in module_bases.iter().enumerate() {
+            let mr = get_module_repetitions(mb, &repeat.copy_unit, i);
+            module_repetitions.push(mr);
+        }
+
+        let module_classes = get_module_classes(left_bg, &module_bases, right_bg);
+        let module_bases = module_bases.into_iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
+        let module_repetitions = module_repetitions.into_iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
+        let module_sequences = module_sequences.join(",");
+        let module_nomenclatures = module_nomenclatures.join(",");
+        let module_classes = module_classes.into_iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
+
+        n_moduleses.push(n_modules as u64);
+        left_bgs.push(left_bg as u64);
+        right_bgs.push(right_bg as u64);
+        module_baseses.push(module_bases);
+        module_repetitionses.push(module_repetitions);
+        module_sequenceses.push(module_sequences);
+        module_nomenclatureses.push(module_nomenclatures);
+        module_classeses.push(module_classes);
+    }
+
     let mut n_deletionses = Vec::new();
     let mut n_insertionses = Vec::new();
     let mut n_mismatcheses = Vec::new();
-    let mut mismatches_strs = Vec::new();
-    let mut module_classeses = Vec::new();
-    for (i, read) in in_reads.enumerate() {
-        let seq: Vec<_> = read.sequence().iter().collect();
-        let qual: Vec<_> = read.quality_scores().as_ref().iter().map(|x| x + 33).collect();
-        let qual_mod = qual.clone();
-        let qual_str: Vec<_> = "No quality".bytes().collect();
-
-        let (likelihood, annotation) = model.log_predict(&seq, &qual_mod);
-        let (partition, mod_ids) = model.partition_to_units(&annotation);
-        let (new_annot, reconstructed_read) = model.realign(&annotation, &seq);
-        let reconstructed_reference = model.reconstruct_sequence(&new_annot);
-        let mods = model.reconstruct_mod_ids(&new_annot);
-
-        let name: String = match &repeat.name {
-            Some(x) => x.to_string(),
-            None    => "None".to_string(),
-        };
-        names.push(name);
-        let motif = repeat.to_string();
-        motifs.push(motif);
-        let read_sn = i;
-        read_sns.push(read_sn as u64);
-        let read_id = str::from_utf8(read.name().unwrap().as_bytes()).unwrap();
-        read_ids.push(read_id.to_string());
-        let mate_order = mate_order(&read);
-        mate_orders.push(mate_order);
-        let read = str::from_utf8(&reconstructed_read).unwrap();
-        reads.push(read.to_string());
-        let reference = str::from_utf8(&reconstructed_reference).unwrap();
-        references.push(reference.to_string());
-        let modules = str::from_utf8(&mods).unwrap();
-        moduleses.push(modules.to_string());
-        let quality = str::from_utf8(&qual_str).unwrap();
-        qualities.push(quality.to_string());
-        let log_likelihood = likelihood;
-        log_likelihoods.push(log_likelihood);
-        let mlen = mods.len();
-        let mut left_bg = 0;
-        while left_bg < mlen && mods[left_bg] == b'-' { left_bg += 1; }
-        left_bgs.push(left_bg as u64);
-        let mut right_bg = 0;
-        while right_bg < mlen && mods[(mlen - 1) - right_bg] == b'-' { right_bg += 1; }
-        right_bgs.push(right_bg as u64);
-        let mismatches_str = generate_mismatches(&reconstructed_read, &reconstructed_reference);
-        mismatches_strs.push(mismatches_str.clone());
+    for mismatches_str in &mismatches_strs {
         let n_deletions = mismatches_str.bytes().filter(|x| *x == b'D').count();
         n_deletionses.push(n_deletions as u64);
         let n_insertions = mismatches_str.bytes().filter(|x| *x == b'I').count();
         n_insertionses.push(n_insertions as u64);
         let n_mismatches = mismatches_str.bytes().filter(|x| *x == b'M').count();
         n_mismatcheses.push(n_mismatches as u64);
-        let n_modules = repeat.copy_number.len() + 2;
-        n_moduleses.push(n_modules as u64);
-        let mut module_sequences: Vec<String> = Vec::with_capacity(n_modules);
-        let mut module_nomenclatures: Vec<String> = Vec::with_capacity(n_modules);
-        let mut module_bases: Vec<usize> = Vec::with_capacity(n_modules);
-        let mut module_repetitions: Vec<usize> = Vec::with_capacity(n_modules);
-        for i in 0..n_modules {
-            let ms = get_module_sequences(&seq, &partition, &mod_ids, i);
-            let mn = get_module_nomenclature(&seq, &partition, &mod_ids, i);
-            let mb = get_module_bases(&mods, i);
-            let mr = get_module_repetitions(mb, &repeat.copy_unit, i);
-            module_sequences.push(ms);
-            module_nomenclatures.push(mn);
-            module_bases.push(mb);
-            module_repetitions.push(mr);
-        }
-        let module_classes = get_module_classes(left_bg, &module_bases, right_bg);
-        let module_bases = module_bases.into_iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
-        module_baseses.push(module_bases);
-        let module_repetitions = module_repetitions.into_iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
-        module_repetitionses.push(module_repetitions);
-        let module_sequences = module_sequences.join(",");
-        module_sequenceses.push(module_sequences);
-        let module_nomenclatures = module_nomenclatures.join(",");
-        module_nomenclatureses.push(module_nomenclatures);
-        let module_classes = module_classes.into_iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
-        module_classeses.push(module_classes);
     }
 
     let result = df![
-        "name"                 => names,
-        "motif"                => motifs,
-        "read_sn"              => read_sns,
-        "read_id"              => read_ids,
-        "mate_order"           => mate_orders,
-        "quality"              => qualities,
-        "log_likelihood"       => log_likelihoods,
-        "read"                 => reads,
-        "reference"            => references,
-        "n_modules"            => n_moduleses,
-        "left_bg"              => left_bgs,
-        "module_bases"         => module_baseses,
-        "right_bg"             => right_bgs,
-        "module_repetitions"   => module_repetitionses,
-        "module_sequences"     => module_sequenceses,
-        "module_nomenclatures" => module_nomenclatureses,
-        "modules"              => moduleses,
-        "n_deletions"          => n_deletionses,
-        "n_insertions"         => n_insertionses,
-        "n_mismatches"         => n_mismatcheses,
-        "mismatches_str"       => mismatches_strs,
-        "module_classes"       => module_classeses,
+        "name"                 => names,                    // "ALS"
+        "motif"                => motifs,                   // "chr15:g.22786680_22786703GGC[8]"
+                                                            // motif modules
+        "read_sn"              => read_sns,                 // 0
+        "read_id"              => read_ids,                 // "HISEQ1:29:HA2WPADXX:2:2202:2985:13224"
+        "mate_order"           => mate_orders,              // "1"
+                                                            // TODO: add seq?
+        "quality"              => qualities,                // "No quality" TODO: add qual?
+        "read"                 => reads,                    // "CCTCTTCCTGCTCCTCCCCCACCCGTCCCCCTCCCCTCCCCCGCCCGCGCCTCCCGGTCACCCCCCATCCCGCCCCGCGGGGCGCGGCGCGCAGGCGCAGGCTCGGAGGGCGGGCGCGGGCGGAATGGGGACTGCAGCTGCGGCAGCG"
+        "reference"            => references,               // "---------------------------------------------------------------------------------------------------------------------GGGCGGAATGGGGACTGCAGCTGCGGCAGCG"
+        "modules"              => moduleses,                // "---------------------------------------------------------------------------------------------------------------------0000000000000000000000000000001"
+        "mismatches_str"       => mismatches_strs,          // "____________________________________________________________________________________________________________________________________________________"
+        "log_likelihood"       => log_likelihoods,          // -172.339767
+        "left_bg"              => left_bgs,                 // 117
+        "right_bg"             => right_bgs,                // 0
+        "n_deletions"          => n_deletionses,            // 0
+        "n_insertions"         => n_insertionses,           // 0
+        "n_mismatches"         => n_mismatcheses,           // 0
+        "n_modules"            => n_moduleses,              // 3
+        "module_bases"         => module_baseses,           // "30,1,0"
+        "module_repetitions"   => module_repetitionses,     // "1,0,0"
+        "module_sequences"     => module_sequenceses,       // "GGGCGGAATGGGGACTGCAGCTGCGGCAGC,G,"
+        "module_nomenclatures" => module_nomenclatureses,   // "GGGCGGAATGGGGACTGCAGCTGCGGCAGC[1],G[1],"
+        "module_classes"       => module_classeses,         // "Flanking,Missing,Missing"
     ].expect("Cannot create dataframe");
+
     return result;
+}
+
+fn get_left_bg(mods: &[u8]) -> usize {
+    let mlen = mods.len();
+    let mut left_bg = 0;
+    while left_bg < mlen && mods[left_bg] == b'-' { left_bg += 1; }
+    return left_bg;
+}
+
+fn get_right_bg(mods: &[u8]) -> usize {
+    let mlen = mods.len();
+    let mut right_bg = 0;
+    while right_bg < mlen && mods[(mlen - 1) - right_bg] == b'-' { right_bg += 1; }
+    return right_bg;
 }
 
 #[derive(Clone)]
