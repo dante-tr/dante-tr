@@ -22,6 +22,7 @@ pub fn print_tsv_file(df: &mut DataFrame, p: &Path) -> Result<(), Box<dyn Error>
     return Ok(());
 }
 
+#[cfg(test)]
 pub fn parse_tsv_file(p: &Path) -> Result<DataFrame, Box<dyn Error>> {
     let file = File::open(p)?;
     let opts = CsvReadOptions::default().with_parse_options(CsvParseOptions::default().with_separator(b'\t'));
@@ -228,10 +229,11 @@ fn get_right_bg(mods: &[u8]) -> usize {
     return right_bg;
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 enum AClass {
     Spanning,
     Flanking,
+    InRepeat, // In-repeat
     Missing,
     Filtered(String)
 }
@@ -242,6 +244,7 @@ impl fmt::Display for AClass {
             AClass::Missing => write!(f, "Missing"),
             AClass::Spanning => write!(f, "Spanning"),
             AClass::Flanking => write!(f, "Flanking"),
+            AClass::InRepeat => write!(f, "In-repeat"),
             AClass::Filtered(x) => write!(f, "Filtered({x})")
         }
     }
@@ -301,6 +304,11 @@ fn get_module_classes(left_bg: usize, module_bases: &[usize], right_bg: usize) -
         } else {
             // bc[i] != 0 and (bc[i-1] == 0 or bc[i+1] == 0) 
             result.push(AClass::Flanking);
+        }
+    }
+    for i in 1..(result.len()-1) {
+        if result[i-1] == AClass::Missing && result[i] == AClass::Flanking && result[i+1] == AClass::Missing {
+            result[i] = AClass::InRepeat;
         }
     }
     return result;
