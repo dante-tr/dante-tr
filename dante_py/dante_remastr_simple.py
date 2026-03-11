@@ -4,7 +4,6 @@ from argparse import ArgumentParser, Namespace, RawDescriptionHelpFormatter, Arg
 from datetime import datetime
 from typing import TypeAlias, Any
 from collections import Counter
-from enum import Enum
 # from pprint import pprint
 
 import os
@@ -18,6 +17,9 @@ import pandas as pd
 from src_new.constants import \
     VERSION, MOTIF_COLUMN_NAME, MOTIF_COLUMN_ID, MOTIF_COLUMN_N_MODS, MOTIF_COLUMN_MOD_CLASS, \
     DANTE_DESCRIPTION, MAX_REPETITIONS
+
+from src_new.motif_stats import generate_motif_stats
+from src_new.haplotypes import generate_haplotypes
 
 
 def main() -> None:
@@ -59,29 +61,19 @@ def analyse_motif(input_tsv: str, male: bool, sample: str):
 
 
 def generate_motifs(input_tsv: str, male: bool) -> list:
-    motif_json: dict[str, Any] = {}
-
     motif_table = pd.read_csv(input_tsv, sep='\t')
 
+    motif_json: dict[str, Any] = {}
     motif_json["motif_id"] = motif_table[MOTIF_COLUMN_ID].iloc[0]
-
-    motif = Motif(motif_table[MOTIF_COLUMN_NAME].iloc[0], motif_table[MOTIF_COLUMN_ID].iloc[0], male)
-    motif_json["motif_stats"] = motif.get_motif_stats()
-
-    print("generate_nomenclatures")
-    motif_json["nomenclatures"] = generate_nomenclatures(motif, motif_table)
-
-    print("generate_modules")
+    motif_json["motif_stats"] = generate_motif_stats(motif_table, male)
+    motif_json["nomenclatures"] = generate_nomenclatures(motif_table, male)
     motif_json["modules"] = generate_modules(motif_table, input_tsv, male)
-
-    print("generate_haplotypes")
-    motif_json["phasings"] = generate_haplotypes(motif, motif_table)  # this shouldn't be independent of modules
-
-    print("generate_phased_seqs")
-    motif_json["phased_seqs"] = generate_phased_seqs(motif, motif_table, motif_json["modules"], motif_json["phasings"])
-
-    print("generate_read_counts")
-    motif_json["phased_seqs_read_counts"] = generate_read_counts(motif_json["nomenclatures"], motif_json["modules"], motif_json["phased_seqs"])
+    motif_json["phasings"] = generate_haplotypes(motif_table, male, motif_json["modules"])
+    # print(motif_json["phasings"])
+    motif_json["phased_seqs"] = generate_phased_seqs(motif_table, male, motif_json["modules"], motif_json["phasings"])
+    motif_json["phased_seqs_read_counts"] = generate_read_counts(
+        motif_json["nomenclatures"], motif_json["modules"], motif_json["phased_seqs"]
+    )
 
     return [motif_json]
 
@@ -121,7 +113,8 @@ def generate_read_counts(full_nomenclatures: dict, modules: list, phased_seqs: d
     return result
 
 
-def generate_nomenclatures(motif: Motif, motif_table: pd.DataFrame) -> list[dict]:
+def generate_nomenclatures(motif_table: pd.DataFrame, male: bool) -> list[dict]:
+    motif = Motif(motif_table[MOTIF_COLUMN_NAME].iloc[0], motif_table[MOTIF_COLUMN_ID].iloc[0], male)
     n_modules: int = int(motif_table[MOTIF_COLUMN_N_MODS].iloc[0])
     selected = pd.Series([True] * len(motif_table))
     for module_number in range(1, n_modules - 1):
@@ -247,9 +240,10 @@ def generate_modules(motif_table: pd.DataFrame, input_tsv: str, male: bool):
 def do_full_prediction2(
     motif, anns_spanning, module_number, predictions, idx: int
 ) -> tuple[None | ProbHeatmap, tuple[int | str, int | str], tuple[float, ...]]:
-    module = predictions["modules"][idx]  # keys: ['predictions_sym', 'predictions_num', 'confidences', 'likelihoods']
+    module = predictions["modules"][idx]
     spanning_observed_counts = [ann.module_repetitions[module_number] for ann in anns_spanning]
 
+    prediction: tuple[int | str, int | str]
     if len(spanning_observed_counts) == 0:
         likelihoods, prediction, raw_confidence = None, ('B', 'B'), (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     else:
@@ -257,15 +251,15 @@ def do_full_prediction2(
         prediction = parse_prediction(module["predictions_sym"])
         raw_confidence = module["confidences"]
 
-    max_spanning_reps = max(spanning_observed_counts)
-    _max_rep = max_spanning_reps + 1
-    _min_rep = get_min_rep(spanning_observed_counts)
-    exp_idx = likelihoods.shape[0] - 2
-    bkg_idx = likelihoods.shape[0] - 1
-    likelihoods = transform_to_old_format(likelihoods, _min_rep, _max_rep, exp_idx, bkg_idx)
-
     heatmap_data = None
     if likelihoods is not None:
+        max_spanning_reps = max(spanning_observed_counts)
+        _max_rep = max_spanning_reps + 1
+        _min_rep = get_min_rep(spanning_observed_counts)
+        exp_idx = likelihoods.shape[0] - 2
+        bkg_idx = likelihoods.shape[0] - 1
+        likelihoods = transform_to_old_format(likelihoods, _min_rep, _max_rep, exp_idx, bkg_idx)
+
         my_min_rep = 1
         while np.isinf(likelihoods[my_min_rep][my_min_rep]):
             my_min_rep += 1
@@ -314,7 +308,8 @@ def transform_to_old_format(lhoods, min_rep, max_rep, exp_idx, bkg_idx):
     return likelihoods
 
 
-def generate_phased_seqs(motif: Motif, motif_table: pd.DataFrame, modules: dict, phasings: dict):
+def generate_phased_seqs(motif_table: pd.DataFrame, male: bool, modules: dict, phasings: dict):
+    motif = Motif(motif_table[MOTIF_COLUMN_NAME].iloc[0], motif_table[MOTIF_COLUMN_ID].iloc[0], male)
     assignment_factor = 0.8
     hap1 = []
     hap2 = []
@@ -352,56 +347,6 @@ def generate_phased_seqs(motif: Motif, motif_table: pd.DataFrame, modules: dict,
     result["nomenclature2_len"] = nomenclature2_len
     result["errors2"] = err2 + errs2
     return result
-
-
-def generate_haplotypes(motif: Motif, motif_table: pd.DataFrame) -> list:
-    seq = motif.modules_str(include_flanks=True)
-
-    modules = []
-
-    __5__repeating_modules = [(int(i), str(seq), int(num)) for i, (seq, num) in enumerate(motif.modules) if num > 1]
-
-    for __5__i, (curr_module_num, _, _) in enumerate(__5__repeating_modules[1:], start=1):
-        prev_module_num = __5__repeating_modules[__5__i - 1][0]
-
-        mod1 = motif_table[MOTIF_COLUMN_MOD_CLASS].apply(lambda x: x.split(",")[prev_module_num])
-        mod2 = motif_table[MOTIF_COLUMN_MOD_CLASS].apply(lambda x: x.split(",")[curr_module_num])
-
-        anns_2good = [Annotation(r) for _, r in motif_table[(mod1 == "Spanning") & (mod2 == "Spanning")].iterrows()]
-        anns_1good = [Annotation(r) for _, r in motif_table[
-            ((mod1 == "Spanning") & (mod2 != "Spanning")) | ((mod1 != "Spanning") & (mod2 == "Spanning"))
-        ].iterrows()]
-        anns_0good = [Annotation(r) for _, r in motif_table[(mod1 != "Spanning") & (mod2 != "Spanning")].iterrows()]
-
-        __5__phasing, __5__supp_reads = phase(anns_2good, prev_module_num, curr_module_num)
-
-        __9__phase = (curr_module_num, anns_2good, anns_1good, anns_0good, __5__phasing, __5__supp_reads, prev_module_num)
-
-        __9__locus_data2 = generate_locus_data2(__9__phase, motif, seq, motif.name, None)
-
-        __1__module = {}
-        __1__module["phasing_id"] = __9__locus_data2[0]
-        __1__module["ids"] = __9__locus_data2[1]
-        __1__module["sequence"] = __9__locus_data2[2]
-
-        module_nomenclatures = []
-        for __1__old_nomenclature in __9__locus_data2[3]:
-            __1__nomenclature = {}
-            __1__nomenclature["count"] = __1__old_nomenclature[0]
-            __1__nomenclature["location"] = __1__old_nomenclature[1]
-            __1__nomenclature["noms"] = __1__old_nomenclature[2]
-            module_nomenclatures.append(__1__nomenclature)
-        __1__module["nomenclatures"] = module_nomenclatures
-
-        __1__module["allele_1"] = __9__locus_data2[4]
-        __1__module["allele_2"] = __9__locus_data2[5]
-        __1__module["stats"] = __9__locus_data2[6]
-        __1__module["raw_conf"] = __9__locus_data2[7]
-        __1__module["reads_spanning"] = __9__locus_data2[8]
-        __1__module["reads_flanking"] = __9__locus_data2[9]
-        __1__module["graph_data"] = __9__locus_data2[10]
-        modules.append(__1__module)
-    return modules
 
 
 def augment_nomenclature(
@@ -516,48 +461,6 @@ def phase_full_locus(
     return (h1_full, h2_full, list(errors1), list(errors2))
 
 
-def generate_locus_data2(ph, motif, seq, motif_id, nomenclature_limit):
-    if ph is None:
-        raise ValueError
-
-    (module_number, anns_2good, anns_1good, anns_0good, phasing1, supp_reads, prev_module_num) = ph
-    second_module_number = module_number
-    suffix = f'{prev_module_num}_{second_module_number}'
-
-    row = generate_result_line(motif, phasing1, supp_reads, len(anns_2good), len(anns_1good), len(anns_0good), prev_module_num, second_module_number=module_number)
-    row_tuple = generate_row(seq, row)
-
-    tmp = generate_motifb64(seq, row)
-    (locus_id, highlight, _, _, _, _, sequence) = tmp
-
-    annotations = anns_2good + anns_1good
-    if len(annotations) == 0:
-        print(f"{motif_id} {suffix} is empty")
-
-    __7__nomenclatures = [
-        "\t".join([annot.module_nomenclatures[prev_module_num], annot.module_nomenclatures[second_module_number]])
-        for annot in anns_2good
-    ]
-
-    locus_nomenclatures = format_nomenclatures(__7__nomenclatures, motif, nomenclature_limit)
-    hist2d_data = write_histogram_image2d(annotations, prev_module_num, second_module_number, motif.module_str(prev_module_num), motif.module_str(second_module_number))
-
-    graph_data = (None, None, hist2d_data)
-
-    _, _, a1_prediction, a1_confidence, a1_reads, a1_indels, a1_mismatches, a2_prediction, a2_confidence, a2_reads, a2_indels, a2_mismatches, confidence, indels, mismatches, spanning_reads, flanking_reads = row_tuple
-    raw_confidence = "tmp"
-    locus_data2 = (
-        locus_id, highlight, sequence, locus_nomenclatures,
-        (a1_prediction, a1_confidence, a1_indels, a1_mismatches, a1_reads),
-        (a2_prediction, a2_confidence, a2_indels, a2_mismatches, a2_reads),
-        (confidence, indels, mismatches),
-        raw_confidence,
-        spanning_reads, flanking_reads,
-        graph_data,
-    )
-    return locus_data2
-
-
 def format_nomenclatures(
     nomenclatures: list[str], motif: Motif, nomenclature_limit: int | None = None
 ) -> list[tuple[int, str, list[str]]]:
@@ -658,8 +561,6 @@ class Motif:
         modules = [(str(seq), int(num)) for seq, num in re.findall(r'([A-Z]+)\[(\d+)', remainder)]
         modules = [('left_flank', 1)] + modules + [('right_flank', 1)]
 
-        motif_monoallelic = male and ChromEnum.from_string(chrom) in [ChromEnum.X, ChromEnum.Y]
-
         # store members
         self.nomenclature: str = nomenclature
         self.name: str = name
@@ -667,7 +568,6 @@ class Motif:
         self.start: int = int(start)
         self.end: int = int(end)
         self.modules: list[tuple[str, int]] = modules
-        self.monoallelic: bool = motif_monoallelic
 
     def __getitem__(self, index: int) -> tuple[str, int]:
         """
@@ -698,14 +598,6 @@ class Motif:
         """
         return self.name == obj.name
 
-    def get_motif_stats(self) -> dict:
-        return {
-            "chrom": self.chrom,
-            "start": self.start,
-            "end": self.end,
-            "modules": self.modules
-        }
-
     def augmented_nomenclature(self, rep_counts: list[str]) -> list[str]:
         modules = []
         i = 0
@@ -732,45 +624,18 @@ class Motif:
             return ''.join([f'{seq}[{num}]' for seq, num in self.modules])
         return ''.join([f'{seq}[{num}]' for seq, num in self.modules[1:-1]])
 
-    def module_str(self, module_number: int) -> str:
-        """
-        Returns string representation of modules
-        :param module_number: int - module number
-        :return: String representation of modules
-        """
-        seq, num = self.modules[module_number]
-        return f'{seq}[{num}]'
-
-    def get_location_subpart(self, index: int) -> tuple[int, int]:
-        """
-        Returns the chromosome location of a subpart of a motive
-        :param index: int - index of a module
-        :return: start and end location of the subpart
-        """
-        start = self.start
-        for module in self.modules[1: index]:
-            seq, rep = module
-            start += len(seq) * rep
-
-        return start, start + len(self.modules[index][0]) * self.modules[index][1]
-
 
 class Annotation:
     def __init__(self, row: pd.Series):
         # Store arguments into instance variables
-        self.read_seq = row["read"]
         self.states = row["modules"]
 
         # Calculate insertion/deletion/mismatch string
         self.mismatches_string = row["mismatches_str"]
 
         # Calculate number of insertions, deletions and normal bases
-        self.n_insertions = row["n_insertions"]
-        self.n_deletions = row["n_deletions"]
-        self.n_mismatches = row["n_mismatches"]
 
         # Number of STR motif repetitions and sequences of modules
-        self.module_bases = list(map(int, row["module_bases"].split(",")))
         self.module_repetitions = list(map(int, row["module_repetitions"].split(",")))
         self.module_nomenclatures = list(row["module_nomenclatures"].split(","))
 
@@ -798,23 +663,6 @@ class Annotation:
         # return indels, mismatches, and length
         return indels, mismatches, end - start
 
-    def has_less_errors(self, max_errors: float | int | None, relative=False) -> bool:
-        """
-        Check if this annotation has fewer errors than max_errors.
-        Make it relative to the annotated length if relative is set.
-        :param max_errors: int/float - number of max_errors (relative if relative is set)
-        :param relative: bool - if the errors are relative to the annotated length
-        :return: bool - True if the number of errors is less than allowed
-        """
-        errors = self.n_deletions + self.n_insertions + self.n_mismatches
-
-        if max_errors is None or errors == 0:
-            return True
-
-        if relative:
-            return errors / float(sum(self.module_bases)) <= max_errors
-        return errors <= max_errors
-
     def primers(self, index_rep: int) -> int:
         """
         Count how any primers it has on repetition index.
@@ -827,48 +675,6 @@ class Annotation:
         if index_rep + 1 < len(self.module_repetitions) and self.module_repetitions[index_rep + 1] > 0:
             primers += 1
         return primers
-
-    def is_annotated_right(self) -> bool:
-        """
-        Is it annotated in a way that it is interesting?
-        More than one module annotated + modules are not missing in the middle.
-        :return: bool - annotated right?
-        """
-
-        # remove those that starts/ends in background but don't have a neighbour module
-        starts_background = self.states[0] in '_-'
-        ends_background = self.states[-1] in '_-'
-        if starts_background and self.module_repetitions[0] == 0:
-            return False
-        if ends_background and self.module_repetitions[-1] == 0:
-            return False
-
-        # remove those with jumping modules
-        started = False
-        ended = False
-        for repetition in self.module_repetitions:
-            if repetition > 0:
-                started = True
-                if ended:
-                    return False
-            if repetition == 0 and started:
-                ended = True
-
-        # pass?
-        return True
-
-    def get_str_repetitions(self, index_str: int) -> tuple[bool, int] | None:
-        """
-        Get the number of str repetitions for a particular index.
-        :param index_str: int - index of a str
-        :return: (bool, int) - closed?, number of str repetitions
-        """
-        if self.is_annotated_right():
-            primer1 = index_str > 0 and self.module_repetitions[index_str - 1] > 0
-            primer2 = index_str + 1 < len(self.module_repetitions) and self.module_repetitions[index_str + 1] > 0
-            if primer1 or primer2:
-                return primer1 and primer2, self.module_repetitions[index_str]
-        return None
 
 
 def errors_per_read(
@@ -896,123 +702,13 @@ def errors_per_read(
     )
 
 
-def generate_result_line(
-    motif: Motif, predicted: tuple[str | int, str | int], confidence: tuple[float | str, ...],
-    qual_num: int, primer_num: int, filt_num: int, module_number: int,
-    qual_annot: list[Annotation] | None = None,
-    second_module_number: int | None = None
-) -> dict:
-    """
-    Generate result line from the template string.
-    :param motif_class: Motif - motif class
-    :param predicted: tuple[str, str] - predicted alleles (number or 'B'/'E')
-    :param confidence: tuple[7x float/str] - confidences of prediction
-    :param qual_num: int - number of reads with both primers
-    :param primer_num: int - number of reads with exactly one primer
-    :param filt_num: int - number of filtered out reads (no primers, many errors, ...)
-    :param module_number: int - module number in motif
-    :param qual_annot: list[Annotation] - list of quality annotations for error and number of reads
-    :param second_module_number: int/None - second module number in motif
-    :return: dict - result dictionary
-    """
-    # setup motif info
-    start, end = motif.get_location_subpart(module_number)
-    motif_seq = motif.module_str(module_number)
-    repetition_index: int | str = module_number
-    if second_module_number is not None:
-        _, end = motif.get_location_subpart(second_module_number)
-        motif_seq = ','.join([motif.module_str(i) for i in range(module_number, second_module_number + 1)])
-        repetition_index = f'{module_number}_{second_module_number}'
-
-    reads_a1: int | str
-    reads_a2: int | str
-    indels_rel: float | str
-    indels_rel1: float | str
-    indels_rel2: float | str
-    mismatches_rel: float | str
-    mismatches_rel1: float | str
-    mismatches_rel2: float | str
-    # get info about errors and number of reads from quality annotations if provided
-    reads_a1 = reads_a2 = '---'
-    indels_rel = mismatches_rel = '---'
-    indels_rel1 = mismatches_rel1 = '---'
-    indels_rel2 = mismatches_rel2 = '---'
-    if qual_annot is not None:
-        # get info about number of reads
-        a1 = int(predicted[0]) if isinstance(predicted[0], int) else None
-        a2 = int(predicted[1]) if isinstance(predicted[1], int) else None
-        reads_a1 = 0 if a1 is None else len([a for a in qual_annot if a.module_repetitions[module_number] == a1])
-        reads_a2 = 0 if a2 is None else len([a for a in qual_annot if a.module_repetitions[module_number] == a2])
-
-        # get info about errors
-        errors = [a.get_module_errors(motif, module_number) for a in qual_annot]
-        errors_a1 = [a.get_module_errors(motif, module_number) for a in qual_annot
-                     if a.module_repetitions[module_number] == a1]
-        errors_a2 = [a.get_module_errors(motif, module_number) for a in qual_annot
-                     if a.module_repetitions[module_number] == a2]
-        assert len([l for i, _, l in errors if l == 0]) == 0
-
-        # extract error metrics
-        indels_rel, mismatches_rel = errors_per_read(errors, relative=True)
-        indels_rel1, mismatches_rel1 = errors_per_read(errors_a1, relative=True)
-        indels_rel2, mismatches_rel2 = errors_per_read(errors_a2, relative=True)
-
-    return {
-        'motif_name': motif.name, 'motif_nomenclature': motif.nomenclature, 'motif_sequence': motif_seq,
-        'chromosome': motif.chrom, 'start': start, 'end': end,
-        'allele1': predicted[0], 'allele2': predicted[1],
-        'confidence': confidence[0], 'conf_allele1': confidence[1], 'conf_allele2': confidence[2],
-        'reads_a1': reads_a1, 'reads_a2': reads_a2,
-        'indels': indels_rel, 'indels_a1': indels_rel1, 'indels_a2': indels_rel2,
-        'mismatches': mismatches_rel, 'mismatches_a1': mismatches_rel1, 'mismatches_a2': mismatches_rel2,
-        'quality_reads': qual_num, 'one_primer_reads': primer_num, 'filtered_reads': filt_num,
-        'conf_background': confidence[3] if len(confidence) > 3 else '---',
-        'conf_background_all': confidence[4] if len(confidence) > 4 else '---',
-        'conf_extended': confidence[5] if len(confidence) > 5 else '---',
-        'conf_extended_all': confidence[6] if len(confidence) > 6 else '---',
-        'repetition_index': repetition_index
-    }
-
-
-def phase(
-    annotations: list[Annotation], module_number1: int, module_number2: int
-) -> tuple[tuple[str, str], tuple[str, str, str]]:
-    """
-    Infer phasing based on the Annotations.
-    :param annotations: list(Annotation) - good (blue) annotations
-    :param module_number1: int - index of a repetition
-    :param module_number2: int - index of the second repetition
-    :return: tuple - predicted symbols and confidences
-    """
-    # resolve trivial case
-    if len(annotations) == 0:
-        return ('-|-', '-|-'), ('-/0', '-/0', '-/0')
-
-    # gather module repetitions from annotations and count them
-    repetitions = Counter([
-        (ann.module_repetitions[module_number1], ann.module_repetitions[module_number2]) for ann in annotations
-    ])
-
-    # pick the highest two
-    most_common = repetitions.most_common(2)
-    rep1, cnt1 = most_common[0]
-    rep2, cnt2 = most_common[1] if len(most_common) >= 2 else (('-', '-'), 0)
-
-    # output phasing with number of supported reads
-    phasing = (f'{rep1[0]}|{rep1[1]}', f'{rep2[0]}|{rep2[1]}')
-    supported_reads = (f'{cnt1 + cnt2}/{len(annotations)}', f'{cnt1}/{len(annotations)}', f'{cnt2}/{len(annotations)}')
-    return phasing, supported_reads
-
-
 class PostFilter:
-    MIN_FLANK_LEN = 3
     MIN_REP_LEN = 3
     MIN_REP_CNT = 1
     MAX_ABS_ERROR = None
     MAX_REL_ERROR = 1.0
 
     def __init__(self):
-        self.min_flank_len = self.MIN_FLANK_LEN
         self.min_rep_len = self.MIN_REP_LEN
         self.min_rep_cnt = self.MIN_REP_CNT
         self.max_rel_error = self.MAX_REL_ERROR
@@ -1025,25 +721,6 @@ class PostFilter:
         return self.min_rep_len, self.min_rep_cnt, pf_error
 
 
-class ChromEnum(Enum):
-    X = 'X'
-    Y = 'Y'
-    NORM = 'NORM'
-
-    @staticmethod
-    def from_string(chrom_str: str) -> ChromEnum:
-        """
-        Converts a string to a ChromEnum object.
-        :param chrom_str: str - the string to convert to a ChromEnum object
-        :return ChromEnum - enum object representing the chromosome
-        """
-        return (
-            ChromEnum.X if chrom_str in ['chrX', 'NC_000023'] else
-            ChromEnum.Y if chrom_str in ['chrY', 'NC_000024'] else
-            ChromEnum.NORM
-        )
-
-
 def sorted_repetitions(annotations: list[Annotation]) -> list[tuple[tuple[int, ...], int]]:
     """
     Aggregate same repetition counts for annotations and sort them according to quantity of repetitions of each module
@@ -1052,61 +729,6 @@ def sorted_repetitions(annotations: list[Annotation]) -> list[tuple[tuple[int, .
     """
     count_dict = Counter(tuple(annot.module_repetitions) for annot in annotations)
     return sorted(count_dict.items(), key=lambda k: k[0])
-
-
-def write_histogram_image2d(
-    deduplicated: list[Annotation], index_rep: int, index_rep2: int, seq: str, seq2: str
-) -> Hist2DGraph | None:
-    if deduplicated is None or len(deduplicated) == 0:
-        return None
-
-    dedup_reps: list[tuple[tuple[bool, int], tuple[bool, int]]] = []
-    for x in deduplicated:
-        r_1 = x.get_str_repetitions(index_rep)
-        r_2 = x.get_str_repetitions(index_rep2)
-        if r_1 is not None and r_2 is not None:
-            dedup_reps.append((r_1, r_2))
-
-    if len(dedup_reps) == 0:
-        return None
-
-    # assign maximals
-    xm = max(r for (_, r), _ in dedup_reps)
-    ym = max(r for _, (_, r) in dedup_reps)
-    max_ticks = max(ym, xm) + 2
-    xm = max(MAX_REPETITIONS, xm)
-    ym = max(MAX_REPETITIONS, ym)
-
-    # create data containers
-    data = np.zeros((xm + 1, ym + 1), dtype=int)
-    data_primer = np.zeros((xm + 1, ym + 1), dtype=int)
-    for ((c1, r1), (c2, r2)) in dedup_reps:
-        if c1 and c2:
-            data[r1, r2] += 1
-        if c1 and not c2:
-            data_primer[r1, r2:] += 1
-        if not c1 and c2:
-            data_primer[r1:, r2] += 1
-
-    str1 = 'STR %d [%s]' % (index_rep + 1, seq.split('-')[-1])
-    str2 = 'STR %d [%s]' % (index_rep2 + 1, seq2.split('-')[-1])
-
-    def parse_labels(num, num_primer):
-        if num == 0 and num_primer == 0:
-            return ''
-        if num == 0 and num_primer != 0:
-            return '0/%s' % str(num_primer)
-        if num != 0 and num_primer == 0:
-            return '%s/0' % str(num)
-        return '%s/%s' % (str(num), str(num_primer))
-
-    z_partial = data_primer[:max_ticks, :max_ticks]
-    z_full = data[:max_ticks, :max_ticks]
-    text = [[parse_labels(z_full[i, j], z_partial[i, j]) for j in range(z_full.shape[1])] for i in range(z_full.shape[0])]
-
-    z_partial_out: list[list[int]] = z_partial.tolist()
-    z_full_out: list[list[int]] = z_full.tolist()
-    return (z_partial_out, z_full_out, text, str1, str2)
 
 
 def write_histogram_image(
@@ -1242,96 +864,6 @@ def float_to_str(c: float | str, percents: bool = False, decimals: int = 1) -> s
     if isinstance(c, float):
         return f'{c * 100: .{decimals}f}%' if percents else f'{c: .{decimals}f}'
     return c
-
-
-def generate_row(sequence: str, result: dict) -> tuple:
-    """
-    Generate rows of a summary table in html report.
-    :param sequence: str - motif sequence
-    :param result: pd.Series - result row to convert to table
-    :param postfilter: PostFilter - postfilter dict from config
-    :return: str - html string with rows of the summary table
-    """
-    highlight = list(map(int, str(result['repetition_index']).split('_')))
-    sequence, _subpart = highlight_subpart(sequence, highlight)
-
-    # shorten sequence:
-    keep = 10
-    first = sequence.find(',')
-    last = sequence.rfind(',')
-    smaller_seq = sequence if first == -1 else '...' + sequence[first - keep:last + keep + 1] + '...'
-
-    # fill templates:
-    updated_result = {
-        'conf_allele1': float_to_str(result['conf_allele1'], percents=True),
-        'conf_allele2': float_to_str(result['conf_allele2'], percents=True),
-        'confidence': float_to_str(result['confidence'], percents=True),
-        'motif_nomenclature': smaller_seq,
-        'indels': float_to_str(result['indels'], decimals=2),
-        'mismatches': float_to_str(result['mismatches'], decimals=2),
-        'indels_a1': float_to_str(result['indels_a1'], decimals=2),
-        'mismatches_a1': float_to_str(result['mismatches_a1'], decimals=2),
-        'indels_a2': float_to_str(result['indels_a2'], decimals=2),
-        'mismatches_a2': float_to_str(result['mismatches_a2'], decimals=2)
-    }
-    # return ROW_STRING.format(**{**result, **updated_result})
-    motif_name = result['motif_name']
-    motif_nomenclature = updated_result['motif_nomenclature']
-    allele1 = result['allele1']
-    conf_allele1 = updated_result['conf_allele1']
-    reads_a1 = result['reads_a1']
-    indels_a1 = updated_result['indels_a1']
-    mismatches_a1 = updated_result['mismatches_a1']
-
-    allele2 = result['allele2']
-    conf_allele2 = updated_result['conf_allele2']
-    reads_a2 = result['reads_a2']
-    indels_a2 = updated_result['indels_a2']
-    mismatches_a2 = updated_result['mismatches_a2']
-
-    confidence = updated_result['confidence']
-    indels = updated_result['indels']
-    mismatches = updated_result['mismatches']
-    quality_reads = result['quality_reads']
-    one_primer_reads = result['one_primer_reads']
-
-    row_tuple = (
-        motif_name, motif_nomenclature,
-        allele1, conf_allele1, reads_a1, indels_a1, mismatches_a1,
-        allele2, conf_allele2, reads_a2, indels_a2, mismatches_a2,
-        confidence, indels, mismatches, quality_reads, one_primer_reads
-    )
-
-    return row_tuple
-    # return (result, updated_result)
-
-
-def generate_motifb64(seq: str, row: dict) -> tuple:
-    highlight = list(map(int, str(row['repetition_index']).split('_')))
-    # print(f"{highlight=}") -> [1, 2]
-    sequence, _ = highlight_subpart(seq, highlight)
-    motif_name = row['motif_name']
-    motif_name_part1 = f'{motif_name.replace("/", "_")}'
-    motif_name_part2 = f'{",".join(map(str, highlight)) if highlight is not None else "mot"}'
-    motif_name_long = f'{motif_name_part1}_{motif_name_part2}'
-    motif_clean = re.sub(r'[^\w_]', '', motif_name_long)
-    motif_id = motif_clean.rsplit('_', 1)[0]
-    motif_clean_id = motif_id if highlight == [1] else motif_clean  # trick to solve static html
-    # motif_clean_id sucks... and unfortunatelly it is used as module_id in json
-
-    a1 = row['allele1']
-    a2 = row['allele2']
-    conf_total = float_to_str(row['confidence'], percents=True)
-    conf_a1 = float_to_str(row['conf_allele1'], percents=True)
-    conf_a2 = float_to_str(row['conf_allele2'], percents=True)
-    if (a1 == 'B' and a2 == 'B') or (a1 == 0 and a2 == 0):
-        result = f'BG {conf_total}'
-    else:
-        result = f'{str(a1):2s} ({conf_a1}) {str(a2):2s} ({conf_a2}) total {conf_total}'
-
-    alignment = f"{motif_name}/alignments.html"
-
-    return (motif_clean_id, highlight, motif_id, motif_name, result, alignment, sequence)
 
 
 Hist2DGraph: TypeAlias = tuple[list[list[int]], list[list[int]], list[list[str]], str, str]
