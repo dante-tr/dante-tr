@@ -149,6 +149,7 @@ def generate_modules(motif_table: pd.DataFrame, input_tsv: str, male: bool):
         selected = motif_table[MOTIF_COLUMN_MOD_CLASS].apply(lambda x: x.split(",")[module_number])
         anns_spanning = [Annotation(row) for _, row in motif_table[selected == "Spanning"].iterrows()]
         anns_flanking = [Annotation(row) for _, row in motif_table[selected == "Flanking"].iterrows()]
+        anns_inrepeat = [Annotation(row) for _, row in motif_table[selected == "In-repeat"].iterrows()]
 
         heatmap_data, prediction, raw_confidence = do_full_prediction2(motif, anns_spanning, module_number, predictions, idx)
 
@@ -164,7 +165,7 @@ def generate_modules(motif_table: pd.DataFrame, input_tsv: str, male: bool):
 
         read_counts = None
         if len(anns_spanning) != 0 or len(anns_flanking) != 0:
-            read_counts = write_histogram_image(anns_spanning, anns_flanking, module_number)
+            read_counts = write_histogram_image(anns_spanning, anns_flanking, anns_inrepeat, module_number)
         else:
             print(f"Zero reads in {motif.name}")
 
@@ -732,7 +733,7 @@ def sorted_repetitions(annotations: list[Annotation]) -> list[tuple[tuple[int, .
 
 
 def write_histogram_image(
-    annotations: list[Annotation], filt_annot: list[Annotation], index_rep: int
+        annotations: list[Annotation], filt_annot: list[Annotation], anns_inrepeat: list[Annotation], index_rep: int
 ) -> HistReadCounts:
     """
     Stores quantity of different combinations of module repetitions, generates separate graph image for each module
@@ -743,10 +744,11 @@ def write_histogram_image(
     """
     repetitions = sorted_repetitions(annotations)
     repetitions_filt = sorted_repetitions(filt_annot)
+    repetitions_inrep = sorted_repetitions(anns_inrepeat)
 
     spanning_counts = [(r[index_rep], c) for r, c in repetitions]
     filtered_counts = [(r[index_rep], c) for r, c in repetitions_filt]
-    inread_counts: list[tuple] = []
+    inread_counts = [(r[index_rep], c) for r, c in repetitions_inrep]
 
     xm = max(
         [r for r, c in spanning_counts]

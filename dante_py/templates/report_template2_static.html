@@ -181,14 +181,25 @@
                         // https://plotly.com/javascript/reference/bar/
                         let spanning_counts = {{ spanning }};
                         let flanking_counts = {{ flanking }};
+                        let inrepeat_counts = {{ inread }};
 
-                        let all_counts = spanning_counts.map((v, i) => v + flanking_counts[i]);
                         let spanning_text = spanning_counts.map(v => v === 0 ? "" : String(v));
                         let flanking_text = flanking_counts.map(v => v === 0 ? "" : String(v));
+                        let inrepeat_text = inrepeat_counts.map(v => v === 0 ? "" : String(v));
+
+                        let ifs_counts = spanning_counts.map((v, i) => v + flanking_counts[i] + inrepeat_counts[i]);
+                        let  fs_counts = spanning_counts.map((v, i) => v + flanking_counts[i]);
+
 
                         let hist_data = {
                             "data":[{
-                                "y":all_counts,
+                                "y":ifs_counts,
+                                "text":inrepeat_text,
+                                "type":"bar", "name":"In-repeat reads", "marker":{"color":"#FF6600"},
+                                "textfont":{"color":"#FF6600","size":14}, "textposition":"outside",
+                                "texttemplate":"%{text}", "hoverinfo":"text"
+                            }, {
+                                "y":fs_counts,
                                 "text":flanking_text,
                                 "type":"bar", "name":"Partial reads", "marker":{"color":"#CCCCCC"},
                                 "textfont":{"color":"#CCCCCC","size":14}, "textposition":"outside",
