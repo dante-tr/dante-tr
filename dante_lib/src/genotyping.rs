@@ -19,15 +19,15 @@ fn test_genotyping_from_dataframe() {
     // /home/balaz/data/projects/STRs3/tools/remastr_dev/dante_lib/DM2.annotations.tsv
     let tsv_file = PathBuf::from("/home/balaz/data/projects/STRs3/tools/remastr_dev/dante_lib/DM2.annotations.tsv");
     let df: DataFrame = parse_tsv_file(&tsv_file).unwrap();
-    let result = genotype(&df, false);
+    let result = genotype(&df);
     let json = serde_json::to_string(&result).unwrap();
     println!("{}", json);
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ModuleResult {
-    predictions_sym: (String, String),
-    predictions_num: (usize, usize),
+    predictions_enum: (Prediction, Prediction),
+    predictions_seq: (String, String),
     confidences: [f64; 7],
     likelihoods: ndarray::Array2<f64>,
 }
@@ -37,7 +37,15 @@ pub(crate) struct GenotypingResults {
     modules: Vec<ModuleResult>
 }
 
-pub(crate) fn genotype(df: &DataFrame, is_monoa: bool) -> GenotypingResults {
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+enum Prediction {
+    Num(usize),     // change breaks python parsing
+    Expansion,      // change breaks python parsing
+    Background
+}
+
+pub(crate) fn genotype(df: &DataFrame) -> GenotypingResults {
+    // TODO: create some enum for predictions
     let n_modules: usize = df["n_modules"].get(0).unwrap().try_extract().unwrap();
     let mut gt_result = Vec::new();
     for i in 1..(n_modules-1) {
@@ -45,12 +53,15 @@ pub(crate) fn genotype(df: &DataFrame, is_monoa: bool) -> GenotypingResults {
         let (counts, lengths, is_spanning, max_spanning_reps, max_overall_reps) = data;
 
         let model = Model::new(&lengths, max_spanning_reps as usize, max_overall_reps as usize);
-        let likelihoods = model.evaluate(&counts, &lengths, &is_spanning, is_monoa);
-        let predictions_num = Model::predict(likelihoods.clone());
-        let predictions_sym = model.predict_sym(likelihoods.clone(), is_monoa);
-        let confidences = model.get_conf(likelihoods.clone(), is_monoa);
+        let likelihoods = model.evaluate(&counts, &lengths, &is_spanning);
+        let predictions_enum = model.predict_enum(likelihoods.clone());
+        let confidences = model.get_conf(likelihoods.clone());
 
-        let result = ModuleResult{predictions_sym, predictions_num, confidences, likelihoods};
+        let predictions_seq = get_predictions_seqs(df, i, predictions_enum);
+
+        let result = ModuleResult{
+            predictions_enum, predictions_seq, confidences, likelihoods
+        };
         gt_result.push(result);
     }
     let gt_result = GenotypingResults{modules: gt_result};
@@ -62,6 +73,11 @@ pub(crate) fn print_json_file(gt_results: &GenotypingResults, p: &Path) -> Resul
     let json = serde_json::to_string(&gt_results)?;
     write!(file, "{}", json)?;
     return Ok(());
+}
+
+fn get_predictions_seqs(df: &DataFrame, idx: usize, prediction: (Prediction, Prediction)) -> (String, String) {
+    // TODO: implement this
+    return ("".to_string(), "".to_string());
 }
 
 #[allow(clippy::type_complexity)]
@@ -116,7 +132,6 @@ fn test_genotyping_ALS_motif() {
     let sp_counts:  Vec<u64> = from_value(obj["spanning_observed_counts"].clone()).unwrap();
     let fl_lengths: Vec<u64> = from_value(obj["flanking_read_lengths"].clone()).unwrap();
     let sp_lengths: Vec<u64> = from_value(obj["spanning_read_lengths"].clone()).unwrap();
-    let is_monoa = obj["monoallelic_motif"].as_bool().unwrap();
     let prediction = obj["prediction"].as_array().unwrap();
 
     let lengths: Vec<u64> = [sp_lengths, fl_lengths].concat();
@@ -136,11 +151,11 @@ fn test_genotyping_ALS_motif() {
 
     let model = Model::new(&lengths, max_spanning_reps as usize, max_overall_reps as usize);
     println!("{:?}", model);
-    let likelihoods = model.evaluate(&counts, &lengths, &is_spanning, is_monoa);
-    let pred_sym = model.predict_sym(likelihoods.clone(), is_monoa);
-    let confidences = model.get_conf(likelihoods.clone(), is_monoa);
+    let likelihoods = model.evaluate(&counts, &lengths, &is_spanning);
+    // let pred_sym = model.predict_sym(likelihoods.clone());
+    let confidences = model.get_conf(likelihoods.clone());
     println!("{:?}", likelihoods);
-    println!("{:?}", pred_sym);
+    // println!("{:?}", pred_sym);
     println!("{:?}", confidences);
 }
 
@@ -158,7 +173,6 @@ fn test_genotyping_all_motifs() {
         let sp_counts:  Vec<u64> = from_value(obj["spanning_observed_counts"].clone()).unwrap();
         let fl_lengths: Vec<u64> = from_value(obj["flanking_read_lengths"].clone()).unwrap();
         let sp_lengths: Vec<u64> = from_value(obj["spanning_read_lengths"].clone()).unwrap();
-        let is_monoa = obj["monoallelic_motif"].as_bool().unwrap();
         let prediction = obj["prediction"].as_array().unwrap();
 
         let lengths = [sp_lengths, fl_lengths].concat();
@@ -168,12 +182,12 @@ fn test_genotyping_all_motifs() {
         let max_overall_reps = *counts.iter().max().unwrap();
 
         let model = Model::new(&lengths, max_spanning_reps as usize, max_overall_reps as usize);
-        let likelihoods = model.evaluate(&counts, &lengths, &is_spanning, is_monoa);
-        let pred_sym = model.predict_sym(likelihoods.clone(), is_monoa);
-        let confidences = model.get_conf(likelihoods.clone(), is_monoa);
+        let likelihoods = model.evaluate(&counts, &lengths, &is_spanning);
+        // let pred_sym = model.predict_sym(likelihoods.clone());
+        let confidences = model.get_conf(likelihoods.clone());
 
         println!("{:?}", prediction);
-        println!("{:?}", pred_sym);
+        // println!("{:?}", pred_sym);
         println!("{:?}", confidences);
         println!();
     }
@@ -294,18 +308,14 @@ fn convolve(a: &[f64], b: &[f64]) -> Vec<f64> {
 }
 
 impl Model {
-    fn evaluate(&self, observed: &[u64], rlengths: &[u64], spanning: &[bool], is_monoallelic: bool) -> ndarray::Array2<f64> {
+    fn evaluate(&self, observed: &[u64], rlengths: &[u64], spanning: &[bool]) -> ndarray::Array2<f64> {
         let n = self.max_rep + 3;   // 0, 1, ..., n, E, B
         let mut result = Array::from_elem((n, n), f64::NEG_INFINITY);
 
-        if is_monoallelic {
-            for gt_idx in 0..n {
-                result[[gt_idx, gt_idx]] = self.loglikelihood_of_D_given_G(observed, rlengths, spanning, gt_idx, gt_idx);
-            }
-        } else {
-            for g1_idx in 0..n { for g2_idx in g1_idx..n {
+        for g1_idx in 0..n {
+            for g2_idx in g1_idx..n {
                 result[[g1_idx, g2_idx]] = self.loglikelihood_of_D_given_G(observed, rlengths, spanning, g1_idx, g2_idx);
-            } }
+            }
         }
         return result;
     }
@@ -355,24 +365,19 @@ impl Model {
         return result;
     }
 
-    fn predict_sym(&self, llmatrix: ndarray::Array2<f64>, is_monoallelic: bool) -> (String, String) {
+    fn predict_enum(&self, llmatrix: ndarray::Array2<f64>) -> (Prediction, Prediction) {
         let (row, col) = Self::predict(llmatrix);
-        let to_string = |x: usize| {
+        let to_enum = |x: usize| {
             match x {
-                x if x == self.bkg_idx => { "B".to_string() },
-                x if x == self.exp_idx => { "E".to_string() },
-                x => { x.to_string() } 
+                x if x == self.bkg_idx => { Prediction::Background },
+                x if x == self.exp_idx => { Prediction::Expansion },
+                x => { Prediction::Num(x) } 
             }
         };
-
-        if is_monoallelic {
-            return (to_string(row), "X".to_string());
-        } else {
-            return (to_string(row), to_string(col));
-        }
+        return (to_enum(row), to_enum(col));
     }
 
-    fn get_conf(&self, llmatrix: ndarray::Array2<f64>, is_monoallelic: bool) -> [f64; 7] {
+    fn get_conf(&self, llmatrix: ndarray::Array2<f64>) -> [f64; 7] {
         // llmatrix = llmatrix - np.max(llmatrix)
         let llmatrix2 = (&llmatrix) - (&llmatrix).max();
 
@@ -393,10 +398,6 @@ impl Model {
         let conf_expn = prob[[exp, exp]];
         let conf_ex_t = prob.slice(s![exp, ..]).sum() + prob.slice(s![.., exp]).sum() - prob[[exp, exp]];
 
-        if is_monoallelic {
-            return [conf_pred, conf_al_1,  f64::NAN, conf_bckg, conf_bg_t, conf_expn, conf_ex_t];
-        } else {
-            return [conf_pred, conf_al_1, conf_al_2, conf_bckg, conf_bg_t, conf_expn, conf_ex_t];
-        }
+        return [conf_pred, conf_al_1, conf_al_2, conf_bckg, conf_bg_t, conf_expn, conf_ex_t];
     }
 }

@@ -138,22 +138,23 @@ where
             module_sequences.push(ms);
         }
 
-        let mut module_nomenclatures: Vec<String> = Vec::with_capacity(n_modules);
-        for i in 0..n_modules {
-            let mn = get_module_nomenclature(&seq, &partition, &mod_ids, i);
-            module_nomenclatures.push(mn);
-        }
-
         let mut module_bases: Vec<usize> = Vec::with_capacity(n_modules);
         for i in 0..n_modules {
             let mb = get_module_bases(&mods, i);
             module_bases.push(mb);
         }
 
+        let mut module_nomenclatures: Vec<String> = Vec::with_capacity(n_modules);
+        for i in 0..n_modules {
+            let mn = get_module_nomenclature(&seq, &partition, &mod_ids, i);
+            module_nomenclatures.push(mn);
+        }
+
         let mut module_repetitions: Vec<usize> = Vec::with_capacity(n_modules);
         for (i, &mb) in module_bases.iter().enumerate() {
-            let mr = get_module_repetitions(mb, &repeat.copy_unit, i);
-            module_repetitions.push(mr);
+            // let mr = get_module_repetitions(mb, &repeat.copy_unit, i);
+            let mr2 = get_module_repetitions2(&mod_ids, i);
+            module_repetitions.push(mr2);
         }
 
         let module_classes = get_module_classes(left_bg, &module_bases, right_bg);
@@ -314,11 +315,23 @@ fn get_module_classes(left_bg: usize, module_bases: &[usize], right_bg: usize) -
     return result;
 }
 
+fn get_module_sequences(seq: &[u8], partition: &[Range<usize>], mod_ids: &[usize], idx: usize) -> String {
+    let mut ms = Vec::new();
+    for i in 0..mod_ids.len() {
+        if mod_ids[i] == idx {
+            let x = &seq[partition[i].clone()];
+            ms.extend(x);
+        }
+    }
+    let ms = str::from_utf8(&ms).unwrap().to_string();
+    return ms;
+}
+
 fn get_module_nomenclature(seq: &[u8], partition: &[Range<usize>], mod_ids: &[usize], idx: usize) -> String {
-    let mut mn = Vec::new();
+    let mut module_nomenclature = Vec::new();
     let mut append_unit = |s, o|{
         if o != 0 {
-            mn.push(format!("{}[{}]", str::from_utf8(s).unwrap(), o));
+            module_nomenclature.push(format!("{}[{}]", str::from_utf8(s).unwrap(), o));
         }
     };
 
@@ -338,19 +351,17 @@ fn get_module_nomenclature(seq: &[u8], partition: &[Range<usize>], mod_ids: &[us
         }
     }
     append_unit(prev, occ);
-    return mn.join("");
+    return module_nomenclature.join("");
 }
 
-fn get_module_sequences(seq: &[u8], partition: &[Range<usize>], mod_ids: &[usize], idx: usize) -> String {
-    let mut ms = Vec::new();
-    for i in 0..mod_ids.len() {
-        if mod_ids[i] == idx {
-            let x = &seq[partition[i].clone()];
-            ms.extend(x);
+fn get_module_repetitions2(mod_ids: &[usize], idx: usize) -> usize {
+    let mut result = 0;
+    for &m_id in mod_ids {
+        if m_id == idx {
+            result += 1;
         }
     }
-    let ms = str::from_utf8(&ms).unwrap().to_string();
-    return ms;
+    return result;
 }
 
 fn get_module_repetitions(mb: usize, copy_units: &[Vec<u8>], idx: usize) -> usize {

@@ -53,7 +53,7 @@ pub fn run_v2(bam_file: &Path, motif_file: &Path, output: &Path, out_bam_flag: b
         // build HMM and annotate reads - polars alternative
         let model = Hmm::from(&get_modules(left_flank, repeat, right_flank)).log();
         let mut annotation_df /*: DataFrame */ = annotate_reads(relevant_reads.iter(), model, repeat);
-        let genotyping_result = crate::genotyping::genotype(&annotation_df, false);
+        let genotyping_result = crate::genotyping::genotype(&annotation_df);
 
         // write results to tsv
         let out_tsv_file = output.join(name.to_owned() + ".annotations.tsv");

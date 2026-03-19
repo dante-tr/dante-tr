@@ -249,7 +249,7 @@ def do_full_prediction2(
         likelihoods, prediction, raw_confidence = None, ('B', 'B'), (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     else:
         likelihoods = parse_likelihoods(module["likelihoods"])
-        prediction = parse_prediction(module["predictions_sym"])
+        prediction = parse_prediction_from_enum(module["predictions_enum"])
         raw_confidence = module["confidences"]
 
     heatmap_data = None
@@ -273,9 +273,17 @@ def do_full_prediction2(
     return heatmap_data, prediction, raw_confidence
 
 
-def parse_prediction(json_p_sym) -> tuple[int | str, int | str]:
-    a = int(json_p_sym[0]) if json_p_sym[0].isdigit() else json_p_sym[0]
-    b = int(json_p_sym[1]) if json_p_sym[1].isdigit() else json_p_sym[1]
+def parse_prediction_from_enum(json_p_enum) -> tuple[int | str, int | str]:
+    if isinstance(json_p_enum[0], dict):
+        a = json_p_enum[0]["Num"]
+    else:  # it is string
+        a = 'E' if json_p_enum[0] == "Expansion" else 'B'
+
+    if isinstance(json_p_enum[1], dict):
+        b = json_p_enum[1]["Num"]
+    else:  # it is string
+        b = 'E' if json_p_enum[1] == "Expansion" else 'B'
+
     return (a, b)
 
 
