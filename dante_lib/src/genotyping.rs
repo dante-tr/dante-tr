@@ -2,9 +2,6 @@
 
 use itertools::izip;
 use std::error::Error;
-use std::path::Path;
-use std::fs::File;
-use std::io::Write;
 
 use polars::prelude::*;
 use statrs::{distribution::{Binomial, Discrete}, statistics::Statistics};
@@ -28,19 +25,19 @@ use crate::hmm::Module;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct GenotypingResults {
-    modules: Vec<ModuleResult>
+    pub(crate) modules: Vec<ModuleResult>
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct ModuleResult {
-    predictions_enum: (Prediction, Prediction),
-    predictions_seq: (String, String),
+pub(crate) struct ModuleResult {
+    pub(crate) predictions_enum: (Prediction, Prediction),
+    pub(crate) predictions_seq: (String, String),
     confidences: [f64; 7],
     likelihoods: ndarray::Array2<f64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
-enum Prediction {
+pub(crate) enum Prediction {
     Num(usize),     // change breaks python parsing
     Expansion,      // change breaks python parsing
     Background
@@ -69,12 +66,12 @@ pub(crate) fn genotype(df: &DataFrame, modules: &[Module]) -> GenotypingResults 
     return gt_result;
 }
 
-pub(crate) fn print_json_file(gt_results: &GenotypingResults, p: &Path) -> Result<(), Box<dyn Error>> {
-    let mut file = File::create(p)?;
-    let json = serde_json::to_string(&gt_results)?;
-    write!(file, "{}", json)?;
-    return Ok(());
-}
+// pub(crate) fn print_json_file(gt_results: &GenotypingResults, p: &Path) -> Result<(), Box<dyn Error>> {
+//     let mut file = File::create(p)?;
+//     let json = serde_json::to_string(&gt_results)?;
+//     write!(file, "{}", json)?;
+//     return Ok(());
+// }
 
 fn get_predictions_seqs(module_df: &DataFrame, module: &Module, prediction: (Prediction, Prediction)) -> (String, String) {
     // select spanning reads
@@ -106,9 +103,9 @@ fn get_predictions_seqs(module_df: &DataFrame, module: &Module, prediction: (Pre
         }
     };
 
-    println!("{:?}", nomenclatures_df);
-    println!("{:?}", prediction);
-    println!("{:?}", result);
+    // println!("{:?}", nomenclatures_df);
+    // println!("{:?}", prediction);
+    // println!("{:?}", result);
     return result;
 }
 

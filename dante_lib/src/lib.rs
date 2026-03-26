@@ -16,6 +16,7 @@ pub fn run_v2(bam_file: &Path, motif_file: &Path, output: &Path, out_bam_flag: b
 
     let motif_records = io::read_motifs(motif_file);
     motif_records.par_iter().for_each(|motif_record| {
+    // motif_records.iter().for_each(|motif_record| {
 
         let (left_flank, repeat, right_flank) = motif_record;
         let name = repeat.name.as_ref().unwrap().clone();
@@ -38,7 +39,7 @@ pub fn run_v2(bam_file: &Path, motif_file: &Path, output: &Path, out_bam_flag: b
         let model = hmm::Hmm::from(&modules).log();
         let mut annotation_df /*: DataFrame */ = annotation::annotate_reads(relevant_reads.iter(), model, repeat);
         let genotyping_result = genotyping::genotype(&annotation_df, &modules);
-        let _ = phasing::phase(&annotation_df, &genotyping_result);
+        let phasing_results = phasing::phase(&annotation_df, &genotyping_result);
 
         // write results to tsv
         let out_tsv_file = output.join(name.to_owned() + ".annotations.tsv");
@@ -55,8 +56,16 @@ pub fn run_v2(bam_file: &Path, motif_file: &Path, output: &Path, out_bam_flag: b
 
         // // write genotyping result to json
         let out_json_file = output.join(name.to_owned() + ".genotypes.json");
-        genotyping::print_json_file(&genotyping_result, &out_json_file).expect("Failed writing json file.");
+        let json_str = serde_json::to_string(&genotyping_result).expect("");
+        io::print_to_file(&json_str, &out_json_file).expect("Failed writing json file.");
+
+        // // write phasing result to json
+        let out_json_file = output.join(name.to_owned() + ".phasing.json");
+        let json_str = serde_json::to_string(&phasing_results).expect("");
+        io::print_to_file(&json_str, &out_json_file).expect("Failed writing json file.");
     });
 
     println!("Annotation finished successfully.");
 }
+
+

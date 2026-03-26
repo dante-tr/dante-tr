@@ -1,7 +1,9 @@
 use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
+use std::io::Write;
 use std::path::Path;
+use std::error::Error;
 
 use crate::repeats::TandemRepeat;
 use crate::hmm::Module;
@@ -20,6 +22,12 @@ fn modules_add_motif(modules: &mut Vec<Module>, motif: &TandemRepeat) {
     for i in 0..motif.copy_unit.len() {
         modules.push((&motif.copy_unit[i][..], motif.copy_number[i]).into())
     }
+}
+
+pub(crate) fn print_to_file(json_str: &String, p: &Path) -> Result<(), Box<dyn Error>> {
+    let mut file = File::create(p)?;
+    write!(file, "{}", json_str)?;
+    return Ok(());
 }
 
 pub(crate) fn read_motifs(filename: &Path) -> Vec<(Vec<u8>, TandemRepeat, Vec<u8>)> {
