@@ -13,7 +13,7 @@ use polars::prelude::*;
 use nom::AsBytes;
 use noodles::bam;
 
-use crate::repeats::TandemRepeat;
+use crate::io::TRRecord;
 use crate::hmm::Hmm;
 
 pub fn print_tsv_file(df: &mut DataFrame, p: &Path) -> Result<(), Box<dyn Error>> {
@@ -46,7 +46,7 @@ pub fn print_dbg_file(df: &DataFrame, p: &Path) -> Result<(), Box<dyn Error>> {
     return Ok(());
 }
 
-pub fn annotate_reads<T>(in_reads: T, model: Hmm, repeat: &TandemRepeat) -> DataFrame
+pub fn annotate_reads<T>(in_reads: T, model: Hmm, repeat: &TRRecord) -> DataFrame
 where
     T: Iterator<Item = bam::Record>,
 {
@@ -80,16 +80,17 @@ where
 
     let mut names = Vec::new();
     for _ in 0..n {
-        let name: String = match &repeat.name {
-            Some(x) => x.to_string(),
-            None    => "None".to_string(),
-        };
+        let name: String = repeat.name.clone();
+        // let name: String = match &repeat.name {
+        //     Some(x) => x.to_string(),
+        //     None    => "None".to_string(),
+        // };
         names.push(name);
     }
 
     let mut motifs = Vec::new();
     for _ in 0..n {
-        let motif = repeat.to_string();
+        let motif = repeat.to_hgvs_nomenclature();
         motifs.push(motif);
     }
 
@@ -413,67 +414,67 @@ fn mate_order(read: &bam::Record) -> String {
     }
 }
 
-#[test]
-fn tmp_fn_name() {
-    use crate::io::get_modules;
-    // CTTCCTCCTCCTCATCGGTGGCGGCGGCGGCGGCGTCAGGCCAGTGCCGCGGCTTTCTCTCCGCGCCTGTGTTCGCCGGGACGCATTCGGGGCGGGCGGCGGCGGCGGCAGCGGCGGCCGCGGCGGCGGGCGGGGCCGCCCCCCGCCT
-    // CCCFFFFFHHHHGIIJJIHIJIJJJHGHDDDBDDBBDDDDDDDDCCCC5@BDDBBCCCCACDBBDBDBBCCCCCBDDBBD@BDDBDDDDDDDDDD@5.5&)0)&5))0)&)2&55)0&&&&&)&&)&))&&&&&)&&&&)&&50)&&&
-    // -----------------------------------------------------------------00000000000000000000000000000011111111111111111111111111111111111111111111122222222
-    // GCG[4]GCA[1]GCG[2]GCC[1]GCG[3]G[1]GCG[1]GGGCCGCC[1]
-    //
-    // I think annotation is wrong
-    // Independent of annotation, seq nomenclature is wrong as well
-    //
-    // SPD     chr2:g.176093059_176093103GCG[15]       CCTGTGTTCGCCGGGACGCATTCGGGGCGG  TCCGGCTTTGCGTACCCCGGGACCTCTGAG
-    // result 15
-
-    // HISEQ1:26:HA2RRADXX:1:1203:16720:7919
-    let seq:  Vec<u8> = b"CTTCCTCCTCCTCATCGGTGGCGGCGGCGGCGGCGTCAGGCCAGTGCCGCGGCTTTCTCTCCGCGCCTGTGTTCGCCGGGACGCATTCGGGGCGGGCGGCGGCGGCGGCAGCGGCGGCCGCGGCGGCGGGCGGGGCCGCCCCCCGCCT".to_vec();
-    let qual: Vec<u8> = b"CCCFFFFFHHHHGIIJJIHIJIJJJHGHDDDBDDBBDDDDDDDDCCCC5@BDDBBCCCCACDBBDBDBBCCCCCBDDBBD@BDDBDDDDDDDDDD@5.5&)0)&5))0)&)2&55)0&&&&&)&&)&))&&&&&)&&&&)&&50)&&&".to_vec();
-
-    // SPD
-    let left_flank:  Vec<u8> = b"CCTGTGTTCGCCGGGACGCATTCGGGGCGG".to_vec();
-    let right_flank: Vec<u8> = b"TCCGGCTTTGCGTACCCCGGGACCTCTGAG".to_vec();
-    let repeat: TandemRepeat = "chr2:g.176093059_176093103GCG[15]".parse().expect("Malformatted nomenclature found.");
-
-    let modules = get_modules(&left_flank, &repeat, &right_flank);
-    let model = Hmm::from(&modules).log();
-    let (_likelihood, annotation) = model.log_predict(&seq, &qual);
-
-    for x in &annotation { print!("{}", x / 10); }
-    println!();
-    for x in &annotation { print!("{}", x % 10); }
-    println!();
-    println!("{}", str::from_utf8(&seq).unwrap());
-    println!("{}", str::from_utf8(&qual).unwrap());
-
-    let (partition, mod_ids) = model.partition_to_units(&annotation);
-
-    let exp_split: Vec<&[u8]> = vec![
-        b"CTTCCTCCTCCTCATCGGTGGCGGCGGCGGCGGCGTCAGGCCAGTGCCGCGGCTTTCTCTCCGCG",
-        b"CCTGTGTTCGCCGGGACGCATTCGGGGCGG",
-        b"GCG", b"GCG", b"GCG", b"GCG", b"GCA", b"GCG", b"GCG", b"GCC", b"GCG", b"GCG", b"GCG", b"GGC", b"GGG", b"GCC", b"GCC",
-        b"CCCCGCCT"
-    ];
-
-    let exp_mod_ids: Vec<_> = vec![
-        usize::MAX, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2
-    ];
-
-    println!();
-    let x = get_module_nomenclature(&seq, &partition, &mod_ids, 0);
-    println!("{}", x);
-    let x = get_module_nomenclature(&seq, &partition, &mod_ids, 1);
-    println!("{}", x);
-    let x = get_module_nomenclature(&seq, &partition, &mod_ids, 2);
-    println!("{}", x);
-    let x = get_module_nomenclature(&seq, &partition, &mod_ids, 3);
-    println!("{}", x);
-    println!();
-
-    for (i, p) in partition.into_iter().enumerate() {
-        println!("{}", str::from_utf8(&seq[p]).unwrap());
-        println!("{}", str::from_utf8(exp_split[i]).unwrap());
-        println!("{} {}", mod_ids[i], exp_mod_ids[i])
-    }
-}
+// #[test]
+// fn tmp_fn_name() {
+//     use crate::io::get_modules;
+//     // CTTCCTCCTCCTCATCGGTGGCGGCGGCGGCGGCGTCAGGCCAGTGCCGCGGCTTTCTCTCCGCGCCTGTGTTCGCCGGGACGCATTCGGGGCGGGCGGCGGCGGCGGCAGCGGCGGCCGCGGCGGCGGGCGGGGCCGCCCCCCGCCT
+//     // CCCFFFFFHHHHGIIJJIHIJIJJJHGHDDDBDDBBDDDDDDDDCCCC5@BDDBBCCCCACDBBDBDBBCCCCCBDDBBD@BDDBDDDDDDDDDD@5.5&)0)&5))0)&)2&55)0&&&&&)&&)&))&&&&&)&&&&)&&50)&&&
+//     // -----------------------------------------------------------------00000000000000000000000000000011111111111111111111111111111111111111111111122222222
+//     // GCG[4]GCA[1]GCG[2]GCC[1]GCG[3]G[1]GCG[1]GGGCCGCC[1]
+//     //
+//     // I think annotation is wrong
+//     // Independent of annotation, seq nomenclature is wrong as well
+//     //
+//     // SPD     chr2:g.176093059_176093103GCG[15]       CCTGTGTTCGCCGGGACGCATTCGGGGCGG  TCCGGCTTTGCGTACCCCGGGACCTCTGAG
+//     // result 15
+// 
+//     // HISEQ1:26:HA2RRADXX:1:1203:16720:7919
+//     let seq:  Vec<u8> = b"CTTCCTCCTCCTCATCGGTGGCGGCGGCGGCGGCGTCAGGCCAGTGCCGCGGCTTTCTCTCCGCGCCTGTGTTCGCCGGGACGCATTCGGGGCGGGCGGCGGCGGCGGCAGCGGCGGCCGCGGCGGCGGGCGGGGCCGCCCCCCGCCT".to_vec();
+//     let qual: Vec<u8> = b"CCCFFFFFHHHHGIIJJIHIJIJJJHGHDDDBDDBBDDDDDDDDCCCC5@BDDBBCCCCACDBBDBDBBCCCCCBDDBBD@BDDBDDDDDDDDDD@5.5&)0)&5))0)&)2&55)0&&&&&)&&)&))&&&&&)&&&&)&&50)&&&".to_vec();
+// 
+//     // SPD
+//     let left_flank:  Vec<u8> = b"CCTGTGTTCGCCGGGACGCATTCGGGGCGG".to_vec();
+//     let right_flank: Vec<u8> = b"TCCGGCTTTGCGTACCCCGGGACCTCTGAG".to_vec();
+//     let repeat: TandemRepeat = "chr2:g.176093059_176093103GCG[15]".parse().expect("Malformatted nomenclature found.");
+// 
+//     let modules = get_modules(&left_flank, &repeat, &right_flank);
+//     let model = Hmm::from(&modules).log();
+//     let (_likelihood, annotation) = model.log_predict(&seq, &qual);
+// 
+//     for x in &annotation { print!("{}", x / 10); }
+//     println!();
+//     for x in &annotation { print!("{}", x % 10); }
+//     println!();
+//     println!("{}", str::from_utf8(&seq).unwrap());
+//     println!("{}", str::from_utf8(&qual).unwrap());
+// 
+//     let (partition, mod_ids) = model.partition_to_units(&annotation);
+// 
+//     let exp_split: Vec<&[u8]> = vec![
+//         b"CTTCCTCCTCCTCATCGGTGGCGGCGGCGGCGGCGTCAGGCCAGTGCCGCGGCTTTCTCTCCGCG",
+//         b"CCTGTGTTCGCCGGGACGCATTCGGGGCGG",
+//         b"GCG", b"GCG", b"GCG", b"GCG", b"GCA", b"GCG", b"GCG", b"GCC", b"GCG", b"GCG", b"GCG", b"GGC", b"GGG", b"GCC", b"GCC",
+//         b"CCCCGCCT"
+//     ];
+// 
+//     let exp_mod_ids: Vec<_> = vec![
+//         usize::MAX, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2
+//     ];
+// 
+//     println!();
+//     let x = get_module_nomenclature(&seq, &partition, &mod_ids, 0);
+//     println!("{}", x);
+//     let x = get_module_nomenclature(&seq, &partition, &mod_ids, 1);
+//     println!("{}", x);
+//     let x = get_module_nomenclature(&seq, &partition, &mod_ids, 2);
+//     println!("{}", x);
+//     let x = get_module_nomenclature(&seq, &partition, &mod_ids, 3);
+//     println!("{}", x);
+//     println!();
+// 
+//     for (i, p) in partition.into_iter().enumerate() {
+//         println!("{}", str::from_utf8(&seq[p]).unwrap());
+//         println!("{}", str::from_utf8(exp_split[i]).unwrap());
+//         println!("{} {}", mod_ids[i], exp_mod_ids[i])
+//     }
+// }

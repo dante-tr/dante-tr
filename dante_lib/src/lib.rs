@@ -1,5 +1,4 @@
 mod annotation;
-mod bam_index;
 mod bam_ops;
 mod genotyping;
 mod hmm;
@@ -12,60 +11,37 @@ use rayon::prelude::*;
 use std::path::Path;
 
 pub fn run_v2(bam_file: &Path, motif_file: &Path, output: &Path, out_bam_flag: bool) {
-    bam_index::check_bai(bam_file);
 
-    let motif_records = io::read_motifs(motif_file);
+    bam_ops::check_bai(bam_file);
+    let motif_records = io::read_motifs2(motif_file);
     motif_records.par_iter().for_each(|motif_record| {
-    // motif_records.iter().for_each(|motif_record| {
 
-        let (left_flank, repeat, right_flank) = motif_record;
-        let name = repeat.name.as_ref().unwrap().clone();
-        let region_str = format!("{}:{}-{}", repeat.reference, repeat.start + 1, repeat.end);
-        let region = region_str.parse().unwrap();
+        let mut relevant_reads = bam_ops::RelevantReads::from(bam_file, &motif_record.region());
+        let modules            = io::get_modules(motif_record);
+        let model              = hmm::Hmm::from(&modules).log();
+        let mut annotation_df  = annotation::annotate_reads(relevant_reads.iter(), model, motif_record);
+        let genotyping_result  = genotyping::genotype(&annotation_df, &modules);
+        let phasing_results    = phasing::phase(&annotation_df, &genotyping_result);
 
-        let mut relevant_reads = bam_ops::RelevantReads::from(bam_file, region);
-        if out_bam_flag {
-            let h = relevant_reads.header();
-            let out_bam_file = output.join(name.to_owned() + ".annotated.bam");
-            let mut out_bam = bam_ops::init_bam(&out_bam_file.to_string_lossy(), &h);
-            for record in relevant_reads.iter() {
-                out_bam.write_record(&h, &record).expect("Cannot write to out bam.");
-            }
-            // TODO: sort bam + create bai index
-        }
+        // write results
+        let name = &motif_record.name;
+        let out_bam_file   = output.join(name.to_owned() + ".annotated.bam");
+        let out_tsv_file1  = output.join(name.to_owned() + ".annotations.tsv");
+        let out_tsv_file2  = output.join(name.to_owned() + ".annotations.dbg.txt");
+        let out_json_file1 = output.join(name.to_owned() + ".genotypes.json");
+        let out_json_file2 = output.join(name.to_owned() + ".phasing.json");
 
-        // build HMM and annotate reads - polars alternative
-        let modules = io::get_modules(left_flank, repeat, right_flank);
-        let model = hmm::Hmm::from(&modules).log();
-        let mut annotation_df /*: DataFrame */ = annotation::annotate_reads(relevant_reads.iter(), model, repeat);
-        let genotyping_result = genotyping::genotype(&annotation_df, &modules);
-        let phasing_results = phasing::phase(&annotation_df, &genotyping_result);
+        if out_bam_flag { relevant_reads.write_to_file(&out_bam_file); }
 
-        // write results to tsv
-        let out_tsv_file = output.join(name.to_owned() + ".annotations.tsv");
-        annotation::print_tsv_file(&mut annotation_df, &out_tsv_file).expect("Failed writing tsv file.");
+        annotation::print_tsv_file(&mut annotation_df, &out_tsv_file1).expect("Failed writing tsv file.");
+        annotation::print_dbg_file(&annotation_df, &out_tsv_file2).expect("Failed writing dbg file.");
 
-        let out_tsv_file = output.join(name.to_owned() + ".annotations.dbg.txt");
-        annotation::print_dbg_file(&annotation_df, &out_tsv_file).expect("Failed writing dbg file.");
-
-        // let out_tsv_file = output.join(name.to_owned() + ".annotations.tsv");
-        // use crate::annotation::parse_tsv_file;
-        // let mut tmp_df = parse_tsv_file(&out_tsv_file).expect("Err");
-        // let out_tsv_file = output.join(name.to_owned() + ".annotations2.tsv");
-        // print_tsv_file(&mut tmp_df, &out_tsv_file).expect("Failed writing tsv file.");
-
-        // // write genotyping result to json
-        let out_json_file = output.join(name.to_owned() + ".genotypes.json");
         let json_str = serde_json::to_string(&genotyping_result).expect("");
-        io::print_to_file(&json_str, &out_json_file).expect("Failed writing json file.");
+        io::print_to_file(&json_str, &out_json_file1).expect("Failed writing json file.");
 
-        // // write phasing result to json
-        let out_json_file = output.join(name.to_owned() + ".phasing.json");
         let json_str = serde_json::to_string(&phasing_results).expect("");
-        io::print_to_file(&json_str, &out_json_file).expect("Failed writing json file.");
+        io::print_to_file(&json_str, &out_json_file2).expect("Failed writing json file.");
     });
 
-    println!("Annotation finished successfully.");
+    println!("Finished successfully.");
 }
-
-

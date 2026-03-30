@@ -11,7 +11,7 @@ use ndarray::ArrayView1;
 #[cfg(test)]
 use ndarray::ArrayView2;
 #[cfg(test)]
-use crate::repeats::TandemRepeat;
+use crate::repeats::HGVSNomenclature;
 
 // use crate::modules_add_motif;
 // use crate::HMM;
@@ -25,13 +25,13 @@ const INDEL:DPEntry = 1;
 
 #[test]
 fn can_move_motif() {
-    let motif: TandemRepeat = "SEQ1:g.6_15CG[5]".parse().unwrap();
+    let motif: HGVSNomenclature = "SEQ1:g.6_15CG[5]".parse().unwrap();
     let flank = 5;
     let from = motif.start - flank;
     let to = motif.end + flank;
     let seq = &b"AAAAAAACGCGCGCGCGAAA"[from..to];
 
-    let expected_motif: TandemRepeat = "SEQ1:g.8_17CG[5]".parse().unwrap();
+    let expected_motif: HGVSNomenclature = "SEQ1:g.8_17CG[5]".parse().unwrap();
     let corrected_motif = correct_motif(seq, &motif, flank);
 
     println!(
@@ -47,7 +47,7 @@ fn can_move_motif() {
 
 #[test]
 fn test_semiglobal_align() {
-    let mut motif: TandemRepeat = "S1:g.1_18AACCCT[3]".parse().unwrap();
+    let mut motif: HGVSNomenclature = "S1:g.1_18AACCCT[3]".parse().unwrap();
     let reference = b"TGTAACCCGAAACCTCAAAGCCTAACCCTAACCCTAACCCCTACAGTTGAGGTCCCCC".to_vec();
 
     let seq_local = reference;
@@ -127,8 +127,8 @@ fn test_cigar_with_deletion() {
 #[test]
 fn look_at_motif() {
     let target = b"NNNNNNNNNNNNNNNNNNNNCTAACCCTAACCCTAACCCTAACCCTAACCCTAACCCTCTGAAAGTGGACCTATCA";
-    let old_motif: TandemRepeat = "NC_000023.11:g.10001_10036AACCCT[6]".parse().unwrap();
-    let new_motif: TandemRepeat = "NC_000023.11:g.10003_10040AACCCT[6]".parse().unwrap();
+    let old_motif: HGVSNomenclature = "NC_000023.11:g.10001_10036AACCCT[6]".parse().unwrap();
+    let new_motif: HGVSNomenclature = "NC_000023.11:g.10003_10040AACCCT[6]".parse().unwrap();
 
     let (s1, s2) = sgalign(&target[..], &old_motif.sequence());
     println!("{}", str::from_utf8(&s1).unwrap());
@@ -190,7 +190,7 @@ enum Cigar {
 }
 
 #[cfg(test)]
-fn correct_motif(seq: &[u8], repeat: &TandemRepeat, flank: usize) -> TandemRepeat {
+fn correct_motif(seq: &[u8], repeat: &HGVSNomenclature, flank: usize) -> HGVSNomenclature {
     let mut motif = repeat.clone();
 
     let unit_len = motif.copy_unit[0].len();
