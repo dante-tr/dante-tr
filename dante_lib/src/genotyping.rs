@@ -23,12 +23,54 @@ use crate::hmm::Module;
 //     // println!("{}", json);
 // }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub(crate) struct GenotypingResults {
     pub(crate) modules: Vec<ModuleResult>
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+impl GenotypingResults {
+    pub(crate) fn swap_at(&mut self, idx: usize) {
+        let m = &mut self.modules[idx];
+        std::mem::swap(&mut m.predictions_enum.0, &mut m.predictions_enum.1);
+        std::mem::swap(&mut m.predictions_seq.0, &mut m.predictions_seq.1);
+        m.confidences.swap(1, 2);
+    }
+
+    pub(crate) fn is_homo_at(&self, idx: usize) -> bool {
+        return self.modules[idx].predictions_seq.0 == self.modules[idx].predictions_seq.1;
+    }
+
+    pub(crate) fn is_crossing(&self, idx1: usize, idx2: usize, count: impl Fn(usize, String, usize, String) -> usize) -> bool {
+        // seq and idx are a bit confusing, here is some schematic ASCII art
+        // seq1: seq1_idx1 ---- seq1_idx2 ---- seq1_idx3 ---- ...
+        //                  \/
+        //                  /\
+        // seq2: seq2_idx1 ---- seq2_idx2 ---- seq2_idx3 ---- ...
+        let seq1_idx1 = &self.modules[idx1].predictions_seq.0;
+        let seq1_idx2 = &self.modules[idx2].predictions_seq.0;
+        let seq2_idx1 = &self.modules[idx1].predictions_seq.1;
+        let seq2_idx2 = &self.modules[idx2].predictions_seq.1;
+
+        let n_seq1_idx1_seq1_idx2 = count(idx1, seq1_idx1.clone(), idx2, seq1_idx2.clone());
+        let n_seq2_idx1_seq2_idx2 = count(idx1, seq2_idx1.clone(), idx2, seq2_idx2.clone());
+        let n_seq1_idx1_seq2_idx2 = count(idx1, seq1_idx1.clone(), idx2, seq2_idx2.clone());
+        let n_seq2_idx1_seq1_idx2 = count(idx1, seq2_idx1.clone(), idx2, seq1_idx2.clone());
+
+        let crossing_score = n_seq1_idx1_seq2_idx2 + n_seq2_idx1_seq1_idx2;
+        let straight_score = n_seq1_idx1_seq1_idx2 + n_seq2_idx1_seq2_idx2;
+
+        if crossing_score > straight_score {
+            return true;
+        } else if crossing_score < straight_score {
+            return false;
+        } else {
+            println!("Cannot decide. Putting noncrossing.");
+            return false;
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub(crate) struct ModuleResult {
     pub(crate) predictions_enum: (Prediction, Prediction),
     pub(crate) predictions_seq: (String, String),

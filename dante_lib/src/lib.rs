@@ -21,26 +21,20 @@ pub fn run_v2(bam_file: &Path, motif_file: &Path, output: &Path, out_bam_flag: b
         let model              = hmm::Hmm::from(&modules).log();
         let mut annotation_df  = annotation::annotate_reads(relevant_reads.iter(), model, motif_record);
         let genotyping_result  = genotyping::genotype(&annotation_df, &modules);
-        let phasing_results    = phasing::phase(&annotation_df, &genotyping_result);
+        let phasing_results2   = phasing::phase2(&annotation_df, &genotyping_result);
 
         // write results
         let name = &motif_record.name;
-        let out_bam_file   = output.join(name.to_owned() + ".annotated.bam");
-        let out_tsv_file1  = output.join(name.to_owned() + ".annotations.tsv");
-        let out_tsv_file2  = output.join(name.to_owned() + ".annotations.dbg.txt");
-        let out_json_file1 = output.join(name.to_owned() + ".genotypes.json");
-        let out_json_file2 = output.join(name.to_owned() + ".phasing.json");
+        let out_bam_file  = output.join(name.to_owned() + ".annotated.bam");
+        let out_tsv_file  = output.join(name.to_owned() + ".annotations.tsv");
+        let out_txt_file  = output.join(name.to_owned() + ".annotations.dbg.txt");
+        let out_json_file = output.join(name.to_owned() + ".genotypes.json");
 
         if out_bam_flag { relevant_reads.write_to_file(&out_bam_file); }
-
-        annotation::print_tsv_file(&mut annotation_df, &out_tsv_file1).expect("Failed writing tsv file.");
-        annotation::print_dbg_file(&annotation_df, &out_tsv_file2).expect("Failed writing dbg file.");
-
-        let json_str = serde_json::to_string(&genotyping_result).expect("");
-        io::print_to_file(&json_str, &out_json_file1).expect("Failed writing json file.");
-
-        let json_str = serde_json::to_string(&phasing_results).expect("");
-        io::print_to_file(&json_str, &out_json_file2).expect("Failed writing json file.");
+        annotation::print_tsv_file(&mut annotation_df, &out_tsv_file).expect("Failed writing tsv file.");
+        annotation::print_dbg_file(&annotation_df, &out_txt_file).expect("Failed writing dbg file.");
+        let json_str = serde_json::to_string(&phasing_results2).expect("");
+        io::print_to_file(&json_str, &out_json_file).expect("Failed writing json file.");
     });
 
     println!("Finished successfully.");

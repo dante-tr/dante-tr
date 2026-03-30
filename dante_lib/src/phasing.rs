@@ -102,9 +102,10 @@ fn get_n_co_occurrences(motif_df: &DataFrame, idx1: usize, seq1: String, idx2: u
 
 use crate::genotyping::GenotypingResults;
 pub(crate) fn phase(motif_df: &DataFrame, genotypes: &GenotypingResults) -> PhasingResults {
-    let mut phasing_results = PhasingResults::from_gt_results(genotypes);
 
-    if genotypes.modules.len() == 1 { // There is nothing to phase
+    let mut phasing_results = PhasingResults::from_gt_results(genotypes);
+    let n = genotypes.modules.len();
+    if n == 1 { // There is nothing to phase
         return phasing_results;
     }
 
@@ -112,10 +113,10 @@ pub(crate) fn phase(motif_df: &DataFrame, genotypes: &GenotypingResults) -> Phas
     let mut i = 0;
     let mut j;
     loop {
-        while i < genotypes.modules.len() && phasing_results.is_homo_at(i) { i += 1; }
+        while i < n && phasing_results.is_homo_at(i) { i += 1; }
         j = i + 1;
-        while j < genotypes.modules.len() && phasing_results.is_homo_at(j) { j += 1; }
-        if j >= genotypes.modules.len() { break }
+        while j < n && phasing_results.is_homo_at(j) { j += 1; }
+        if j >= n { break }
 
         if phasing_results.is_crossing(i, j, get_co_occurrences) {
             phasing_results.swap_at(j);
@@ -124,4 +125,30 @@ pub(crate) fn phase(motif_df: &DataFrame, genotypes: &GenotypingResults) -> Phas
     }
 
     return phasing_results;
+}
+
+pub(crate) fn phase2(motif_df: &DataFrame, genotypes: &GenotypingResults) -> GenotypingResults {
+    let mut result = genotypes.clone();
+    let n = genotypes.modules.len();
+    if n == 1 { // There is nothing to phase
+        return result;
+    }
+
+    let get_co_occurrences = |a, b, c, d| get_n_co_occurrences(&motif_df.clone(), a, b, c, d);
+    let mut i = 0;
+    let mut j;
+    loop {
+        while i < n && result.is_homo_at(i) { i += 1; }
+        j = i + 1;
+        while j < n && result.is_homo_at(j) { j += 1; }
+        if j >= n { break }
+
+        if result.is_crossing(i, j, get_co_occurrences) {
+            result.swap_at(j);
+        }
+        i = j;
+    }
+
+    return result;
+
 }
