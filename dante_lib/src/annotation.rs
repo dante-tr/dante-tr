@@ -22,13 +22,13 @@ pub fn print_tsv_file(df: &mut DataFrame, p: &Path) -> Result<(), Box<dyn Error>
     return Ok(());
 }
 
-#[cfg(test)]
-pub fn parse_tsv_file(p: &Path) -> Result<DataFrame, Box<dyn Error>> {
-    let file = File::open(p)?;
-    let opts = CsvReadOptions::default().with_parse_options(CsvParseOptions::default().with_separator(b'\t'));
-    let df = CsvReader::new(file).with_options(opts).finish()?;
-    return Ok(df);
-}
+// #[cfg(test)]
+// pub fn parse_tsv_file(p: &Path) -> Result<DataFrame, Box<dyn Error>> {
+//     let file = File::open(p)?;
+//     let opts = CsvReadOptions::default().with_parse_options(CsvParseOptions::default().with_separator(b'\t'));
+//     let df = CsvReader::new(file).with_options(opts).finish()?;
+//     return Ok(df);
+// }
 
 pub fn print_dbg_file(df: &DataFrame, p: &Path) -> Result<(), Box<dyn Error>> {
     let mut file = File::create(p)?;
@@ -46,7 +46,7 @@ pub fn print_dbg_file(df: &DataFrame, p: &Path) -> Result<(), Box<dyn Error>> {
     return Ok(());
 }
 
-pub fn annotate_reads<T>(in_reads: T, model: Hmm, repeat: &TRRecord) -> DataFrame
+pub fn annotate<T>(in_reads: T, model: Hmm, repeat: &TRRecord) -> DataFrame
 where
     T: Iterator<Item = bam::Record>,
 {
@@ -152,10 +152,9 @@ where
         }
 
         let mut module_repetitions: Vec<usize> = Vec::with_capacity(n_modules);
-        for (i, &mb) in module_bases.iter().enumerate() {
-            // let mr = get_module_repetitions(mb, &repeat.copy_unit, i);
-            let mr2 = get_module_repetitions2(&mod_ids, i);
-            module_repetitions.push(mr2);
+        for i in 0..n_modules {
+            let mr = get_module_repetitions(&mod_ids, i);
+            module_repetitions.push(mr);
         }
 
         let module_classes = get_module_classes(left_bg, &module_bases, right_bg);
@@ -355,7 +354,7 @@ fn get_module_nomenclature(seq: &[u8], partition: &[Range<usize>], mod_ids: &[us
     return module_nomenclature.join("");
 }
 
-fn get_module_repetitions2(mod_ids: &[usize], idx: usize) -> usize {
+fn get_module_repetitions(mod_ids: &[usize], idx: usize) -> usize {
     let mut result = 0;
     for &m_id in mod_ids {
         if m_id == idx {
@@ -363,24 +362,6 @@ fn get_module_repetitions2(mod_ids: &[usize], idx: usize) -> usize {
         }
     }
     return result;
-}
-
-fn get_module_repetitions(mb: usize, copy_units: &[Vec<u8>], idx: usize) -> usize {
-    // TODO: this should really reflect how many times the HMM passed through module.
-    // Now it should be easy to implement, but for parity with python it is implemented like this.
-    // But definitely, change it in the future.
-    if mb == 0 { return 0; }
-    if idx == 0 { return 1; }
-    if idx == copy_units.len() + 1 { return 1; }
-    if idx > copy_units.len() + 1 { panic!("This should never happen."); }
-    let copy_len: u8 = copy_units[idx - 1].len().try_into().unwrap();
-    let mb: f64 = mb as f64;  // f64 cannot represent all usize values. Potentially dangerous
-    let copy_len: f64 = copy_len.into();
-    let res = mb / copy_len;
-    // fNN as iNN is defined to be a truncating cast, saturating out-of-range values and mapping NaN to 0.
-    // If that's what you want, just writing as is currently the best way to get that behavior.
-    // https://users.rust-lang.org/t/floor-and-cast-f64-to-usize-in-one-operation/88768/4
-    return res.round_ties_even() as usize;
 }
 
 fn get_module_bases(mods: &[u8], idx: usize) -> usize {

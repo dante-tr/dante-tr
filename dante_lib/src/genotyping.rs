@@ -10,19 +10,6 @@ use serde::{Serialize, Deserialize};
 
 use crate::hmm::Module;
 
-// #[test]
-// fn test_genotyping_from_dataframe() {
-//     use std::path::PathBuf;
-//     use crate::annotation::parse_tsv_file;
-// 
-//     // /home/balaz/data/projects/STRs3/tools/remastr_dev/dante_lib/DM2.annotations.tsv
-//     let tsv_file = PathBuf::from("/home/balaz/data/projects/STRs3/tools/remastr_dev/dante_lib/DM2.annotations.tsv");
-//     let df: DataFrame = parse_tsv_file(&tsv_file).unwrap();
-//     // let result = genotype(&df);
-//     // let json = serde_json::to_string(&result).unwrap();
-//     // println!("{}", json);
-// }
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(crate) struct GenotypingResults {
     pub(crate) modules: Vec<ModuleResult>
@@ -108,13 +95,6 @@ pub(crate) fn genotype(df: &DataFrame, modules: &[Module]) -> GenotypingResults 
     return gt_result;
 }
 
-// pub(crate) fn print_json_file(gt_results: &GenotypingResults, p: &Path) -> Result<(), Box<dyn Error>> {
-//     let mut file = File::create(p)?;
-//     let json = serde_json::to_string(&gt_results)?;
-//     write!(file, "{}", json)?;
-//     return Ok(());
-// }
-
 fn get_predictions_seqs(module_df: &DataFrame, module: &Module, prediction: (Prediction, Prediction)) -> (String, String) {
     // select spanning reads
     let f = |o: Option<&str>| { let x = o.unwrap(); x == "Spanning" };
@@ -145,9 +125,6 @@ fn get_predictions_seqs(module_df: &DataFrame, module: &Module, prediction: (Pre
         }
     };
 
-    // println!("{:?}", nomenclatures_df);
-    // println!("{:?}", prediction);
-    // println!("{:?}", result);
     return result;
 }
 
@@ -560,4 +537,86 @@ impl Model {
 
         return [conf_pred, conf_al_1, conf_al_2, conf_bckg, conf_bg_t, conf_expn, conf_ex_t];
     }
+}
+
+// #[test]
+// fn test_genotyping_from_dataframe() {
+//     use std::path::PathBuf;
+//     use crate::annotation::parse_tsv_file;
+// 
+//     // /home/balaz/data/projects/STRs3/tools/remastr_dev/dante_lib/DM2.annotations.tsv
+//     let tsv_file = PathBuf::from("/home/balaz/data/projects/STRs3/tools/remastr_dev/dante_lib/DM2.annotations.tsv");
+//     let df: DataFrame = parse_tsv_file(&tsv_file).unwrap();
+//     // let result = genotype(&df);
+//     // let json = serde_json::to_string(&result).unwrap();
+//     // println!("{}", json);
+// }
+
+fn get_n_co_occurrences(motif_df: &DataFrame, idx1: usize, seq1: String, idx2: usize, seq2: String) -> usize {
+    let f3 = |s: &str| s.split(",").nth(idx1 + 1).unwrap().to_string();
+    let classes = motif_df.column("module_classes").unwrap().str().unwrap().iter().map(|o| o.map(f3));
+    let classes1: Column = StringChunked::from_iter_options("classes1".into(), classes).into_series().into();
+    let nomenclatures = motif_df.column("module_nomenclatures").unwrap().str().unwrap().iter().map(|o| o.map(f3));
+    let nomenclatures1: Column = StringChunked::from_iter_options("nomenclatures1".into(), nomenclatures).into_series().into();
+
+    let f3 = |s: &str| s.split(",").nth(idx2 + 1).unwrap().to_string();
+    let classes = motif_df.column("module_classes").unwrap().str().unwrap().iter().map(|o| o.map(f3));
+    let classes2: Column = StringChunked::from_iter_options("classes2".into(), classes).into_series().into();
+    let nomenclatures = motif_df.column("module_nomenclatures").unwrap().str().unwrap().iter().map(|o| o.map(f3));
+    let nomenclatures2: Column = StringChunked::from_iter_options("nomenclatures2".into(), nomenclatures).into_series().into();
+
+    let cooccurrences_df = DataFrame::new_infer_height(vec![nomenclatures1, nomenclatures2, classes1, classes2]).unwrap();
+
+    let f = |o: Option<&str>| { let x = o.unwrap(); x == "Spanning" };
+    let mask1: BooleanChunked = cooccurrences_df.column("classes1").unwrap().str().unwrap().iter().map(f).collect();
+    let mask2: BooleanChunked = cooccurrences_df.column("classes2").unwrap().str().unwrap().iter().map(f).collect();
+    let mask = mask1 & mask2;
+    let cooccurrences_df = cooccurrences_df.filter(&mask).unwrap();
+
+    let mut agg: DataFrame = cooccurrences_df
+        .group_by(["nomenclatures1", "nomenclatures2"]).unwrap()
+        .select(["nomenclatures1"])  // this is required, because otherwise count does not know how to call the new column
+        .count().unwrap();
+    agg.rename("nomenclatures1_count", "n_occ".into()).unwrap();
+    let agg = agg.select(["n_occ", "nomenclatures1", "nomenclatures2"]).unwrap();
+    let mask1: BooleanChunked = agg.column("nomenclatures1").unwrap().str().unwrap().iter()
+        .map(|o: Option<&str>| { let x = o.unwrap(); x == seq1 }).collect();
+    let mask2: BooleanChunked = agg.column("nomenclatures2").unwrap().str().unwrap().iter()
+        .map(|o: Option<&str>| { let x = o.unwrap(); x == seq2 }).collect();
+
+    let mask = mask1 & mask2;
+    let result = agg.filter(&mask).unwrap();
+
+    if result.height() == 0 {
+        return 0;
+    } else {
+        let x = result.column("n_occ").unwrap().u32().unwrap().get(0).unwrap();
+        return x.try_into().unwrap();
+    }
+}
+
+pub(crate) fn phase(motif_df: &DataFrame, genotypes: &GenotypingResults) -> GenotypingResults {
+    let mut result = genotypes.clone();
+    let n = genotypes.modules.len();
+    if n == 1 { // There is nothing to phase
+        return result;
+    }
+
+    let get_co_occurrences = |a, b, c, d| get_n_co_occurrences(&motif_df.clone(), a, b, c, d);
+    let mut i = 0;
+    let mut j;
+    loop {
+        while i < n && result.is_homo_at(i) { i += 1; }
+        j = i + 1;
+        while j < n && result.is_homo_at(j) { j += 1; }
+        if j >= n { break }
+
+        if result.is_crossing(i, j, get_co_occurrences) {
+            result.swap_at(j);
+        }
+        i = j;
+    }
+
+    return result;
+
 }
