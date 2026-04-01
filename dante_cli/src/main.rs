@@ -1,3 +1,5 @@
+mod reporting;
+
 use clap::Parser;
 use std::path::PathBuf;
 use std::fs;
@@ -21,6 +23,10 @@ fn main() {
     });
 
     run_v2(&args.bam_file, &args.motif_file, &args.output, args.out_bam);
+    println!("Finished successfully.");
+    // let annotations: Vec<String> = vec!["./output/motifs/ALS.annotations.tsv".to_string()];
+    // let genotypes: Vec<String>   = vec!["./output/motifs/ALS.genotypes.json".to_string()];
+    // reporting::report(annotations, genotypes).unwrap();
 }
 
 // Predict short tandem repeat annotation

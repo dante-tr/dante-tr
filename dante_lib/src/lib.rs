@@ -26,17 +26,14 @@ pub fn run_v2(bam_file: &Path, motif_file: &Path, output: &Path, out_bam_flag: b
         let out_bam_file  = output.join(name.to_owned() + ".annotated.bam");
         let out_tsv_file  = output.join(name.to_owned() + ".annotations.tsv");
         let out_json_file = output.join(name.to_owned() + ".genotypes.json");
+        // let dbg_tsv_file  = output.join(name.to_owned() + ".annotations.dbg.tsv");
+        // let dbg_txt_file  = output.join(name.to_owned() + ".annotations.dbg.txt");
 
         if out_bam_flag { relevant_reads.write_to_file(&out_bam_file); }
         df_ops::print_tsv_file(&annotation_df, &out_tsv_file).expect("Failed writing tsv file");
         let json_str = serde_json::to_string(&phasing_results).expect("");
         io::print_to_file(&json_str, &out_json_file).expect("Failed writing json file.");
-
-        // let dbg_tsv_file  = output.join(name.to_owned() + ".annotations.dbg.tsv");
-        // let dbg_txt_file  = output.join(name.to_owned() + ".annotations.dbg.txt");
-
         // df_ops::print_dbg_tsv_file(&annotation_df, &dbg_tsv_file).expect("Failed writing tsv file.");
         // df_ops::print_dbg_txt_file(&annotation_df, &dbg_txt_file).expect("Failed writing dbg file.");
     });
-    println!("Finished successfully.");
 }
