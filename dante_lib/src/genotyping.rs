@@ -1,14 +1,14 @@
 #![allow(dead_code)]
 
 use itertools::izip;
-use std::error::Error;
 
-use polars::prelude::*;
+use polars::prelude::DataFrame;
 use statrs::{distribution::{Binomial, Discrete}, statistics::Statistics};
 use ndarray::{self, s, Array};
 use serde::{Serialize, Deserialize};
 
 use crate::hmm::Module;
+use crate::df_ops;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(crate) struct GenotypingResults {
@@ -77,7 +77,7 @@ pub(crate) fn genotype(df: &DataFrame, modules: &[Module]) -> GenotypingResults 
     let n_modules: usize = modules.len();
     let mut gt_result = Vec::new();
     for (i, module) in modules.iter().enumerate().take(n_modules-1).skip(1) {
-        let data = extract_from_df(df, i).unwrap();
+        let data = df_ops::extract_from_df(df, i).unwrap();
         let (counts, lengths, is_spanning, max_spanning_reps, max_overall_reps) = data;
 
         let model = Model::new(&lengths, max_spanning_reps as usize, max_overall_reps as usize);
@@ -85,7 +85,7 @@ pub(crate) fn genotype(df: &DataFrame, modules: &[Module]) -> GenotypingResults 
         let predictions_enum = model.predict_enum(likelihoods.clone());
         let confidences = model.get_conf(likelihoods.clone());
 
-        let module_df = get_module_df(df, i).unwrap();
+        let module_df = df_ops::get_module_df(df, i).unwrap();
         let predictions_seq = get_predictions_seqs(&module_df, module, predictions_enum);
 
         let result = ModuleResult{ predictions_enum, predictions_seq, confidences, likelihoods };
@@ -96,12 +96,8 @@ pub(crate) fn genotype(df: &DataFrame, modules: &[Module]) -> GenotypingResults 
 }
 
 fn get_predictions_seqs(module_df: &DataFrame, module: &Module, prediction: (Prediction, Prediction)) -> (String, String) {
-    // select spanning reads
-    let f = |o: Option<&str>| { let x = o.unwrap(); x == "Spanning" };
-    let mask: BooleanChunked = module_df.column("classes").unwrap().str().unwrap().iter().map(f).collect();
-    let spanning_df = module_df.filter(&mask).unwrap();
-
-    let nomenclatures_df = get_nomenclature_counts(&spanning_df);
+    let spanning_df = df_ops::select_spanning_reads(module_df);
+    let nomenclatures_df = df_ops::get_nomenclature_counts(&spanning_df);
 
     use Prediction as P;
     let result = match prediction {
@@ -109,13 +105,13 @@ fn get_predictions_seqs(module_df: &DataFrame, module: &Module, prediction: (Pre
             get_string_predictions(&nomenclatures_df, a, b)
         },
         (P::Num(a), y) => {
-            let nomenclature = get_single_string_prediction(&nomenclatures_df, a);
+            let nomenclature = df_ops::get_single_string_prediction(&nomenclatures_df, a);
             let nomenclature2 = format_nonnumeric_prediction(module, y);
             (nomenclature, nomenclature2)
         },
         (x, P::Num(b)) => {
             let nomenclature1 = format_nonnumeric_prediction(module, x);
-            let nomenclature = get_single_string_prediction(&nomenclatures_df, b);
+            let nomenclature = df_ops::get_single_string_prediction(&nomenclatures_df, b);
             (nomenclature1, nomenclature)
         },
         (x, y) => {
@@ -142,29 +138,12 @@ fn format_nonnumeric_prediction(module: &Module, prediction: Prediction) -> Stri
     }
 }
 
-fn get_single_string_prediction(df: &DataFrame, x: usize) -> String {
-    let nomenclature = df
-        .filter(&df.column("counts").unwrap().u64().unwrap().equal(x)).unwrap()
-        .column("nomenclatures").unwrap()
-        .str().unwrap()
-        .get(0).unwrap()
-        .to_string();
-    return nomenclature;
-}
-
 fn get_string_predictions(df: &DataFrame, a: usize, b: usize) -> (String, String) {
     let cols_in = ["n_occ", "counts", "nomenclatures"];
     debug_assert!(df.get_column_names() == cols_in);
 
     if a == b {
-        // similar to ./../../dante_py/dante_remastr_simple.py:361:1  (use gF)
-        let relevant_nomenclatures = df.filter(&df.column("counts").unwrap().u64().unwrap().equal(a)).unwrap();
-
-        let noms = relevant_nomenclatures.column("nomenclatures").unwrap().str().unwrap().head(Some(2));
-        let noms: Vec<&str> = noms.iter().flatten().collect();
-
-        let occs = relevant_nomenclatures.column("n_occ").unwrap().u32().unwrap().head(Some(2));
-        let occs: Vec<u32> = occs.iter().flatten().collect();
+        let (noms, occs) = df_ops::get_noms_and_occs(df, a);
 
         match noms.len() {
             2 => {
@@ -184,75 +163,10 @@ fn get_string_predictions(df: &DataFrame, a: usize, b: usize) -> (String, String
             _ => { panic!("Unexpected number of nomenclatures."); }
         }
     } else {
-        let allele1_nomenclature = get_single_string_prediction(df, a);
-        let allele2_nomenclature = get_single_string_prediction(df, b);
+        let allele1_nomenclature = df_ops::get_single_string_prediction(df, a);
+        let allele2_nomenclature = df_ops::get_single_string_prediction(df, b);
         return (allele1_nomenclature, allele2_nomenclature);
     }
-}
-
-fn get_nomenclature_counts(df: &DataFrame) -> DataFrame {
-    let cols_in = ["lengths", "counts", "classes", "nomenclatures"];
-    let cols_out = ["n_occ", "counts", "nomenclatures"];
-
-    debug_assert!(df.get_column_names() == cols_in);
-
-    // polars has a bit weird interface...
-    let mut agg: DataFrame = df
-        .group_by(cols_in).unwrap()
-        .select(["nomenclatures"])  // this is required, because otherwise count does not know how to call the new column
-        .count().unwrap();
-    agg.rename("nomenclatures_count", "n_occ".into()).unwrap();
-    let agg = agg.select(cols_out).unwrap();
-    let sopt = SortMultipleOptions::new().with_order_descending(true);
-    let agg = agg.sort(cols_out, sopt).unwrap();
-    return agg;
-}
-
-#[allow(clippy::type_complexity)]
-fn extract_from_df(df: &DataFrame, idx: usize) -> Result<(Vec<u64>, Vec<u64>, Vec<bool>, u64, u64), Box<dyn Error>> {
-    // collect only relevant columns
-    let module_df = get_module_df(df, idx)?;
-
-    // filter only relevant rows
-    let f = |o: Option<&str>| { let x = o.unwrap(); x == "Spanning" };
-    let mask: BooleanChunked = module_df.column("classes")?.str()?.iter().map(f).collect();
-    let spanning_df = module_df.filter(&mask)?;
-
-    let f = |o: Option<&str>| { let x = o.unwrap(); x == "Flanking" };
-    let mask: BooleanChunked = module_df.column("classes")?.str()?.iter().map(f).collect();
-    let flanking_df = module_df.filter(&mask)?;
-
-    let relevant_df = DataFrame::vstack(&spanning_df, &flanking_df)?;
-
-    // extract to required datastructures
-    let max_spanning_reps: u64 = spanning_df["counts"].u64()?.iter().max().unwrap().unwrap();
-    let max_overall_reps: u64  = relevant_df["counts"].u64()?.iter().max().unwrap().unwrap();
-    let counts: Vec<u64>       = relevant_df["counts"].u64()?.iter().map(|x| x.unwrap()).collect();
-    let lengths: Vec<u64>      = relevant_df["lengths"].u64()?.iter().map(|x| x.unwrap()).collect();
-    let is_spanning: Vec<bool> = relevant_df["classes"].str()?.iter().map(|x| x.unwrap() == "Spanning").collect();
-
-    return Ok((counts, lengths, is_spanning, max_spanning_reps, max_overall_reps));
-}
-
-/// On success return DataFrame with columns (lengths: u64, counts: u64, classes: str,
-/// nomenclatures: str)
-fn get_module_df(df: &DataFrame, idx: usize) -> Result<DataFrame, Box<dyn Error>> {
-    let f1 = |s: &str| s.len().try_into().unwrap();
-    let lengths = df.column("read")?.str()?.iter().map(|o| o.map(f1));
-    let lengths: Column = UInt64Chunked::from_iter_options("lengths".into(), lengths).into_series().into();
-
-    let f2 = |s: &str| s.split(",").nth(idx).unwrap().parse().unwrap();
-    let counts = df.column("module_repetitions")?.str()?.iter().map(|o| o.map(f2));
-    let counts: Column = UInt64Chunked::from_iter_options("counts".into(), counts).into_series().into();
-
-    let f3 = |s: &str| s.split(",").nth(idx).unwrap().to_string();
-    let classes = df.column("module_classes")?.str()?.iter().map(|o| o.map(f3));
-    let classes: Column = StringChunked::from_iter_options("classes".into(), classes).into_series().into();
-    let nomenclatures = df.column("module_nomenclatures")?.str()?.iter().map(|o| o.map(f3));
-    let nomenclatures: Column = StringChunked::from_iter_options("nomenclatures".into(), nomenclatures).into_series().into();
-
-    let module_df = DataFrame::new_infer_height(vec![lengths, counts, classes, nomenclatures])?;
-    return Ok(module_df);
 }
 
 #[test]
@@ -552,49 +466,6 @@ impl Model {
 //     // println!("{}", json);
 // }
 
-fn get_n_co_occurrences(motif_df: &DataFrame, idx1: usize, seq1: String, idx2: usize, seq2: String) -> usize {
-    let f3 = |s: &str| s.split(",").nth(idx1 + 1).unwrap().to_string();
-    let classes = motif_df.column("module_classes").unwrap().str().unwrap().iter().map(|o| o.map(f3));
-    let classes1: Column = StringChunked::from_iter_options("classes1".into(), classes).into_series().into();
-    let nomenclatures = motif_df.column("module_nomenclatures").unwrap().str().unwrap().iter().map(|o| o.map(f3));
-    let nomenclatures1: Column = StringChunked::from_iter_options("nomenclatures1".into(), nomenclatures).into_series().into();
-
-    let f3 = |s: &str| s.split(",").nth(idx2 + 1).unwrap().to_string();
-    let classes = motif_df.column("module_classes").unwrap().str().unwrap().iter().map(|o| o.map(f3));
-    let classes2: Column = StringChunked::from_iter_options("classes2".into(), classes).into_series().into();
-    let nomenclatures = motif_df.column("module_nomenclatures").unwrap().str().unwrap().iter().map(|o| o.map(f3));
-    let nomenclatures2: Column = StringChunked::from_iter_options("nomenclatures2".into(), nomenclatures).into_series().into();
-
-    let cooccurrences_df = DataFrame::new_infer_height(vec![nomenclatures1, nomenclatures2, classes1, classes2]).unwrap();
-
-    let f = |o: Option<&str>| { let x = o.unwrap(); x == "Spanning" };
-    let mask1: BooleanChunked = cooccurrences_df.column("classes1").unwrap().str().unwrap().iter().map(f).collect();
-    let mask2: BooleanChunked = cooccurrences_df.column("classes2").unwrap().str().unwrap().iter().map(f).collect();
-    let mask = mask1 & mask2;
-    let cooccurrences_df = cooccurrences_df.filter(&mask).unwrap();
-
-    let mut agg: DataFrame = cooccurrences_df
-        .group_by(["nomenclatures1", "nomenclatures2"]).unwrap()
-        .select(["nomenclatures1"])  // this is required, because otherwise count does not know how to call the new column
-        .count().unwrap();
-    agg.rename("nomenclatures1_count", "n_occ".into()).unwrap();
-    let agg = agg.select(["n_occ", "nomenclatures1", "nomenclatures2"]).unwrap();
-    let mask1: BooleanChunked = agg.column("nomenclatures1").unwrap().str().unwrap().iter()
-        .map(|o: Option<&str>| { let x = o.unwrap(); x == seq1 }).collect();
-    let mask2: BooleanChunked = agg.column("nomenclatures2").unwrap().str().unwrap().iter()
-        .map(|o: Option<&str>| { let x = o.unwrap(); x == seq2 }).collect();
-
-    let mask = mask1 & mask2;
-    let result = agg.filter(&mask).unwrap();
-
-    if result.height() == 0 {
-        return 0;
-    } else {
-        let x = result.column("n_occ").unwrap().u32().unwrap().get(0).unwrap();
-        return x.try_into().unwrap();
-    }
-}
-
 pub(crate) fn phase(motif_df: &DataFrame, genotypes: &GenotypingResults) -> GenotypingResults {
     let mut result = genotypes.clone();
     let n = genotypes.modules.len();
@@ -602,7 +473,7 @@ pub(crate) fn phase(motif_df: &DataFrame, genotypes: &GenotypingResults) -> Geno
         return result;
     }
 
-    let get_co_occurrences = |a, b, c, d| get_n_co_occurrences(&motif_df.clone(), a, b, c, d);
+    let get_co_occurrences = |a, b, c, d| df_ops::get_n_co_occurrences(&motif_df.clone(), a, b, c, d);
     let mut i = 0;
     let mut j;
     loop {

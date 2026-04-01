@@ -1,11 +1,9 @@
 use std::fmt;
-use std::iter::zip;
 use std::ops::Range;
 use std::str;
 
 use itertools::izip;
 use polars::prelude::DataFrame;
-
 use nom::AsBytes;
 use noodles::bam;
 
@@ -340,7 +338,7 @@ fn get_module_bases(mods: &[u8], idx: usize) -> usize {
 
 fn generate_mismatches(read: &[u8], reference: &[u8]) -> String {
     let mut result = String::with_capacity(read.len());
-    for (x, y) in zip(read, reference) {
+    for (x, y) in izip!(read, reference) {
         match (x, y) {
             (_,    b'-') => { result.push('_'); }
             (b'_', _   ) => { result.push('D'); }
