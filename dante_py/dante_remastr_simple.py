@@ -15,8 +15,10 @@ import numpy as np
 import pandas as pd
 
 from src_new.constants import \
-    VERSION, MOTIF_COLUMN_NAME, MOTIF_COLUMN_ID, MOTIF_COLUMN_N_MODS, MOTIF_COLUMN_MOD_CLASS, \
-    DANTE_DESCRIPTION, MAX_REPETITIONS
+    VERSION, DANTE_DESCRIPTION, MAX_REPETITIONS, \
+    MOTIF_COLUMN_NAME, MOTIF_COLUMN_ID, MOTIF_COLUMN_N_MODS, MOTIF_COLUMN_MOD_CLASS, \
+    MOTIF_COLUMN_MODULES, MOTIF_COLUMN_MISMATCHES_STR, MOTIF_COLUMN_MODULE_REPETITIONS, \
+    MOTIF_COLUMN_MODULE_NOMENCLATURES
 
 from src_new.motif_stats import generate_motif_stats
 from src_new.haplotypes import generate_haplotypes
@@ -637,16 +639,16 @@ class Motif:
 class Annotation:
     def __init__(self, row: pd.Series):
         # Store arguments into instance variables
-        self.states = row["modules"]
+        self.states = row[MOTIF_COLUMN_MODULES]
 
         # Calculate insertion/deletion/mismatch string
-        self.mismatches_string = row["mismatches_str"]
+        self.mismatches_string = row[MOTIF_COLUMN_MISMATCHES_STR]
 
         # Calculate number of insertions, deletions and normal bases
 
         # Number of STR motif repetitions and sequences of modules
-        self.module_repetitions = list(map(int, row["module_repetitions"].split(",")))
-        self.module_nomenclatures = list(row["module_nomenclatures"].split(","))
+        self.module_repetitions = list(map(int, row[MOTIF_COLUMN_MODULE_REPETITIONS].split(",")))
+        self.module_nomenclatures = list(row[MOTIF_COLUMN_MODULE_NOMENCLATURES].split(","))
 
     def get_module_errors(self, motif: Motif, module_num: int, overhang: int | None = None) -> tuple[int, int, int]:
         # get overhang as module length

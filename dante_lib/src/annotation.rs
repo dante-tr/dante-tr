@@ -1,50 +1,17 @@
-use std::error::Error;
 use std::fmt;
-use std::fs::File;
-use std::io::Write;
 use std::iter::zip;
 use std::ops::Range;
-use std::path::Path;
 use std::str;
 
 use itertools::izip;
-use polars::prelude::*;
+use polars::prelude::DataFrame;
 
 use nom::AsBytes;
 use noodles::bam;
 
+use crate::df_ops;
 use crate::io::TRRecord;
 use crate::hmm::Hmm;
-
-pub fn print_tsv_file(df: &mut DataFrame, p: &Path) -> Result<(), Box<dyn Error>> {
-    let file = File::create(p)?;
-    CsvWriter::new(file).with_separator(b'\t').finish(df)?;
-    return Ok(());
-}
-
-// #[cfg(test)]
-// pub fn parse_tsv_file(p: &Path) -> Result<DataFrame, Box<dyn Error>> {
-//     let file = File::open(p)?;
-//     let opts = CsvReadOptions::default().with_parse_options(CsvParseOptions::default().with_separator(b'\t'));
-//     let df = CsvReader::new(file).with_options(opts).finish()?;
-//     return Ok(df);
-// }
-
-pub fn print_dbg_file(df: &DataFrame, p: &Path) -> Result<(), Box<dyn Error>> {
-    let mut file = File::create(p)?;
-
-    // use polars::frame::row::Row;
-    // let mut row = Row::default();
-    for i in 0..df.height() {
-        let row = df.get_row(i)?.0;
-        let col_names = df.columns();
-        for (name, value) in std::iter::zip(col_names, row) {
-            writeln!(file, "{}\t{}", name.name(), value)?;
-        }
-        writeln!(file)?;
-    }
-    return Ok(());
-}
 
 pub fn annotate<T>(in_reads: T, model: Hmm, repeat: &TRRecord) -> DataFrame
 where
@@ -186,33 +153,33 @@ where
         n_mismatcheses.push(n_mismatches as u64);
     }
 
-    let result = df![
-        "name"                 => names,                    // "ALS"
-        "motif"                => motifs,                   // "chr15:g.22786680_22786703GGC[8]"
-                                                            // motif modules
-        "read_sn"              => read_sns,                 // 0
-        "read_id"              => read_ids,                 // "HISEQ1:29:HA2WPADXX:2:2202:2985:13224"
-        "mate_order"           => mate_orders,              // "1"
-                                                            // TODO: add seq?
-        "quality"              => qualities,                // "No quality" TODO: add qual?
-        "read"                 => reads,                    // "CCTCTTCCTGCTCCTCCCCCACCCGTCCCCCTCCCCTCCCCCGCCCGCGCCTCCCGGTCACCCCCCATCCCGCCCCGCGGGGCGCGGCGCGCAGGCGCAGGCTCGGAGGGCGGGCGCGGGCGGAATGGGGACTGCAGCTGCGGCAGCG"
-        "reference"            => references,               // "---------------------------------------------------------------------------------------------------------------------GGGCGGAATGGGGACTGCAGCTGCGGCAGCG"
-        "modules"              => moduleses,                // "---------------------------------------------------------------------------------------------------------------------0000000000000000000000000000001"
-        "mismatches_str"       => mismatches_strs,          // "____________________________________________________________________________________________________________________________________________________"
-        "log_likelihood"       => log_likelihoods,          // -172.339767
-        "left_bg"              => left_bgs,                 // 117
-        "right_bg"             => right_bgs,                // 0
-        "n_deletions"          => n_deletionses,            // 0
-        "n_insertions"         => n_insertionses,           // 0
-        "n_mismatches"         => n_mismatcheses,           // 0
-        "n_modules"            => n_moduleses,              // 3
-        "module_bases"         => module_baseses,           // "30,1,0"
-        "module_repetitions"   => module_repetitionses,     // "1,0,0"
-        "module_sequences"     => module_sequenceses,       // "GGGCGGAATGGGGACTGCAGCTGCGGCAGC,G,"
-        "module_nomenclatures" => module_nomenclatureses,   // "GGGCGGAATGGGGACTGCAGCTGCGGCAGC[1],G[1],"
-        "module_classes"       => module_classeses,         // "Flanking,Missing,Missing"
-    ].expect("Cannot create dataframe");
-
+    // make this a builder pattern?
+    let result = df_ops::construct_df(
+        names,                    // "ALS"
+        motifs,                   // "chr15:g.22786680_22786703GGC[8]"
+                                  // motif modules
+        read_sns,                 // 0
+        read_ids,                 // "HISEQ1:29:HA2WPADXX:2:2202:2985:13224"
+        mate_orders,              // "1"
+                                  // TODO: add seq?
+        qualities,                // "No quality" TODO: add qual?
+        reads,                    // "CCTCTTCCTGCTCCTCCCCCACCCGTCCCCCTCCCCTCCCCCGCCCGCGCCTCCCGGTCACCCCCCATCCCGCCCCGCGGGGCGCGGCGCGCAGGCGCAGGCTCGGAGGGCGGGCGCGGGCGGAATGGGGACTGCAGCTGCGGCAGCG"
+        references,               // "---------------------------------------------------------------------------------------------------------------------GGGCGGAATGGGGACTGCAGCTGCGGCAGCG"
+        moduleses,                // "---------------------------------------------------------------------------------------------------------------------0000000000000000000000000000001"
+        mismatches_strs,          // "____________________________________________________________________________________________________________________________________________________"
+        log_likelihoods,          // -172.339767
+        left_bgs,                 // 117
+        right_bgs,                // 0
+        n_deletionses,            // 0
+        n_insertionses,           // 0
+        n_mismatcheses,           // 0
+        n_moduleses,              // 3
+        module_baseses,           // "30,1,0"
+        module_repetitionses,     // "1,0,0"
+        module_sequenceses,       // "GGGCGGAATGGGGACTGCAGCTGCGGCAGC,G,"
+        module_nomenclatureses,   // "GGGCGGAATGGGGACTGCAGCTGCGGCAGC[1],G[1],"
+        module_classeses,         // "Flanking,Missing,Missing"
+    ).expect("Cannot create dataframe");
     return result;
 }
 
