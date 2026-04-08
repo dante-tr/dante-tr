@@ -4,420 +4,96 @@
 <head>
     <meta charset="UTF-8">
     <title>Dante report</title>
-    <script src="./includes/plotly-2.14.0.min.js"></script>
-    <script src="./includes/jquery-3.6.1.min.js"></script>
-    <script src="./includes/datatables.min.js"></script>
-    <link rel="stylesheet" type="text/css" href="./includes/jquery.dataTables.css">
-    <link rel="stylesheet" type="text/css" href="./includes/w3.css">
-    <link rel="stylesheet" type="text/css" href="./includes/styles.css">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.14.0/plotly.min.js" integrity="sha512-XDnqTWsAcVl16AYJoBHumISzIYThowGjR67jeL53NSp6tajsq2qf5UeAWvk1n6Hp3M2iMsV/ewhPScBiLCDs9Q==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.1/jquery.min.js" integrity="sha512-aVKKRRi/Q/YV+4mjoKBsE4x3H+BkegoM/em46NNlCqNTmUYADjBbeNefNxYV7giUp0VxICtqdrbqU7iVaeZNXA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+    <script src="https://cdn.datatables.net/1.12.1/js/jquery.dataTables.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.12.1/css/jquery.dataTables.min.css">
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/w3-css/4.0.4/w3.min.css" integrity="sha512-7YEXcZ+AmCb/ImxGlIlnDmiXvXJbSdO/aHtUbfvVUv/dE1CTtD5/0w51SGoVASp2sQHNwdoB+IruLfpMoE9Quw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <style>
+        body {
+            padding: 50px;
+        }
+        table, th, td {
+            border: 1px solid black;
+            border-collapse: collapse;
+            width: 100%;
+            padding: 10px;
+            text-align: center;
+            white-space: nowrap;
+        }
+    </style>
 </head>
 
-<body class="valo v-app">
-    {% set vars = data %}
-    {% set max_noms = 5 %}
-    {% set post_bases = vars.postfilter_params[0] %}
-    {% set post_reps = vars.postfilter_params[1] %}
-    {% set errors = vars.postfilter_params[2] %}
-    <!-- <h2 id="content">Content (Sample: {{ vars.sample }} Version: Remastr v{{ vars.dante_version }})</h2> -->
-    <h1 id="content">Content</h1>
-    <div style="margin: 25px 0 25px 0">
-        <h2 class="summary">Summary table</h2>
-        <table class="tg">
+<body>
+    {% set data = data %}
+    {% set params = data.dante_params %}
+    <h1>Report</h1>
+    <p>Dante version: {{ data.dante_version }}</p>
+    <p>Parameters: bam file = {{ params.file_bam }}, motif file = {{ params.file_motif }}</p>
+
+    <div>
+        <h2>Summary table</h2>
+        <table id="summary-table">
             <thead>
                 <tr>
-                    <th class="tg-s6z2" rowspan="3">Motif</th>
-                    <th class="tg-s6z2" rowspan="3">Sequence</th>
-                    <th class="tg-s6z2" colspan="5">Allele 1</th>
-                    <th class="tg-s6z2" colspan="5">Allele 2</th>
-                    <th class="tg-s6z2" rowspan="3">Overall<br>confidence</th>
-                    <th class="tg-s6z2" colspan="2">Errors per read</th>
-                    <th class="tg-s6z2" colspan="2">Reads</th>
-
+                    <th rowspan="2">Module ID</th>
+                    <th rowspan="2">Reference sequence</th>
+                    <th colspan="4">Allele 1</th>
+                    <th colspan="4">Allele 2</th>
+                    <th colspan="5">Overall</th>
                 </tr>
                 <tr>
-                    <td class="tg-s6z2" rowspan="2">prediction</td>
-                    <td class="tg-s6z2" rowspan="2">confidence</td>
-                    <td class="tg-s6z2" rowspan="2">reads</td>
-                    <td class="tg-s6z2" colspan="2">Errors per read</td>
-                    <td class="tg-s6z2" rowspan="2">prediction</td>
-                    <td class="tg-s6z2" rowspan="2">confidence</td>
-                    <td class="tg-s6z2" rowspan="2">reads</td>
-                    <td class="tg-s6z2" colspan="2">Errors per read</td>
-                    <td class="tg-s6z2" rowspan="2">indel</td>
-                    <td class="tg-s6z2" rowspan="2">mismatch</td>
-                    <td class="tg-s6z2" rowspan="2">full</td>
-                    <td class="tg-s6z2" rowspan="2">partial</td>
-                </tr>
-                <tr>
-                    <td class="tg-s6z2">indel</td>
-                    <td class="tg-s6z2">mismatch</td>
-                    <td class="tg-s6z2">indel</td>
-                    <td class="tg-s6z2">mismatch</td>
+                    <td>prediction</td>
+                    <td>confidence</td>
+                    <td>impurities</td>
+                    <td>spanning<br>reads</td>
+                    <td>prediction</td>
+                    <td>confidence</td>
+                    <td>impurities</td>
+                    <td>spanning<br>reads</td>
+                    <td>confidence</td>
+                    <td>non-specific spanning<br>reads</td>
+                    <td>flanking<br>reads</td>
+                    <td>inrepeat<br>reads</td>
+                    <td>total motif<br>reads</td>
                 </tr>
             </thead>
             <tbody>
-                {% for motif in vars.motifs %}
-                {% for row in motif.modules %}
+                {% for motif in data.motifs %}
+                {% for module in motif.modules %}
+                {% set a1 = module.allele_1 %}
+                {% set a2 = module.allele_2 %}
+                {% set oa = module.overall %}
                 <tr>
-                    {% set a1 = row.allele_1 %}
-                    {% set a2 = row.allele_2 %}
-                    {% set confidence = row.stats[0] %}
-                    {% set indels = row.stats[1] %}
-                    {% set mismatches = row.stats[2] %}
-                    <td class="tg-s6z2"><a href="#mid-{{ row.module_id }}">{{ motif.motif_id }}</a></td>
-                    <td class="tg-s6z2">{{ row.sequence }}</td>
-                    <td class="tg-s6z2">{{ a1[0] }}{# pred #}</td>
-                    <td class="tg-s6z2">{{ a1[1] }}{# conf #}</td>
-                    <td class="tg-s6z2">{{ a1[4] }}{# n_reads #}</td>
-                    <td class="tg-s6z2">{{ a1[2] }}{# indels #}</td>
-                    <td class="tg-s6z2">{{ a1[3] }}{# mismatches #}</td>
-                    <td class="tg-s6z2">{{ a2[0] }}{# pred #}</td>
-                    <td class="tg-s6z2">{{ a2[1] }}{# conf #}</td>
-                    <td class="tg-s6z2">{{ a2[4] }}{# n_reads #}</td>
-                    <td class="tg-s6z2">{{ a2[2] }}{# indels #}</td>
-                    <td class="tg-s6z2">{{ a2[3] }}{# mismatches #}</td>
-                    <td class="tg-s6z2">{{ confidence }}</td>
-                    <td class="tg-s6z2">{{ indels }}</td>
-                    <td class="tg-s6z2">{{ mismatches }}</td>
-                    <td class="tg-s6z2">{{ row.reads_spanning }}</td>
-                    <td class="tg-s6z2">{{ row.reads_flanking }}</td>
-                </tr>
-                {% endfor %}
-                {% for row in motif.phasings %}
-                <tr>
-                    {% set a1 = row.allele_1 %}
-                    {% set a2 = row.allele_2 %}
-                    {% set confidence = row.stats[0] %}
-                    {% set indels = row.stats[1] %}
-                    {% set mismatches = row.stats[2] %}
-                    <td class="tg-s6z2"><a href="#pid-{{ row.phasing_id }}">{{ motif.motif_id }}</a></td>
-                    <td class="tg-s6z2">{{ row.sequence }}</td>
-                    <td class="tg-s6z2">{{ a1[0] }}{# pred #}</td>
-                    <td class="tg-s6z2">{{ a1[1] }}{# conf #}</td>
-                    <td class="tg-s6z2">{{ a1[4] }}{# n_reads #}</td>
-                    <td class="tg-s6z2">{{ a1[2] }}{# indels #}</td>
-                    <td class="tg-s6z2">{{ a1[3] }}{# mismatches #}</td>
-                    <td class="tg-s6z2">{{ a2[0] }}{# pred #}</td>
-                    <td class="tg-s6z2">{{ a2[1] }}{# conf #}</td>
-                    <td class="tg-s6z2">{{ a2[4] }}{# n_reads #}</td>
-                    <td class="tg-s6z2">{{ a2[2] }}{# indels #}</td>
-                    <td class="tg-s6z2">{{ a2[3] }}{# mismatches #}</td>
-                    <td class="tg-s6z2">{{ confidence }}</td>
-                    <td class="tg-s6z2">{{ indels }}</td>
-                    <td class="tg-s6z2">{{ mismatches }}</td>
-                    <td class="tg-s6z2">{{ row.reads_spanning }}</td>
-                    <td class="tg-s6z2">{{ row.reads_flanking }}</td>
+                    <td>{{ module.module_id }}</td>
+                    <td>&hellip;ACGAG {{ motif.sequence[loop.index] }} AGCGA&hellip;</td>
+                    <td>{{ a1.num_pred }}</td>
+                    <td>{{ a1.num_conf }}</td>
+                    <td>{{ a1.seq_dist }}</td>
+                    <td>{{ a1.seq_reads_spanning }} / {{ a1.num_reads_spanning }}</td>
+                    <td>{{ a2.num_pred }}</td>
+                    <td>{{ a2.num_conf }}</td>
+                    <td>{{ a2.seq_dist }}</td>
+                    <td>{{ a2.seq_reads_spanning }} / {{ a2.num_reads_spanning }}</td>
+                    <td>{{ oa.conf }}</td>
+                    <td>{{ oa.reads_spanning_seq_nonspec }} / {{ oa.reads_spanning_num_nonspec }}</td>
+                    <td>{{ oa.reads_flanking }}</td>
+                    <td>{{ oa.reads_inrepeat }}</td>
+                    <td>{{ oa.reads_total }}</td>
                 </tr>
                 {% endfor %}
                 {% endfor %}
             </tbody>
         </table>
+        <!--
+        <script>
+            $(document).ready( function () { $('#summary-table').DataTable(); } );
+        </script>
+        -->
     </div>
-
-    {% for motif in vars.motifs %}
-    <div class="tabcontent" id="{{ motif.motif_id }}" style="display: block">
-        <h2>{{ motif.motif_id }}</h2>
-        Global nomenclatures:<br>
-        <table class="nomtg">
-            <tbody>
-                {% for nomenclature in motif.nomenclatures[:max_noms] %}
-                <tr>
-                    <td>{{ nomenclature.count }}x</td>
-                    <td>{{ nomenclature.ref }}</td>
-                    {%+ for part in nomenclature.noms %}<td>{{ part }}</td>{% endfor %}
-
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-
-        {% for row in motif.modules %}
-        <div>
-            <h2 id="mid-{{ row.module_id }}">{{ motif.motif_id }} module {{ row.id[0] }}</h2>
-            <p>{{ row.sequence }}</p>
-            Nomenclatures:<br>
-            <table class="nomtg">
-                <tbody>
-                    {% for nomenclature in row.nomenclatures[:max_noms] %}
-                    <tr>
-                        <td>{{ nomenclature.count }}x</td>
-                        <td>{{ nomenclature.ref }}</td>
-                        {%+ for part in nomenclature.noms %}<td>{{ part }}</td>{% endfor %}
-
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            {% set a1 = row.allele_1 %}
-            {% set a1_pred = a1[0] %}
-            {% set a1_conf = a1[1] %}
-            {% set a2 = row.allele_2 %}
-            {% set a2_pred = a2[0] %}
-            {% set a2_conf = a2[1] %}
-            {% set confidence = row.stats[0] %}
-
-            postfilter: bases {{ post_bases }} , repetitions {{ post_reps }} , max. errors {{ errors }}<br>
-            alleles: {{ a1_pred }} ({{ a1_conf }}) {{ a2_pred }} ({{ a2_conf }}) total {{ confidence }}<br>
-
-            <table class="plots">
-                <tr>
-                    <td colspan="1">
-                        <div class="hist pic100 {{ motif.motif_id }}" id="hist-{{ row.module_id }}"></div>
-                    </td>
-                    <td colspan="1">
-                        <div class="pcol pic100 {{ motif.motif_id }}" id="pcol-{{ row.module_id }}"></div>
-                    </td>
-                </tr>
-            </table>
-
-            {% set read_counts = row.graph_data[0] %}
-            {% if not read_counts is none %}
-            <div>
-                {% set spanning = read_counts[0] %}
-                {% set flanking = read_counts[1] %}
-                {% set inread = read_counts[2] %}
-                <script>
-                    {
-                        // https://plotly.com/javascript/reference/bar/
-                        let spanning_counts = {{ spanning }};
-                        let flanking_counts = {{ flanking }};
-                        let inrepeat_counts = {{ inread }};
-
-                        let spanning_text = spanning_counts.map(v => v === 0 ? "" : String(v));
-                        let flanking_text = flanking_counts.map(v => v === 0 ? "" : String(v));
-                        let inrepeat_text = inrepeat_counts.map(v => v === 0 ? "" : String(v));
-
-                        let ifs_counts = spanning_counts.map((v, i) => v + flanking_counts[i] + inrepeat_counts[i]);
-                        let  fs_counts = spanning_counts.map((v, i) => v + flanking_counts[i]);
-
-
-                        let hist_data = {
-                            "data":[{
-                                "y":ifs_counts,
-                                "text":inrepeat_text,
-                                "type":"bar", "name":"In-repeat reads", "marker":{"color":"#FF6600"},
-                                "textfont":{"color":"#FF6600","size":14}, "textposition":"outside",
-                                "texttemplate":"%{text}", "hoverinfo":"text"
-                            }, {
-                                "y":fs_counts,
-                                "text":flanking_text,
-                                "type":"bar", "name":"Partial reads", "marker":{"color":"#CCCCCC"},
-                                "textfont":{"color":"#CCCCCC","size":14}, "textposition":"outside",
-                                "texttemplate":"%{text}", "hoverinfo":"text"
-                            }, {
-                                "y":spanning_counts,
-                                "text":spanning_text,
-                                "type":"bar", "name":"Full reads", "marker":{"color":"#636EFA"},
-                                "textfont":{"color":"#636EFA","size":14}, "textposition":"outside",
-                                "texttemplate":"%{text}", "hoverinfo":"text"
-                            }],
-                            "layout":{
-                                "title":{"text":"Histogram of repetitions"},
-                                "xaxis":{"title":{"text":"STR repetitions"},"tickmode":"array","tickvals":[5,10,15,20,25,30,35,40],"ticktext":[5,10,15,20,25,30,35,40]},
-                                "yaxis": {"fixedrange":true,"title":{"text":"Read counts"}},
-                                "legend": {"x": 0.85, "y": 0.85 },
-                                "barmode":"overlay",
-                                "hovermode":"x"
-                            }
-                        };
-
-                        let updateGraph = () => {
-                            if (document.getElementById('{{ motif.motif_id }}').style.display === 'block') {
-                                hist_data['layout'] = {
-                                    ...hist_data['layout'],
-                                    width: (window.innerWidth-50) * 0.6,
-                                    height: (window.innerWidth-50) * 0.35,
-                                };
-                                Plotly.react('hist-{{ row.module_id }}', hist_data);
-                            }
-                        };
-
-                        updateGraph();
-                        $(document).ready(function() {
-                            $('.{{ motif.motif_id }}').bind("content-change", updateGraph);
-                            window.addEventListener('resize', updateGraph, true);
-                        });
-                    }
-                </script>
-            </div>
-            {% endif %}
-
-            {% set heatmap_data = row.graph_data[1] %}
-            {% if not heatmap_data is none %}
-            <div>
-                {% set z = heatmap_data[0] %}
-                {% set text = heatmap_data[1] %}
-                {% set y_tickvals = heatmap_data[2] %}
-                {% set y_ticktext = heatmap_data[3] %}
-                {% set x_tickvals = heatmap_data[4] %}
-                {% set x_ticktext = heatmap_data[5] %}
-                {% set x_pos = heatmap_data[6] %}
-                <script>
-                    {
-                        let pcol_data = {
-                            "data":[{
-                                "z": {{ z|replace("None", "null") }},
-                                "text": {{ text }},
-                                "colorscale": "YlOrRd",
-                                "reversescale": true,
-                                "showscale": true,
-                                "name":"",
-                                "type":"heatmap",
-                                "textfont":{"size":15},
-                                "hovertemplate":"%{text} - Loglog likelihood:\t%{z}",
-                                "texttemplate":"%{text}"
-                            }],
-                            "layout":{
-                                "title":{"text":"Loglog likelihood of options"},
-                                "yaxis":{
-                                    "title":{"text":"1st allele"}, "tickvals": {{ y_tickvals }},"ticktext": {{ y_ticktext }},
-                                    "fixedrange":true, "tickmode":"array", "showline":false,"zeroline":false,"showgrid":false
-                                },
-                                "xaxis":{
-                                    "title":{"text":"2nd allele"}, "tickvals":{{ x_tickvals }},"ticktext":{{ x_ticktext }},
-                                    "fixedrange":true, "tickmode":"array", "showline":false,"zeroline":false,"showgrid":false
-                                },
-                                "shapes":[{
-                                    "type":"line",
-                                    "x0":{{ x_pos }}, "x1":{{ x_pos }}, "xref":"x",
-                                    "y0":0, "y1":1, "yref":"y domain", "line":{"color":"black","width":5}
-                                }, {
-                                    "type":"line",
-                                    "x0":0, "x1":1, "xref":"x domain",
-                                    "y0":0.5, "y1":0.5, "yref":"y", "line":{"color":"black","width":5}
-                                }],
-                            }
-                        };
-
-                        let updateGraph = () => {
-                            if (document.getElementById('{{ motif.motif_id }}').style.display === 'block') {
-                                pcol_data['layout'] = {
-                                    ...pcol_data['layout'],
-                                    width: (window.innerWidth-50) * 0.4,
-                                    height: (window.innerWidth-50) * 0.35
-                                };
-                                Plotly.react('pcol-{{ row.module_id }}', pcol_data);
-                            }
-                        };
-
-                        updateGraph();
-                        $(document).ready(function() {
-                            $('.{{ motif.motif_id }}').bind("content-change", updateGraph);
-                            window.addEventListener('resize', updateGraph, true);
-                        });
-                    }
-                </script>
-            </div>
-            {% endif %}
-
-            <p><a href="alignments/{{ motif.motif_id }}.html">Link to alignments</a></p>
-            <p><a href="#content">Back to content</a></p>
-        </div>
-        {% endfor %}
-
-        {% for row in motif.phasings %}
-        <div>
-            <h2 id="pid-{{ row.phasing_id }}">{{ motif.motif_id }} phasing of modules {{ row.ids[0] }} and {{ row.ids[1]
-                }}</h2>
-            <p>{{ row.sequence }}</p>
-            Nomenclatures:<br>
-            <table class="nomtg">
-                <tbody>
-                    {% for nomenclature in row.nomenclatures[:max_noms] %}
-                    <tr>
-                        <td>{{ nomenclature.count }}x</td>
-                        <td>{{ nomenclature.ref }}</td>
-                        {%+ for part in nomenclature.noms %}<td>{{ part }}</td>{% endfor %}
-
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            {% set a1 = row.allele_1 %}
-            {% set a1_pred = a1[0] %}
-            {% set a1_conf = a1[1] %}
-            {% set a2 = row.allele_2 %}
-            {% set a2_pred = a2[0] %}
-            {% set a2_conf = a2[1] %}
-            {% set confidence = row.stats[0] %}
-
-            postfilter: bases {{ post_bases }} , repetitions {{ post_reps }} , max. errors {{ errors }}<br>
-            alleles: {{ a1_pred }} ({{ a1_conf }}) {{ a2_pred }} ({{ a2_conf }}) total {{ confidence }}<br>
-
-            <table class="plots">
-                <tr>
-                    <td colspan="1">
-                        <div class="hist {{ motif.motif_id }}" id="hist2d-{{ row.phasing_id }}"></div>
-                    </td>
-                </tr>
-            </table>
-
-            {% set hist2d_data = row.graph_data[2] %}
-            {% if not hist2d_data is none %}
-            <div>
-                {% set z_partial = hist2d_data[0] %}
-                {% set z_full = hist2d_data[1] %}
-                {% set text = hist2d_data[2] %}
-                {% set yaxis_text = hist2d_data[3] %}
-                {% set xaxis_text = hist2d_data[4] %}
-                <script>
-                    {
-                        // https://plotly.com/javascript/reference/heatmap/
-                        let hist_data = {
-                            "data":[{
-                                "z":{{ z_partial }},
-                                "colorbar":{"title":{"text":"Partial reads"},"x":1.25},
-                                "colorscale":[[0.0, "rgba(0.92, 0.92, 0.92, 0.0)"],[0.01,"rgba(0.92, 0.92, 0.92, 1.0)"],[1.0, "rgba(0.48, 0.48, 0.48, 1.0)"]],
-                                "showscale":true,
-                                "type":"heatmap",
-                            }, {
-                                "z":{{ z_full }},
-                                "text":{{ text }},
-                                "colorbar":{"title":{"text":"Full reads"},"x":1.1},
-                                "colorscale":[[0.0,"rgba(0.85, 0.90, 0.96, 0.0)"],[0.01,"rgba(0.84, 0.90, 0.96, 1.0)"],[1.0,"rgba(0.09, 0.39, 0.67, 1.0)"]],
-                                "showscale":true,
-                                "type":"heatmap",
-                                "name":"Repetitions<br>heatmap",
-                                "hovertemplate":" %{yaxis.title.text}: %{y} <br> %{xaxis.title.text}: %{x} <br> Full / Partial: %{text}",
-                                "hoverlabel":{"font":{"family":"'Droid Sans Mono',mono"}},
-                                "texttemplate":"%{text}",
-                            }],
-                            "layout":{
-                                "width": (window.innerWidth-50) * 0.5,
-                                "height": (window.innerWidth-50) * 0.45,
-                                "yaxis": {"title":{"text":"{{ yaxis_text }}" }, "showgrid":false, "showline":true, "zeroline":false},
-                                "xaxis": {"title":{"text":"{{ xaxis_text }}" }, "showgrid":false, "showline":true, "zeroline":false}
-                            }
-                        };
-
-
-                        let updateGraph = () => {
-                            if (document.getElementById('{{ motif.motif_id }}').style.display === 'block') {
-                                hist_data['layout'] = {
-                                    ...hist_data['layout'],
-                                    width: (window.innerWidth-50) * 0.5,
-                                    height: (window.innerWidth-50) * 0.45
-                                };
-                                Plotly.react('hist2d-{{ row.phasing_id }}', hist_data);
-                            }
-                        };
-
-                        updateGraph();
-                        $(document).ready(function() {
-                            $('.{{ motif.motif_id }}').bind("content-change", updateGraph);
-                            window.addEventListener('resize', updateGraph, true);
-                        });
-                    }
-                </script>
-            </div>
-            {% endif %}
-
-            <p><a href="alignments/{{ motif.motif_id }}.html">Link to alignments</a></p>
-            <p><a href="#content">Back to content</a></p>
-        </div>
-        {% endfor %}
-    </div>
-    {% endfor %}
 </body>
 
 </html>
