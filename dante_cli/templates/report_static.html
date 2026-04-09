@@ -16,13 +16,31 @@
         body {
             padding: 50px;
         }
-        table, th, td {
+        #summary-table {
+            width: 100%;
+            text-align: center;
+        }
+        #summary-table,
+        #summary-table th,
+        #summary-table td {
             border: 1px solid black;
             border-collapse: collapse;
-            width: 100%;
             padding: 10px;
-            text-align: center;
             white-space: nowrap;
+        }
+        .module-results,
+        .module-results td {
+            border: 1px solid black;
+            border-collapse: collapse;
+            padding: 10px;
+            white-space: nowrap;
+        }
+        .part {
+            font-family: monospace;
+            text-align: left;
+        }
+        .count {
+            text-align: right;
         }
     </style>
 </head>
@@ -31,11 +49,14 @@
     {% set data = data %}
     {% set params = data.dante_params %}
     <h1>Report</h1>
-    <p>Dante version: {{ data.dante_version }}</p>
-    <p>Parameters: bam file = {{ params.file_bam }}, motif file = {{ params.file_motif }}</p>
+    <b>Dante version:</b> {{ data.dante_version }}
+    <br>
+    <b>Parameters:</b>
+    <br> bam file = {{ params.file_bam }}
+    <br> motif file = {{ params.file_motif }}
+    <br>
 
-    <div>
-        <h2>Summary table</h2>
+    <div> <h2>Summary table</h2>
         <table id="summary-table">
             <thead>
                 <tr>
@@ -93,6 +114,251 @@
             $(document).ready( function () { $('#summary-table').DataTable(); } );
         </script>
         -->
+    </div>
+
+    <div> <!-- <h2>Motifs</h2> -->
+        {% for motif in data.motifs %}
+        <h2>Motif {{ motif.motif_id }}</h2>
+        <b>Reference sequence:</b>
+        <br>
+        {%+ for part in motif.sequence %} {{ part }} {% endfor %}
+        <br>
+        <b>Motif nomenclatures:</b>
+        <br>
+        <table class="nomenclatures">
+            <tbody>
+                {% for nomenclature in motif.nomenclatures %}
+                <tr>
+                    <td class="count">{{ nomenclature[0] }}x</td>
+                    {%+ for part in nomenclature[1] %}<td class="part">{{ part }}</td>{% endfor %}
+
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+            {% for module in motif.modules %}
+            <h3>Module {{ module.module_id }}</h3>
+            <b>Reference sequence:</b>
+            <br>
+            {%+ for part in motif.sequence %} {{ part }} {% endfor %}
+            <br>
+            {% set a1 = module.allele_1 %}
+            {% set a2 = module.allele_2 %}
+            {% set oa = module.overall %}
+            <b>Module results:</b>
+            <table class="module-results">
+                <tbody>
+                    <tr>
+                        <td></td>
+                        <td>Numeric<br>prediction</td>
+                        <td>Sequence<br>prediction</td>
+                        <td>Numeric<br>confidence</td>
+                        <td>Sequence<br>distance</td>
+                        <td>Spanning<br>reads</td>
+                        <td>Confidence</td>
+                        <td>Spanning<br>reads</td>
+                        <td>Flanking<br>reads</td>
+                        <td>Inrepeat<br>reads</td>
+                        <td>Total<br>reads</td>
+                    </tr>
+                    <tr>
+                        <td>Allele 1</td>
+                        <td>{{ a1.num_pred }}</td>
+                        <td class="part">{{ a1.seq_pred }}</td>
+                        <td>{{ a1.num_conf }}</td>
+                        <td>{{ a1.seq_dist }}</td>
+                        <td>{{ a1.seq_reads_spanning }} / {{ a1.num_reads_spanning }}</td>
+                        <td rowspan="2">{{ oa.conf }}</td>
+                        <td rowspan="2">{{ oa.reads_spanning_seq_nonspec }} / {{ oa.reads_spanning_num_nonspec }}</td>
+                        <td rowspan="2">{{ oa.reads_flanking }}</td>
+                        <td rowspan="2">{{ oa.reads_inrepeat }}</td>
+                        <td rowspan="2">{{ oa.reads_total }}</td>
+                    </tr>
+                    <tr>
+                        <td>Allele 2</td>
+                        <td>{{ a2.num_pred }}</td>
+                        <td class="part">{{ a2.seq_pred }}</td>
+                        <td>{{ a2.num_conf }}</td>
+                        <td>{{ a2.seq_dist }}</td>
+                        <td>{{ a2.seq_reads_spanning }} / {{ a2.num_reads_spanning }}</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <br>
+            <b>Module nomenclatures:</b>
+            <br>
+            <table class="nomenclatures">
+                <tbody>
+                    {% for nomenclature in module.nomenclatures %}
+                    <tr>
+                        <td class="count">{{ nomenclature[0] }}x</td>
+                        {%+ for part in nomenclature[1] %}<td class="part">{{ part }}</td>{% endfor %}
+
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <table>
+                <tr>
+                    <td> <div id="hist-{{ module.module_id }}"></div> </td>
+                    <td> <div id="heat-{{ module.module_id }}"></div> </td>
+                </tr>
+            </table>
+
+            <div>
+                {% set spanning = module.histogram_data.spanning %}
+                {% set flanking = module.histogram_data.flanking %}
+                {% set inrepeat = module.histogram_data.inrepeat %}
+                <script>
+                    {
+                        // https://plotly.com/javascript/reference/bar/
+                        let spanning_counts = {{ spanning }};
+                        let flanking_counts = {{ flanking }};
+                        let inrepeat_counts = {{ inrepeat }};
+
+                        let spanning_text = spanning_counts.map(v => v === 0 ? "" : String(v));
+                        let flanking_text = flanking_counts.map(v => v === 0 ? "" : String(v));
+                        let inrepeat_text = inrepeat_counts.map(v => v === 0 ? "" : String(v));
+
+                        let spanning_hovertext = spanning_counts.map(v => String(v));
+                        let flanking_hovertext = flanking_counts.map(v => String(v));
+                        let inrepeat_hovertext = inrepeat_counts.map(v => String(v));
+
+                        let ifs_counts = spanning_counts.map((v, i) => v + flanking_counts[i] + inrepeat_counts[i]);
+                        let  fs_counts = spanning_counts.map((v, i) => v + flanking_counts[i]);
+
+
+                        let hist_data = {
+                            "data":[{
+                                "type":"bar", "name":"In-repeat reads", "marker":{"color":"#FF6600"},
+                                "textfont":{"color":"#FF6600","size":14}, "textposition":"outside",
+                                "y":ifs_counts,
+                                "text":inrepeat_text,
+                                "texttemplate":"%{text}", 
+                                "hovertemplate": inrepeat_hovertext
+                            }, {
+                                "type":"bar", "name":"Partial reads", "marker":{"color":"#CCCCCC"},
+                                "textfont":{"color":"#CCCCCC","size":14}, "textposition":"outside",
+                                "y":fs_counts,
+                                "text":flanking_text,
+                                "texttemplate":"%{text}",
+                                "hovertemplate": flanking_hovertext
+                            }, {
+                                "type":"bar", "name":"Full reads", "marker":{"color":"#636EFA"},
+                                "textfont":{"color":"#636EFA","size":14}, "textposition":"outside",
+                                "y":spanning_counts,
+                                "text":spanning_text,
+                                "texttemplate":"%{text}",
+                                "hovertemplate": spanning_hovertext
+                            }],
+                            "layout":{
+                                "title":{"text":"Histogram of repetitions"},
+                                "xaxis":{"title":{"text":"STR repetitions"}},
+                                "yaxis":{"title":{"text":"Read counts"}, "fixedrange":true},
+                                "barmode":"overlay",
+                                "hovermode":"x"
+                            }
+                        };
+
+                        let updateGraph = () => {
+                            hist_data['layout'] = {
+                                ...hist_data['layout'],
+                                width: (window.innerWidth-100) * 0.6,
+                                height: (window.innerWidth-100) * 0.4,
+                            };
+                            Plotly.react('hist-{{ module.module_id }}', hist_data);
+                        };
+                        updateGraph();
+                        $('.hist-{{ module.module_id }}').bind("content-change", updateGraph);
+                        window.addEventListener('resize', updateGraph, true);
+                    }
+                </script>
+            </div>
+
+            <div>
+                {% set z = module.heatmap_data.matrix|replace("-inf", "null") %}
+                {% set xlim = module.heatmap_data.xlim %}
+                {% set ylim = module.heatmap_data.ylim %}
+                <script>
+                    {
+                        // TODO: this could be nicer
+                        let z = {{ z }};
+                        let xlim = {{ xlim }};
+                        let ylim = {{ ylim }};
+
+                        const rows = z.length;
+                        const cols = z[0].length;
+                        let y_tickvals = Array.from({ length: cols }, (_, i) => i);
+                        let y_ticktext = Array.from({ length: cols }, (_, i) => `${i}`);
+                        y_ticktext[cols-1] = "B";
+                        y_ticktext[cols-2] = "E";
+                        let x_tickvals = Array.from({ length: rows }, (_, i) => i);
+                        let x_ticktext = Array.from({ length: rows }, (_, i) => `${i}`);
+                        x_ticktext[cols-1] = "B";
+                        x_ticktext[cols-2] = "E";
+                        let text = Array.from({ length: rows },
+                            (_, i) => Array.from({ length: cols },
+                                (_, j) => `${x_ticktext[i]}/${y_ticktext[j]}`
+                            )
+                        );
+
+                        let pcol_data = {
+                            "data":[{
+                                "z": {{ z }},
+                                "text": text,
+                                "colorscale": "YlOrRd",
+                                "reversescale": true,
+                                "showscale": true,
+                                "name":"",
+                                "type":"heatmap",
+                                "textfont":{"size":15},
+                                "hovertemplate":"%{text} - Loglog likelihood:\t%{z}",
+                                "texttemplate":"%{text}"
+                            }],
+                            "layout":{
+                                "title":{"text":"Loglog likelihood of options"},
+                                "yaxis":{
+                                    "title":{"text":"1st allele"},
+                                    "tickvals": y_tickvals,"ticktext": y_ticktext,
+                                    "range": ylim,
+                                    "tickmode":"array",
+                                    "showline":false,"zeroline":false,"showgrid":false
+                                },
+                                "xaxis":{
+                                    "title":{"text":"2nd allele"},
+                                    "tickvals":x_tickvals,"ticktext":x_ticktext,
+                                    "range": xlim,
+                                    "tickmode":"array",
+                                    "showline":false,"zeroline":false,"showgrid":false
+                                },
+                                "shapes":[{
+                                    "type":"line",
+                                    "x0":cols - 2.5, "x1":cols - 2.5,
+                                    "xref":"x",
+                                    "y0":0, "y1":1, "yref":"y domain", "line":{"color":"black","width":5}
+                                }],
+                            }
+                        };
+
+                        let updateGraph = () => {
+                            pcol_data['layout'] = {
+                                ...pcol_data['layout'],
+                                width: (window.innerWidth-100) * 0.4,
+                                height: (window.innerWidth-100) * 0.4
+                            };
+                            Plotly.react('heat-{{ module.module_id }}', pcol_data);
+                        };
+                        updateGraph();
+                        $('.heat-{{ module.module_id }}').bind("content-change", updateGraph);
+                        window.addEventListener('resize', updateGraph, true);
+                    }
+                </script>
+            </div>
+            {% endfor %}
+        {% endfor %}
     </div>
 </body>
 

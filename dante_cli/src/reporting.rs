@@ -77,7 +77,7 @@ fn generate_motifs() -> Vec<minijinja::Value> {
     // ../../../../analyses/2026-03-04_validation_v4/output/motifs/DM2.genotypes.json
     let motifs = vec![
         generate_ALS(),
-        generate_ALS(),
+        // generate_ALS(),
     ];
     return motifs;
 }
