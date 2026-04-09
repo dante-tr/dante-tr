@@ -85,11 +85,12 @@
             <tbody>
                 {% for motif in data.motifs %}
                 {% for module in motif.modules %}
+                {% set mod_id = motif.motif_id ~ "_" ~ module.module_id %}
                 {% set a1 = module.allele_1 %}
                 {% set a2 = module.allele_2 %}
                 {% set oa = module.overall %}
                 <tr>
-                    <td>{{ module.module_id }}</td>
+                    <td>{{ mod_id }}</td>
                     <td>&hellip;ACGAG {{ motif.sequence[loop.index] }} AGCGA&hellip;</td>
                     <td>{{ a1.num_pred }}</td>
                     <td>{{ a1.num_conf }}</td>
@@ -110,9 +111,7 @@
             </tbody>
         </table>
         <!--
-        <script>
-            $(document).ready( function () { $('#summary-table').DataTable(); } );
-        </script>
+        <script> $(document).ready( function () { $('#summary-table').DataTable(); } ); </script>
         -->
     </div>
 
@@ -138,7 +137,8 @@
         </table>
 
             {% for module in motif.modules %}
-            <h3>Module {{ module.module_id }}</h3>
+            {% set mod_id = motif.motif_id ~ "_" ~ module.module_id %}
+            <h3>Module {{ mod_id }}</h3>
             <b>Reference sequence:</b>
             <br>
             {%+ for part in motif.sequence %} {{ part }} {% endfor %}
@@ -203,8 +203,8 @@
 
             <table>
                 <tr>
-                    <td> <div id="hist-{{ module.module_id }}"></div> </td>
-                    <td> <div id="heat-{{ module.module_id }}"></div> </td>
+                    <td> <div id="hist-{{ mod_id }}"></div> </td>
+                    <td> <div id="heat-{{ mod_id }}"></div> </td>
                 </tr>
             </table>
 
@@ -269,10 +269,10 @@
                                 width: (window.innerWidth-100) * 0.6,
                                 height: (window.innerWidth-100) * 0.4,
                             };
-                            Plotly.react('hist-{{ module.module_id }}', hist_data);
+                            Plotly.react('hist-{{ mod_id }}', hist_data);
                         };
                         updateGraph();
-                        $('.hist-{{ module.module_id }}').bind("content-change", updateGraph);
+                        $('.hist-{{ mod_id }}').bind("content-change", updateGraph);
                         window.addEventListener('resize', updateGraph, true);
                     }
                 </script>
@@ -349,10 +349,10 @@
                                 width: (window.innerWidth-100) * 0.4,
                                 height: (window.innerWidth-100) * 0.4
                             };
-                            Plotly.react('heat-{{ module.module_id }}', pcol_data);
+                            Plotly.react('heat-{{ mod_id }}', pcol_data);
                         };
                         updateGraph();
-                        $('.heat-{{ module.module_id }}').bind("content-change", updateGraph);
+                        $('.heat-{{ mod_id }}').bind("content-change", updateGraph);
                         window.addEventListener('resize', updateGraph, true);
                     }
                 </script>

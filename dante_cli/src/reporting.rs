@@ -106,7 +106,7 @@ fn generate_ALS() -> minijinja::Value {
         ],
         modules => vec![
             context! {
-                module_id => "ALS_0",
+                module_id => 0,
                 allele_1 => context! {
                     num_pred => 8,
                     num_conf => 1.0,
@@ -187,7 +187,7 @@ fn generate_ALS2() -> minijinja::Value {
         ],
         modules: vec![
             ModuleData {
-                module_id: "ALS2_0".to_string(),
+                module_id: 0,
                 allele_1: AlleleData {
                     num_pred: 8,
                     num_conf: 1.0,
@@ -246,7 +246,8 @@ fn generate_ALS2() -> minijinja::Value {
         ]
     };
 
-    return minijinja::Value::from_serialize(result);
+    let x: serde_json::Value = serde_json::to_value(&result).unwrap();
+    return minijinja::Value::from_serialize(x);
 }
 
 #[derive(Serialize, Deserialize)]
@@ -259,7 +260,7 @@ struct MotifData {
 
 #[derive(Serialize, Deserialize)]
 struct ModuleData {
-    module_id: String,
+    module_id: usize,
     allele_1: AlleleData,
     allele_2: AlleleData,
     overall: OverallData,
