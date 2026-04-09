@@ -3,6 +3,7 @@ use std::{error::Error, fs::File, io::Read};
 use minijinja::{context, Environment};
 use polars::prelude::*;
 use serde_json::Value;
+use serde::{Serialize, Deserialize};
 
 pub(crate) fn report(annotations: Vec<String>, genotypes: Vec<String>) -> Result<(), Box<dyn Error>> {
     // read tsv
@@ -75,9 +76,10 @@ fn generate_motifs() -> Vec<minijinja::Value> {
     // ../../../../analyses/2026-03-04_validation_v4/output/motifs/ALS.genotypes.json
     // ../../../../analyses/2026-03-04_validation_v4/output/motifs/DM2.annotations.tsv
     // ../../../../analyses/2026-03-04_validation_v4/output/motifs/DM2.genotypes.json
+    // assert_eq!(generate_ALS(), generate_ALS2());
     let motifs = vec![
         generate_ALS(),
-        // generate_ALS(),
+        generate_ALS2(),
     ];
     return motifs;
 }
@@ -158,20 +160,144 @@ fn generate_ALS() -> minijinja::Value {
                     ],
                     xlim => vec![3, 11],
                     ylim => vec![3, 11]
-
-                    // chatgpt claims this is possible
-                    // const layout = {
-                    //   xaxis: {
-                    //    range: [x_min, x_max]
-                    //  },
-                    //  yaxis: {
-                    //    range: [y_min, y_max]
-                    //  }
-                    // };
-                    //
-                    // Plotly.newPlot('div', data, layout);
                 }
             }
         ]
     }
+}
+
+#[allow(non_snake_case)]
+#[cfg(test)]
+fn generate_ALS2() -> minijinja::Value {
+    const NINF: f64 = f64::NEG_INFINITY;
+    let result = MotifData {
+        motif_id: "ALS2".to_string(),
+        sequence: vec![
+            "GGGCGGAATGGGGACTGCAGCTGCGGCAGC".to_string(),
+            "GGC[8]".to_string(),
+            "CGGGGAGGGGGCGCGTAGCCCGAGCCCCGC".to_string()
+        ],
+        nomenclatures: vec![
+            (156, vec!["GGC[8]".to_string()]),
+            (6, vec!["GGC[7]GGG[1]".to_string()]),
+            (1, vec!["GGC[1]GGG[1]GGC[3]GGG[3]".to_string()]),
+            (1, vec!["GGC[2]GGG[1]GGC[4]GGG[1]".to_string()]),
+            (1, vec!["GGC[3]GGG[1]GGC[1]GGG[2]GGC[1]".to_string()]),
+            // and 13 more
+        ],
+        modules: vec![
+            ModuleData {
+                module_id: "ALS2_0".to_string(),
+                allele_1: AlleleData {
+                    num_pred: 8,
+                    num_conf: 1.0,
+                    num_reads_spanning: 177,
+                    seq_pred: "GGC[8]".to_string(),
+                    seq_dist: 0,
+                    seq_reads_spanning: 156,
+                },
+                allele_2: AlleleData {
+                    num_pred: 8,
+                    num_conf: 1.0,
+                    num_reads_spanning: 177,
+                    seq_pred: "GGC[8]".to_string(),
+                    seq_dist: 0,
+                    seq_reads_spanning: 156,
+                },
+                overall: OverallData {
+                    conf: 1.0,
+                    reads_spanning_num_nonspec: 1,
+                    reads_spanning_seq_nonspec: 22,
+                    reads_flanking: 68,
+                    reads_inrepeat: 0,
+                    reads_total: 256, /* 177(Spanning) + 1(Spanning) + 68(Flanking) + 0(Inrepeat) + 10(Missing)*/
+                },
+                nomenclatures: vec![
+                    (156, vec!["GGC[8]".to_string()]),
+                    (6, vec!["GGC[7]GGG[1]".to_string()]),
+                    (1, vec!["GGC[1]GGG[1]GGC[3]GGG[3]".to_string()]),
+                    (1, vec!["GGC[2]GGG[1]GGC[4]GGG[1]".to_string()]),
+                    (1, vec!["GGC[3]GGG[1]GGC[1]GGG[2]GGC[1]".to_string()]),
+                    // and 13 more
+                ],
+                histogram_data: HistogramData {
+                    spanning: vec![0, 0, 0, 0, 0 , 1 , 0, 0, 177, 0, 0],
+                    flanking: vec![0, 0, 6, 7, 11, 12, 9, 6, 16 , 1, 0],
+                    inrepeat: vec![0, 0, 0, 0, 0 , 0 , 0, 0, 0  , 0, 0],
+                },
+                heatmap_data: HeatmapData {
+                    matrix: vec![
+                        vec![-2928.62, -2928.54, -2899.41, -2864.29, -2807.24, -2736.91, -2692.38, -2562.01, -1338.86, -2296.59, -2758.10],
+                        vec![NINF    , -2928.47, -2899.41, -2864.29, -2807.24, -2736.91, -2692.38, -2562.01, -1338.86, -2296.58, -2758.07],
+                        vec![NINF    , NINF    , -2895.08, -2860.16, -2803.11, -2732.78, -2688.25, -2557.87, -1334.73, -2290.14, -2733.10],
+                        vec![NINF    , NINF    , NINF    , -2854.82, -2798.28, -2727.95, -2683.42, -2553.05, -1329.90, -2282.60, -2702.96],
+                        vec![NINF    , NINF    , NINF    , NINF    , -2789.58, -2720.36, -2675.76, -2545.13, -1321.98, -2270.42, -2653.81],
+                        vec![NINF    , NINF    , NINF    , NINF    , NINF    , -2710.43, -2662.29, -2530.29, -1307.13, -2250.91, -2592.33],
+                        vec![NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , -2659.78, -2529.31, -1306.17, -2246.45, -2553.85],
+                        vec![NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , -2462.26, -1303.52, -2220.61, -2469.42],
+                        vec![NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , -1169.61, -1304.86, -1337.24],
+                        vec![NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , -2143.83, -2265.88],
+                        vec![NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , -2658.36]
+                    ],
+                    xlim: vec![3, 11],
+                    ylim: vec![3, 11]
+                }
+            }
+        ]
+    };
+
+    return minijinja::Value::from_serialize(result);
+}
+
+#[derive(Serialize, Deserialize)]
+struct MotifData {
+    motif_id: String,
+    sequence: Vec<String>,
+    nomenclatures: Vec<(u64, Vec<String>)>,
+    modules: Vec<ModuleData>
+}
+
+#[derive(Serialize, Deserialize)]
+struct ModuleData {
+    module_id: String,
+    allele_1: AlleleData,
+    allele_2: AlleleData,
+    overall: OverallData,
+    nomenclatures: Vec<(u64, Vec<String>)>,
+    histogram_data: HistogramData,
+    heatmap_data: HeatmapData
+}
+
+#[derive(Serialize, Deserialize)]
+struct AlleleData {
+    num_pred: u64,
+    num_conf: f64,
+    num_reads_spanning: u64,
+    seq_pred: String,
+    seq_dist: u64,
+    seq_reads_spanning: u64
+}
+
+#[derive(Serialize, Deserialize)]
+struct OverallData {
+    conf: f64,
+    reads_spanning_num_nonspec: u64,
+    reads_spanning_seq_nonspec: u64,
+    reads_flanking: u64,
+    reads_inrepeat: u64,
+    reads_total: u64
+}
+
+#[derive(Serialize, Deserialize)]
+struct HistogramData {
+    spanning: Vec<u64>,
+    flanking: Vec<u64>,
+    inrepeat: Vec<u64>
+}
+
+#[derive(Serialize, Deserialize)]
+struct HeatmapData {
+    matrix: Vec<Vec<f64>>,
+    xlim: Vec<u64>,
+    ylim: Vec<u64>
 }
