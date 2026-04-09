@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fs::File;
 use std::path::Path;
 use std::io::Write;
+use std::ops::Range;
 
 pub(crate) fn print_tsv_file(df: &DataFrame, p: &Path) -> Result<(), Box<dyn Error>> {
     // The python part ( ./../../dante_py/src_new/constants.py:13:1 ) needs these columns:
@@ -249,5 +250,20 @@ pub(crate) fn get_noms_and_occs(df: &DataFrame, a: usize) -> (Vec<String>, Vec<u
 
     return (noms, occs);
 }
+
+pub(crate) fn get_nomenclatures(main_df: &DataFrame, idxs: Range<usize>) -> Vec<(u64, Vec<String>)> {
+    // TODO:
+    vec![
+        (156, vec!["GGC[8]".to_string()]),
+        (6, vec!["GGC[7]GGG[1]".to_string()]),
+        (1, vec!["GGC[1]GGG[1]GGC[3]GGG[3]".to_string()]),
+        (1, vec!["GGC[2]GGG[1]GGC[4]GGG[1]".to_string()]),
+        (1, vec!["GGC[3]GGG[1]GGC[1]GGG[2]GGC[1]".to_string()]),
+        (1, vec!["Finish me".to_string()]),
+        // and 13 more
+    ]
+}
+
+
 
 

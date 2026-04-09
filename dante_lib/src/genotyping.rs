@@ -6,6 +6,7 @@ use polars::prelude::DataFrame;
 use statrs::{distribution::{Binomial, Discrete}, statistics::Statistics};
 use ndarray::{self, s, Array};
 use serde::{Serialize, Deserialize};
+use std::fmt;
 
 use crate::hmm::Module;
 use crate::df_ops;
@@ -70,6 +71,16 @@ pub(crate) enum Prediction {
     Num(usize),     // change breaks python parsing
     Expansion,      // change breaks python parsing
     Background
+}
+
+impl fmt::Display for Prediction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Num(x)     => { write!(f, "{}", x)?; Ok(())},
+            Self::Expansion  => { write!(f, "E")?;     Ok(())},
+            Self::Background => { write!(f, "B")?;     Ok(())}
+        }
+    }
 }
 
 pub(crate) fn genotype(df: &DataFrame, modules: &[Module]) -> GenotypingResults {

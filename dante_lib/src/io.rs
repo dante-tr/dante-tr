@@ -82,6 +82,19 @@ impl TRRecord {
         let region_str = format!("{}:{}-{}", self.reference, self.start + 1, self.end);
         return region_str;
     }
+
+    pub(crate) fn to_sequence(&self) -> Vec<String> {
+        use std::str::from_utf8;
+        use std::iter::zip;
+        let mut sequence = Vec::new();
+        sequence.push(from_utf8(&self.flank_l).unwrap().to_string());
+        for (unit, n) in zip(&self.copy_unit, &self.copy_number) {
+            let x = format!("{}[{}]", from_utf8(unit).unwrap(), n);
+            sequence.push(x);
+        }
+        sequence.push(from_utf8(&self.flank_r).unwrap().to_string());
+        return sequence;
+    }
 }
 
 pub(crate) fn read_motifs2(filename: &Path) -> Vec<TRRecord> {
