@@ -279,7 +279,7 @@
             </div>
 
             <div>
-                {% set z = module.heatmap_data.matrix|replace("-inf", "null") %}
+                {% set z = module.heatmap_data.matrix | string | replace("none", "null") | replace("-inf", "null") %}
                 {% set xlim = module.heatmap_data.xlim %}
                 {% set ylim = module.heatmap_data.ylim %}
                 <script>
@@ -307,7 +307,7 @@
 
                         let pcol_data = {
                             "data":[{
-                                "z": {{ z }},
+                                "z": z,
                                 "text": text,
                                 "colorscale": "YlOrRd",
                                 "reversescale": true,

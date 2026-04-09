@@ -108,7 +108,7 @@ fn generate_ALS() -> minijinja::Value {
             context! {
                 module_id => 0,
                 allele_1 => context! {
-                    num_pred => 8,
+                    num_pred => 8.to_string(),
                     num_conf => 1.0,
                     num_reads_spanning => 177,
                     seq_pred => "GGC[8]",
@@ -116,7 +116,7 @@ fn generate_ALS() -> minijinja::Value {
                     seq_reads_spanning => 156,
                 },
                 allele_2 => context! {
-                    num_pred => 8,
+                    num_pred => 8.to_string(),
                     num_conf => 1.0,
                     num_reads_spanning => 177,
                     seq_pred => "GGC[8]",
@@ -189,7 +189,7 @@ fn generate_ALS2() -> minijinja::Value {
             ModuleData {
                 module_id: 0,
                 allele_1: AlleleData {
-                    num_pred: 8,
+                    num_pred: 8.to_string(),
                     num_conf: 1.0,
                     num_reads_spanning: 177,
                     seq_pred: "GGC[8]".to_string(),
@@ -197,7 +197,7 @@ fn generate_ALS2() -> minijinja::Value {
                     seq_reads_spanning: 156,
                 },
                 allele_2: AlleleData {
-                    num_pred: 8,
+                    num_pred: 8.to_string(),
                     num_conf: 1.0,
                     num_reads_spanning: 177,
                     seq_pred: "GGC[8]".to_string(),
@@ -271,7 +271,7 @@ struct ModuleData {
 
 #[derive(Serialize, Deserialize)]
 struct AlleleData {
-    num_pred: u64,
+    num_pred: String,
     num_conf: f64,
     num_reads_spanning: u64,
     seq_pred: String,
