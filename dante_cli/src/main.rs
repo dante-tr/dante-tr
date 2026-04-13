@@ -23,31 +23,29 @@ fn main() {
     });
 
     run_v2(&args.bam_file, &args.motif_file, &args.output, args.out_bam);
+    reporting::report(&args).unwrap();
     println!("Finished successfully.");
-    // let annotations: Vec<String> = vec!["./output/motifs/ALS.annotations.tsv".to_string()];
-    // let genotypes: Vec<String>   = vec!["./output/motifs/ALS.genotypes.json".to_string()];
-    // reporting::report(annotations, genotypes).unwrap();
 }
 
 // Predict short tandem repeat annotation
 #[derive(Parser, Debug, PartialEq, Eq)]
-struct ArgsNew {
+pub(crate) struct ArgsNew {
     /// Reads mapped to reference in BAM format
     #[arg(short='b')]
-    bam_file: PathBuf,
+    pub(crate) bam_file: PathBuf,
 
     /// Table in tsv format containing data about repeat such as HGVS nomenclature, flanks, etc.
     #[arg(short='m')]
-    motif_file: PathBuf,
+    pub(crate) motif_file: PathBuf,
 
     /// Directory where the results of annotation will be written
     #[arg(short='o')]
-    output: PathBuf,
+    pub(crate) output: PathBuf,
 
     /// Output annotated reads in BAM.
     /// BAM files contain only reads which overlap with motif positions.
     #[arg(long="output-bams", action, verbatim_doc_comment)]
-    out_bam: bool,
+    pub(crate) out_bam: bool,
 }
 
 // Predict short tandem repeat annotation

@@ -6,6 +6,8 @@ use std::path::Path;
 use std::io::Write;
 use std::ops::Range;
 
+use crate::genotyping::Prediction;
+
 pub(crate) fn print_tsv_file(df: &DataFrame, p: &Path) -> Result<(), Box<dyn Error>> {
     // The python part ( ./../../dante_py/src_new/constants.py:13:1 ) needs these columns:
     // MOTIF_COLUMN_ID = "name"
@@ -264,6 +266,43 @@ pub(crate) fn get_nomenclatures(main_df: &DataFrame, idxs: Range<usize>) -> Vec<
     ]
 }
 
+pub(crate) fn get_num_reads_spanning(df: &DataFrame, idx: usize, pred: Prediction) -> u64 {
+    return 177;
+}
 
+pub(crate) fn get_seq_reads_spanning(df: &DataFrame, idx: usize, pred: &str) -> u64 {
+    return 156;
+}
 
+pub(crate) fn get_reads_spanning_num_nonspec(df: &DataFrame, idx: usize, preds: (Prediction, Prediction)) -> u64 {
+    return 1;
+}
 
+pub(crate) fn get_reads_spanning_seq_nonspec(df: &DataFrame, idx: usize, preds: &(String, String)) -> u64 {
+    return 22;
+}
+
+pub(crate) fn get_reads_flanking(df: &DataFrame, idx: usize) -> u64 {
+    return 68;
+}
+
+pub(crate) fn get_reads_inrepeat(df: &DataFrame, idx: usize) -> u64 {
+    return 0;
+}
+
+pub(crate) fn get_reads_total(df: &DataFrame) -> u64 {
+    return 256;
+}
+ 
+pub(crate) fn get_spanning_histogram(df: &DataFrame, idx: usize) -> Vec<u64> {
+    return vec![0, 0, 0, 0, 0 , 1 , 0, 0, 177, 0, 0];
+}
+
+pub(crate) fn get_flanking_histogram(df: &DataFrame, idx: usize) -> Vec<u64> {
+    return vec![0, 0, 6, 7, 11, 12, 9, 6, 16 , 1, 0];
+}
+
+pub(crate) fn get_inrepeat_histogram(df: &DataFrame, idx: usize) -> Vec<u64> {
+    return vec![0, 0, 0, 0, 0 , 0 , 0, 0, 0  , 0, 0];
+
+}

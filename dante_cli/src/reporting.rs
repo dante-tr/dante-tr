@@ -1,44 +1,91 @@
 use std::{error::Error, fs::File, io::Read};
+use std::io::Write;
 
 use minijinja::{context, Environment};
-use polars::prelude::*;
 use serde_json::Value;
 use serde::{Serialize, Deserialize};
 
-pub(crate) fn report(annotations: Vec<String>, genotypes: Vec<String>) -> Result<(), Box<dyn Error>> {
-    // read tsv
-    let file = File::open(&annotations[0]).unwrap();
-    let opts = CsvReadOptions::default().with_parse_options(CsvParseOptions::default().with_separator(b'\t'));
-    let df = CsvReader::new(file).with_options(opts).finish().unwrap();
+pub(crate) fn report(args: &crate::ArgsNew) -> Result<(), Box<dyn Error>> {
+    let motif_names = [  // get these from args.motif_file
+        "HMNR7", "SCA37", "NIID_ETM6", "FAME2", "SPD", "GAD", "SCA7",
+        "DM2", "BPES", "FAME4", "HD", "CANVAS", "CCHS", "FAME7", "FAME3", 
+        "SCA12", "SCA1", "CCD", "SCA17", "HGF", "CF", "OPDM1", "FAME1",
+        "FTD_ALS", "FRDA", "HSAN8", "OPML1", "JBS", "DRPLA", "SCA2", "OPDM4",
+        "SCA8", "HPE5", "SCA27B", "OPMD", "SCA3", "ALS", "BSS", "FAME6", "SCA",
+        "SCA4", "HDL2", "RCPS", "FECD3", "SCA6", "OPDM2", "PSACH_MED", "DM1",
+        "SCA36", "CJD", "EPM1", "TOF", "SCA10", "DEE1_MRXARX_PRTS", "DEE1_MRXARX",
+        "DMD", "SBMA", "VACTERLX", "PHPX_XLMR", "FRAXA_FXTAS_FXPOI", "FRAXE", "FRAXF"
+    ];
 
-    // read json
-    let mut x = File::open(&genotypes[0]).unwrap();
+    let mut motifs = Vec::new();
     let mut buf = String::new();
-    let y = x.read_to_string(&mut buf).unwrap();
-    let json: Value = serde_json::from_str(&buf).expect("JSON was not well-formatted");
+    for motif in motif_names {
+        let filename = args.output.join(motif.to_owned() + ".motif.json");
+        let mut fp = File::open(filename).unwrap();
+        let _ = fp.read_to_string(&mut buf).unwrap();
+        let json: Value = serde_json::from_str(&buf).expect("JSON was not well-formatted");
+        motifs.push(json);
+        buf.clear();
+    };
 
-    // collect data
-    let ctx = context!(name => "John");
+    let data = context! {
+        dante_version => "0.14.0",  // TODO get_version from toml
+        dante_params => context! {
+            file_bam => args.bam_file,
+            file_motif => args.motif_file,
+            // is_male => true,        // TODO
+            // max_noms => 5,          // TODO
+        },
+        motifs => motifs
+    };
 
-    // create alignment reports
-
-    // create main report
     let mut env = Environment::new();
-    // let tmp = include_str!("./../../dante_py/templates/report_template2_static.html");
-    // let tmp = include_str!("./report_static.html");
-    env.add_template("hello", "Hello {{ name }}!").unwrap();
-    let tmpl = env.get_template("hello").unwrap();
-    let result = tmpl.render(ctx).unwrap();
+    env.add_template("report_static", include_str!("../templates/report_static.html")).unwrap();
+    let tmpl = env.get_template("report_static").unwrap();
+    let result = tmpl.render(context! { data => data }).unwrap();
+    let output_file = "report_static.html";  // TODO
+    let mut file = File::create(output_file).unwrap();
+    file.write_all(result.as_bytes()).unwrap();
 
-    // ...profit
-    println!("{:?}", df);
-    println!("{:?}", json);
-    println!("{:?}", y);
-    println!("{:?}", annotations);
-    println!("{:?}", genotypes);
-    println!("{}", result);
-    return Ok(());
+    Ok(())
 }
+
+// pub(crate) fn report(output: &Path) -> Result<(), Box<dyn Error>> {
+//     let annotations: Vec<String> = vec!["./output/motifs/ALS.annotations.tsv".to_string()];
+//     let genotypes: Vec<String>   = vec!["./output/motifs/ALS.genotypes.json".to_string()];
+//     // read tsv
+//     let file = File::open(&annotations[0]).unwrap();
+//     let opts = CsvReadOptions::default().with_parse_options(CsvParseOptions::default().with_separator(b'\t'));
+//     let df = CsvReader::new(file).with_options(opts).finish().unwrap();
+// 
+//     // read json
+//     let mut x = File::open(&genotypes[0]).unwrap();
+//     let mut buf = String::new();
+//     let y = x.read_to_string(&mut buf).unwrap();
+//     let json: Value = serde_json::from_str(&buf).expect("JSON was not well-formatted");
+// 
+//     // collect data
+//     let ctx = context!(name => "John");
+// 
+//     // create alignment reports
+// 
+//     // create main report
+//     let mut env = Environment::new();
+//     // let tmp = include_str!("./../../dante_py/templates/report_template2_static.html");
+//     // let tmp = include_str!("./report_static.html");
+//     env.add_template("hello", "Hello {{ name }}!").unwrap();
+//     let tmpl = env.get_template("hello").unwrap();
+//     let result = tmpl.render(ctx).unwrap();
+// 
+//     // ...profit
+//     println!("{:?}", df);
+//     println!("{:?}", json);
+//     println!("{:?}", y);
+//     println!("{:?}", annotations);
+//     println!("{:?}", genotypes);
+//     println!("{}", result);
+//     return Ok(());
+// }
 
 #[test]
 fn test_reporting() {
