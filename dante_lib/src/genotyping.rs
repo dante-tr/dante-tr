@@ -67,28 +67,17 @@ pub(crate) struct ModuleResult {
 }
 
 impl ModuleResult {
-    pub(crate) fn to_matrix(&self) -> (Vec<Vec<f64>>, Vec<u64>, Vec<u64>) {
-        const NINF: f64 = f64::NEG_INFINITY;
-        let matrix = vec![
-            vec![-2928.62, -2928.54, -2899.41, -2864.29, -2807.24, -2736.91, -2692.38, -2562.01, -1338.86, -2296.59, -2758.10],
-            vec![NINF    , -2928.47, -2899.41, -2864.29, -2807.24, -2736.91, -2692.38, -2562.01, -1338.86, -2296.58, -2758.07],
-            vec![NINF    , NINF    , -2895.08, -2860.16, -2803.11, -2732.78, -2688.25, -2557.87, -1334.73, -2290.14, -2733.10],
-            vec![NINF    , NINF    , NINF    , -2854.82, -2798.28, -2727.95, -2683.42, -2553.05, -1329.90, -2282.60, -2702.96],
-            vec![NINF    , NINF    , NINF    , NINF    , -2789.58, -2720.36, -2675.76, -2545.13, -1321.98, -2270.42, -2653.81],
-            vec![NINF    , NINF    , NINF    , NINF    , NINF    , -2710.43, -2662.29, -2530.29, -1307.13, -2250.91, -2592.33],
-            vec![NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , -2659.78, -2529.31, -1306.17, -2246.45, -2553.85],
-            vec![NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , -2462.26, -1303.52, -2220.61, -2469.42],
-            vec![NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , -1169.61, -1304.86, -1337.24],
-            vec![NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , -2143.83, -2265.88],
-            vec![NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , NINF    , -2658.36]
-        ];
-        let xlim = vec![3, 11];
-        let ylim = vec![3, 11];
+    pub(crate) fn to_matrix(&self) -> (Vec<Vec<f64>>, Vec<usize>, Vec<usize>) {
+        let matrix: Vec<Vec<f64>> = self.likelihoods.outer_iter().map(|row| row.to_vec()).collect();
+        let (r, c) = Model::predict(self.likelihoods.clone());
+        let shape = self.likelihoods.shape();
+        let ylim = vec![r.saturating_sub(5), usize::min(r+1+5, shape[0])]; // 8 -> [3..=11]
+        let xlim = vec![c.saturating_sub(5), usize::min(c+1+5, shape[1])];
         return (matrix, xlim, ylim);
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
 pub(crate) enum Prediction {
     Num(usize),     // change breaks python parsing
     Expansion,      // change breaks python parsing

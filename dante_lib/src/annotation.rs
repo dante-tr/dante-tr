@@ -196,7 +196,7 @@ fn get_right_bg(mods: &[u8]) -> usize {
 }
 
 #[derive(Clone, PartialEq)]
-enum AClass {
+pub(crate) enum AClass {
     Spanning,
     Flanking,
     InRepeat, // In-repeat

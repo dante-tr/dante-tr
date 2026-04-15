@@ -25,7 +25,7 @@ struct AlleleData {
     num_conf: f64,
     num_reads_spanning: u64,
     seq_pred: String,
-    seq_dist: u64,
+    seq_dist: Option<u64>,
     seq_reads_spanning: u64
 }
 
@@ -36,7 +36,7 @@ struct OverallData {
     reads_spanning_seq_nonspec: u64,
     reads_flanking: u64,
     reads_inrepeat: u64,
-    reads_total: u64
+    reads_total: usize
 }
 
 #[derive(Serialize, Deserialize)]
@@ -49,8 +49,8 @@ struct HistogramData {
 #[derive(Serialize, Deserialize)]
 struct HeatmapData {
     matrix: Vec<Vec<f64>>,
-    xlim: Vec<u64>,
-    ylim: Vec<u64>
+    xlim: Vec<usize>,
+    ylim: Vec<usize>
 }
 
 // -----------------------------------------------------------------------------
@@ -60,12 +60,11 @@ use crate::io::TRRecord;
 
 impl MotifData {
     pub(crate) fn create(tr: &TRRecord, df: &DataFrame, gt: &GenotypingResults) -> MotifData {
-        use crate::df_ops::get_nomenclatures;
         let n = tr.copy_unit.len();
 
         let motif_id = tr.name.clone();
         let sequence = tr.to_sequence();
-        let nomenclatures = get_nomenclatures(df, 0..n); // TODO
+        let nomenclatures = crate::df_ops::get_nomenclatures(df, 0..n);
 
         let mut modules = Vec::with_capacity(n);
         for i in 0..n { modules.push(
@@ -84,7 +83,7 @@ impl ModuleData {
             allele_1: AlleleData::create(0, mr, df, idx, tr),
             allele_2: AlleleData::create(1, mr, df, idx, tr),
             overall: OverallData::create(df, idx, mr),
-            nomenclatures: crate::df_ops::get_nomenclatures(df, idx..(idx+1)), // TODO
+            nomenclatures: crate::df_ops::get_nomenclatures(df, idx..(idx+1)),
             histogram_data: HistogramData::create(df, idx),
             heatmap_data: HeatmapData::create(mr)
         }
@@ -101,9 +100,9 @@ impl AlleleData {
                 let num_pred = num_pred_raw.to_string();
                 let seq_pred = mr.predictions_seq.0.clone();
                 let num_conf = mr.confidences[1];
-                let num_reads_spanning = get_num_reads_spanning(df, idx, num_pred_raw); // TODO
-                let seq_reads_spanning = get_seq_reads_spanning(df, idx, &seq_pred);    // TODO
-                let seq_dist = compute_distance(tr, num_pred_raw, &seq_pred);           // TODO
+                let num_reads_spanning = get_num_reads_spanning(df, idx, num_pred_raw);
+                let seq_reads_spanning = get_seq_reads_spanning(df, idx, &seq_pred);
+                let seq_dist = compute_distance(tr, num_pred_raw, &seq_pred);               // TODO
                 AlleleData {
                     num_pred, num_conf, num_reads_spanning,
                     seq_pred, seq_dist, seq_reads_spanning,
@@ -114,9 +113,9 @@ impl AlleleData {
                 let num_pred = num_pred_raw.to_string();
                 let seq_pred = mr.predictions_seq.1.clone();
                 let num_conf = mr.confidences[2];
-                let num_reads_spanning = get_num_reads_spanning(df, idx, num_pred_raw); // TODO
-                let seq_reads_spanning = get_seq_reads_spanning(df, idx, &seq_pred);    // TODO
-                let seq_dist = compute_distance(tr, num_pred_raw, &seq_pred);           // TODO
+                let num_reads_spanning = get_num_reads_spanning(df, idx, num_pred_raw);
+                let seq_reads_spanning = get_seq_reads_spanning(df, idx, &seq_pred);
+                let seq_dist = compute_distance(tr, num_pred_raw, &seq_pred);               // TODO
                 AlleleData {
                     num_pred, num_conf, num_reads_spanning,
                     seq_pred, seq_dist, seq_reads_spanning,
@@ -145,9 +144,14 @@ impl OverallData {
 
 impl HistogramData {
     fn create(df: &DataFrame, idx: usize) -> HistogramData {
-        let spanning = crate::df_ops::get_spanning_histogram(df, idx);
-        let flanking = crate::df_ops::get_flanking_histogram(df, idx);
-        let inrepeat = crate::df_ops::get_inrepeat_histogram(df, idx);
+        use crate::annotation::AClass;
+        let mut spanning = crate::df_ops::get_histogram(df, idx, AClass::Spanning);
+        let mut flanking = crate::df_ops::get_histogram(df, idx, AClass::Flanking);
+        let mut inrepeat = crate::df_ops::get_histogram(df, idx, AClass::InRepeat);
+        let new_len = *[spanning.len(), flanking.len(), inrepeat.len(), 11].iter().max().unwrap();
+        spanning.resize(new_len, 0);
+        flanking.resize(new_len, 0);
+        inrepeat.resize(new_len, 0);
         HistogramData { spanning, flanking, inrepeat }
     }
 }
@@ -160,6 +164,6 @@ impl HeatmapData {
 }
 
 // -----------------------------------------------------------------------------
-fn compute_distance(tr: &TRRecord, pred: crate::genotyping::Prediction, seq_pred: &str) -> u64 {
-    return 0;
+fn compute_distance(_tr: &TRRecord, _pred: crate::genotyping::Prediction, _seq_pred: &str) -> Option<u64> {
+    return None;
 }

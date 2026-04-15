@@ -31,6 +31,7 @@ pub(crate) fn print_tsv_file(df: &DataFrame, p: &Path) -> Result<(), Box<dyn Err
     return Ok(());
 }
 
+#[allow(dead_code)]
 pub(crate) fn print_dbg_txt_file(df: &DataFrame, p: &Path) -> Result<(), Box<dyn Error>> {
     let mut file = File::create(p)?;
     // use polars::frame::row::Row;
@@ -46,6 +47,7 @@ pub(crate) fn print_dbg_txt_file(df: &DataFrame, p: &Path) -> Result<(), Box<dyn
     return Ok(());
 }
 
+#[allow(dead_code)]
 pub(crate) fn print_dbg_tsv_file(df: &DataFrame, p: &Path) -> Result<(), Box<dyn Error>> {
     let file = File::create(p)?;
     CsvWriter::new(file).with_separator(b'\t').finish(&mut df.clone())?;
@@ -254,55 +256,139 @@ pub(crate) fn get_noms_and_occs(df: &DataFrame, a: usize) -> (Vec<String>, Vec<u
 }
 
 pub(crate) fn get_nomenclatures(main_df: &DataFrame, idxs: Range<usize>) -> Vec<(u64, Vec<String>)> {
-    // TODO:
-    vec![
-        (156, vec!["GGC[8]".to_string()]),
-        (6, vec!["GGC[7]GGG[1]".to_string()]),
-        (1, vec!["GGC[1]GGG[1]GGC[3]GGG[3]".to_string()]),
-        (1, vec!["GGC[2]GGG[1]GGC[4]GGG[1]".to_string()]),
-        (1, vec!["GGC[3]GGG[1]GGC[1]GGG[2]GGC[1]".to_string()]),
-        (1, vec!["Finish me".to_string()]),
-        // and 13 more
-    ]
+    // find relevant (spanning) rows
+    let mut mask: BooleanChunked = BooleanChunked::full("to_keep".into(), true, main_df.height());
+    for idx in idxs.clone() {
+        let idx = idx + 1;  // 0th is flank
+        let op1 = |s: &str| s.split(",").nth(idx).unwrap().to_string();
+        let op2 = |o: Option<&str>| { let x = o.unwrap(); x == "Spanning" };
+        let classes = main_df.column("module_classes").unwrap().str().unwrap().iter().map(|o| o.map(op1));
+        let classes: Column = StringChunked::from_iter_options("classes".into(), classes).into_series().into();
+        let x: BooleanChunked = classes.str().unwrap().iter().map(op2).collect();
+
+        mask = mask & x;
+    }
+    let spanning_df = main_df.filter(&mask).unwrap();
+
+    // select only nomenclature columns
+    let mut nomenclatures = Vec::new();
+    for idx in idxs {
+        let idx = idx + 1;  // 0th is flank
+        let op1 = |s: &str| s.split(",").nth(idx).unwrap().to_string();
+        let noms = spanning_df.column("module_nomenclatures").unwrap().str().unwrap().iter().map(|o| o.map(op1));
+        let name = format!("nomenclatures_{}", idx);
+        let noms: Column = StringChunked::from_iter_options(name.into(), noms).into_series().into();
+        nomenclatures.push(noms);
+    }
+    let nomenclature_df = DataFrame::new_infer_height(nomenclatures).unwrap();
+
+    // uniq -c and sort
+    let cols_in = nomenclature_df.get_column_names();
+    let col_selected = cols_in[0].to_string();
+    let mut agg: DataFrame = nomenclature_df
+        .group_by(cols_in).unwrap()
+        .select([col_selected.clone()])  // this is required, because otherwise count does not know how to call the new column
+        .count().unwrap();
+    let new_column_name = format!("{}_count", col_selected);
+    agg.rename(&new_column_name, "n_occ".into()).unwrap();
+    let sopt = SortMultipleOptions::new().with_order_descending(true);
+    let agg = agg.sort(["n_occ"], sopt).unwrap();
+
+    // collect to desired datastructure
+    let mut result = Vec::new();
+    for i in 0..agg.height() {
+        let row: Vec<AnyValue> = agg.get_row(i).unwrap().0;
+        let noms: Vec<String> = row[..row.len() - 1].iter().map(|x| x.extract_str().unwrap().to_string()).collect();
+        let count: u64 = row[row.len() - 1].try_extract().unwrap();
+        result.push((count, noms));
+    }
+    return result;
+    // vec![
+    //     (156, vec!["GGC[8]".to_string()]),
+    //     (6, vec!["GGC[7]GGG[1]".to_string()]),
+    //     (1, vec!["GGC[1]GGG[1]GGC[3]GGG[3]".to_string()]),
+    //     (1, vec!["GGC[2]GGG[1]GGC[4]GGG[1]".to_string()]),
+    //     (1, vec!["GGC[3]GGG[1]GGC[1]GGG[2]GGC[1]".to_string()]),
+    //     (1, vec!["Finish me".to_string()]),
+    //     // and 13 more
+    // ]
 }
 
-pub(crate) fn get_num_reads_spanning(df: &DataFrame, idx: usize, pred: Prediction) -> u64 {
-    return 177;
+pub(crate) fn get_histogram(df: &DataFrame, idx: usize, cls: crate::annotation::AClass) -> Vec<u64> {
+    let module_df = get_module_df(df, idx + 1).unwrap();
+
+    let cls_str = cls.to_string();
+    let f = |o: Option<&str>| { let x = o.unwrap(); x == cls_str };
+    let mask: BooleanChunked = module_df.column("classes").unwrap().str().unwrap().iter().map(f).collect();
+    let spanning_df = module_df.filter(&mask).unwrap();
+
+    let counts: Vec<u64> = spanning_df["counts"].u64().unwrap().iter().map(|x| x.unwrap()).collect();
+
+    let mx = (*counts.iter().max().unwrap_or(&0)) as usize;
+    let mut result = vec![0; mx + 1];
+    for c in counts { result[c as usize] += 1; }
+    // return vec![0, 0, 0, 0, 0 , 1 , 0, 0, 177, 0, 0];
+    // return vec![0, 0, 6, 7, 11, 12, 9, 6, 16 , 1, 0];
+    // return vec![0, 0, 0, 0, 0 , 0 , 0, 0, 0  , 0, 0];
+    return result;
 }
 
 pub(crate) fn get_seq_reads_spanning(df: &DataFrame, idx: usize, pred: &str) -> u64 {
-    return 156;
-}
-
-pub(crate) fn get_reads_spanning_num_nonspec(df: &DataFrame, idx: usize, preds: (Prediction, Prediction)) -> u64 {
-    return 1;
-}
-
-pub(crate) fn get_reads_spanning_seq_nonspec(df: &DataFrame, idx: usize, preds: &(String, String)) -> u64 {
-    return 22;
-}
-
-pub(crate) fn get_reads_flanking(df: &DataFrame, idx: usize) -> u64 {
-    return 68;
-}
-
-pub(crate) fn get_reads_inrepeat(df: &DataFrame, idx: usize) -> u64 {
+    let nomenclatures = get_nomenclatures(df, idx..(idx+1));
+    for (c, nom) in nomenclatures {
+        if nom[0] == pred { return c; }
+    }
     return 0;
 }
 
-pub(crate) fn get_reads_total(df: &DataFrame) -> u64 {
-    return 256;
-}
- 
-pub(crate) fn get_spanning_histogram(df: &DataFrame, idx: usize) -> Vec<u64> {
-    return vec![0, 0, 0, 0, 0 , 1 , 0, 0, 177, 0, 0];
+pub(crate) fn get_reads_spanning_seq_nonspec(df: &DataFrame, idx: usize, preds: &(String, String)) -> u64 {
+    let a1_nom_c = get_seq_reads_spanning(df, idx, &preds.0);
+    let a2_nom_c = get_seq_reads_spanning(df, idx, &preds.1);
+    use crate::annotation::AClass;
+    let total_spanning: u64 = get_histogram(df, idx, AClass::Spanning).iter().sum();
+    if preds.0 != preds.1 {
+        return total_spanning - a1_nom_c - a2_nom_c;
+    } else {
+        return total_spanning - a1_nom_c;
+    }
 }
 
-pub(crate) fn get_flanking_histogram(df: &DataFrame, idx: usize) -> Vec<u64> {
-    return vec![0, 0, 6, 7, 11, 12, 9, 6, 16 , 1, 0];
+pub(crate) fn get_num_reads_spanning(df: &DataFrame, idx: usize, pred: Prediction) -> u64 {
+    match pred {
+        Prediction::Expansion | Prediction::Background => { return 0; },
+        Prediction::Num(x) => {
+            use crate::annotation::AClass;
+            let counts = get_histogram(df, idx, AClass::Spanning);
+            match counts.get(x) {
+                None => { return 0; },
+                Some(&y) => { return y; }
+            }
+        }
+    }
 }
 
-pub(crate) fn get_inrepeat_histogram(df: &DataFrame, idx: usize) -> Vec<u64> {
-    return vec![0, 0, 0, 0, 0 , 0 , 0, 0, 0  , 0, 0];
+pub(crate) fn get_reads_spanning_num_nonspec(df: &DataFrame, idx: usize, preds: (Prediction, Prediction)) -> u64 {
+    use crate::annotation::AClass;
+    let total_spanning: u64 = get_histogram(df, idx, AClass::Spanning).iter().sum();
+    let a1_supporting = get_num_reads_spanning(df, idx, preds.0);
+    let a2_supporting = get_num_reads_spanning(df, idx, preds.1);
+    if preds.0 != preds.1 {
+        return total_spanning - a1_supporting - a2_supporting;
+    } else {
+        return total_spanning - a1_supporting;
+    }
+}
 
+pub(crate) fn get_reads_flanking(df: &DataFrame, idx: usize) -> u64 {
+    use crate::annotation::AClass;
+    return get_histogram(df, idx, AClass::Flanking).iter().sum();
+}
+
+pub(crate) fn get_reads_inrepeat(df: &DataFrame, idx: usize) -> u64 {
+    use crate::annotation::AClass;
+    return get_histogram(df, idx, AClass::InRepeat).iter().sum();
+}
+
+pub(crate) fn get_reads_total(df: &DataFrame) -> usize {
+    return df.height();
 }
