@@ -54,6 +54,7 @@
     <b>Parameters:</b>
     <br> bam file = {{ params.file_bam }}
     <br> motif file = {{ params.file_motif }}
+    <br> nomenclature limit = {{ params.max_noms }}
     <br>
 
     <div> <h2>Summary table</h2>
@@ -126,7 +127,7 @@
         <br>
         <table class="nomenclatures">
             <tbody>
-                {% for nomenclature in motif.nomenclatures %}
+                {% for nomenclature in motif.nomenclatures[:data.dante_params.max_noms] %}
                 <tr>
                     <td class="count">{{ nomenclature[0] }}x</td>
                     {%+ for part in nomenclature[1] %}<td class="part">{{ part }}</td>{% endfor %}
@@ -191,7 +192,7 @@
             <br>
             <table class="nomenclatures">
                 <tbody>
-                    {% for nomenclature in module.nomenclatures %}
+                    {% for nomenclature in module.nomenclatures[:data.dante_params.max_noms] %}
                     <tr>
                         <td class="count">{{ nomenclature[0] }}x</td>
                         {%+ for part in nomenclature[1] %}<td class="part">{{ part }}</td>{% endfor %}
@@ -288,6 +289,10 @@
                         let z = {{ z }};
                         let xlim = {{ xlim }};
                         let ylim = {{ ylim }};
+                        xlim[0] -= 0.5;
+                        xlim[1] -= 0.5;
+                        ylim[0] -= 0.5;
+                        ylim[1] -= 0.5;
 
                         const rows = z.length;
                         const cols = z[0].length;
