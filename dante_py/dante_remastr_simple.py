@@ -459,7 +459,8 @@ def phase_full_locus(
         else:
             print(f"Warning: {h1_full[i:i + 2]} {h2_full[i:i + 2]} {hp1[i]} {hp2[i]} is inconsistent.")
 
-    for i in range(len(h1_full) - 1):
+    # for i in range(len(h1_full) - 1): # should be equivalent to next line, but because of replength=1 it is not
+    for i in range(len(hp1)):
         new_p1 = f"{h1_full[i]}|{h1_full[i + 1]}"
         new_p2 = f"{h2_full[i]}|{h2_full[i + 1]}"
         from_genotyping = sorted([new_p1, new_p2])
