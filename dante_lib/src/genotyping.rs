@@ -7,6 +7,7 @@ use statrs::{distribution::{Binomial, Discrete}, statistics::Statistics};
 use ndarray::{self, s, Array};
 use serde::{Serialize, Deserialize};
 use std::fmt;
+use std::error::Error;
 
 use crate::hmm::Module;
 use crate::df_ops;
@@ -94,12 +95,12 @@ impl fmt::Display for Prediction {
     }
 }
 
-pub(crate) fn genotype(df: &DataFrame, modules: &[Module]) -> GenotypingResults {
+pub(crate) fn genotype(df: &DataFrame, modules: &[Module]) -> Result<GenotypingResults, Box<dyn Error>> {
     // let n_modules: usize = df["n_modules"].get(0).unwrap().try_extract().unwrap();
     let n_modules: usize = modules.len();
     let mut gt_result = Vec::new();
     for (i, module) in modules.iter().enumerate().take(n_modules-1).skip(1) {
-        let data = df_ops::extract_from_df(df, i).unwrap();
+        let data = df_ops::extract_from_df(df, i)?;
         let (counts, lengths, is_spanning, max_spanning_reps, max_overall_reps) = data;
 
         let model = Model::new(&lengths, max_spanning_reps as usize, max_overall_reps as usize);
@@ -114,7 +115,7 @@ pub(crate) fn genotype(df: &DataFrame, modules: &[Module]) -> GenotypingResults 
         gt_result.push(result);
     }
     let gt_result = GenotypingResults{modules: gt_result};
-    return gt_result;
+    return Ok(gt_result);
 }
 
 fn get_predictions_seqs(module_df: &DataFrame, module: &Module, prediction: (Prediction, Prediction)) -> (String, String) {

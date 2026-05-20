@@ -194,7 +194,7 @@ pub(crate) fn extract_from_df(df: &DataFrame, idx: usize) -> Result<(Vec<u64>, V
     let relevant_df = DataFrame::vstack(&spanning_df, &flanking_df)?;
 
     // extract to required datastructures
-    let max_spanning_reps: u64 = spanning_df["counts"].u64()?.iter().max().unwrap().unwrap();
+    let max_spanning_reps: u64 = spanning_df["counts"].u64()?.iter().max().ok_or("No spanning reads.")?.unwrap();
     let max_overall_reps: u64  = relevant_df["counts"].u64()?.iter().max().unwrap().unwrap();
     let counts: Vec<u64>       = relevant_df["counts"].u64()?.iter().map(|x| x.unwrap()).collect();
     let lengths: Vec<u64>      = relevant_df["lengths"].u64()?.iter().map(|x| x.unwrap()).collect();

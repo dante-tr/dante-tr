@@ -19,7 +19,14 @@ pub fn run_v2(bam_file: &Path, motif_file: &Path, output: &Path, out_bam_flag: b
         let modules            = io::get_modules(motif_record);
         let model              = hmm::Hmm::from(&modules).log();
         let annotation_df      = annotation::annotate(relevant_reads.iter(), model, motif_record);
-        let genotyping_result  = genotyping::genotype(&annotation_df, &modules);
+        // let genotyping_result  = genotyping::genotype(&annotation_df, &modules);
+        let genotyping_result  = match genotyping::genotype(&annotation_df, &modules) {
+            Ok(x) => x,
+            Err(x) => {
+                println!("{}: {}", motif_record.name, x);
+                return;
+            }
+        };
         let phasing_results    = genotyping::phase(&annotation_df, &genotyping_result);
         let motif_results      = reporting::MotifData::create(motif_record, &annotation_df, &phasing_results);
 
