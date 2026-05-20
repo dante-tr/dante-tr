@@ -4,8 +4,6 @@ use clap::Parser;
 use std::path::PathBuf;
 use std::fs;
 
-use remastr::run_v2;
-
 // fn main() {
 //     let args = Args::parse();
 //     run(
@@ -16,14 +14,10 @@ use remastr::run_v2;
 
 fn main() {
     let args = ArgsNew::parse();
-
-    // mkdir -p <output>
-    fs::create_dir_all(&args.output).unwrap_or_else(|err| {
-        println!("! {:?}", err.kind());
-    });
-
-    run_v2(&args.bam_file, &args.motif_file, &args.output, args.out_bam);
-    reporting::report(&args).unwrap();
+    let motifs_dir = args.output.join("motifs");
+    fs::create_dir_all(&motifs_dir).unwrap(); // mkdir -p <motifs_dir>
+    remastr::run_v2(&args.bam_file, &args.motif_file, &motifs_dir, args.out_bam);
+    reporting::report(&args, &motifs_dir).unwrap();
     println!("Finished successfully.");
 }
 

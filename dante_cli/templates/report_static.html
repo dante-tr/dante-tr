@@ -23,9 +23,9 @@
         #summary-table,
         #summary-table th,
         #summary-table td {
+            padding: 5px;
             border: 1px solid black;
             border-collapse: collapse;
-            padding: 10px;
             white-space: nowrap;
         }
         .module-results,
@@ -61,26 +61,36 @@
         <table id="summary-table">
             <thead>
                 <tr>
-                    <th rowspan="2">Module ID</th>
-                    <th rowspan="2">Reference sequence</th>
+                    <th rowspan="3">Module ID</th>
+                    <th rowspan="3">Reference sequence</th>
+                    <!-- <th colspan="4">Allele 1</th> -->
+                    <!-- <th colspan="4">Allele 2</th> -->
                     <th colspan="4">Allele 1</th>
                     <th colspan="4">Allele 2</th>
-                    <th colspan="5">Overall</th>
+                    <th colspan="6">Overall</th>
                 </tr>
                 <tr>
-                    <td>prediction</td>
-                    <td>confidence</td>
-                    <td>impurities</td>
-                    <td>spanning<br>reads</td>
-                    <td>prediction</td>
-                    <td>confidence</td>
-                    <td>impurities</td>
-                    <td>spanning<br>reads</td>
-                    <td>confidence</td>
-                    <td>non-specific spanning<br>reads</td>
-                    <td>flanking<br>reads</td>
-                    <td>inrepeat<br>reads</td>
-                    <td>total motif<br>reads</td>
+                    <td rowspan="2">prediction</td>
+                    <td rowspan="2">confidence</td>
+                    <!-- <td>impurities</td> -->
+                    <td colspan="2">spanning<br>reads</td>
+                    <td rowspan="2">prediction</td>
+                    <td rowspan="2">confidence</td>
+                    <!-- <td>impurities</td> -->
+                    <td colspan="2">spanning<br>reads</td>
+                    <td rowspan="2">confidence</td>
+                    <td colspan="2">non-specific spanning<br>reads</td>
+                    <td rowspan="2">flanking<br>reads</td>
+                    <td rowspan="2">inrepeat<br>reads</td>
+                    <td rowspan="2">total motif<br>reads</td>
+                </tr>
+                <tr>
+                    <td>seq</td>
+                    <td>num</td>
+                    <td>seq</td>
+                    <td>num</td>
+                    <td>seq</td>
+                    <td>num</td>
                 </tr>
             </thead>
             <tbody>
@@ -94,15 +104,18 @@
                     <td>{{ mod_id }}</td>
                     <td>&hellip;ACGAG {{ motif.sequence[loop.index] }} AGCGA&hellip;</td>
                     <td>{{ a1.num_pred }}</td>
-                    <td>{{ a1.num_conf }}</td>
-                    <td>{{ a1.seq_dist }}</td>
-                    <td>{{ a1.seq_reads_spanning }} / {{ a1.num_reads_spanning }}</td>
+                    <td>{{ a1.num_conf | percent }}</td>
+                    <!-- <td>{{ a1.seq_dist }}</td> -->
+                    <td>{{ a1.seq_reads_spanning }}</td>
+                    <td>{{ a1.num_reads_spanning }}</td>
                     <td>{{ a2.num_pred }}</td>
-                    <td>{{ a2.num_conf }}</td>
-                    <td>{{ a2.seq_dist }}</td>
-                    <td>{{ a2.seq_reads_spanning }} / {{ a2.num_reads_spanning }}</td>
-                    <td>{{ oa.conf }}</td>
-                    <td>{{ oa.reads_spanning_seq_nonspec }} / {{ oa.reads_spanning_num_nonspec }}</td>
+                    <td>{{ a2.num_conf | percent }}</td>
+                    <!-- <td>{{ a2.seq_dist }}</td> -->
+                    <td>{{ a2.seq_reads_spanning }}</td>
+                    <td>{{ a2.num_reads_spanning }}</td>
+                    <td>{{ oa.conf | percent }}</td>
+                    <td>{{ oa.reads_spanning_seq_nonspec }}</td>
+                    <td>{{ oa.reads_spanning_num_nonspec }}</td>
                     <td>{{ oa.reads_flanking }}</td>
                     <td>{{ oa.reads_inrepeat }}</td>
                     <td>{{ oa.reads_total }}</td>
@@ -111,9 +124,7 @@
                 {% endfor %}
             </tbody>
         </table>
-        <!--
-        <script> $(document).ready( function () { $('#summary-table').DataTable(); } ); </script>
-        -->
+        <script> $(document).ready( function () { $('#summary-table').DataTable({ paging: false }); } ); </script>
     </div>
 
     <div> <!-- <h2>Motifs</h2> -->
@@ -167,10 +178,10 @@
                         <td>Allele 1</td>
                         <td>{{ a1.num_pred }}</td>
                         <td class="part">{{ a1.seq_pred }}</td>
-                        <td>{{ a1.num_conf }}</td>
+                        <td>{{ a1.num_conf | percent }}</td>
                         <td>{{ a1.seq_dist }}</td>
                         <td>{{ a1.seq_reads_spanning }} / {{ a1.num_reads_spanning }}</td>
-                        <td rowspan="2">{{ oa.conf }}</td>
+                        <td rowspan="2">{{ oa.conf | percent }}</td>
                         <td rowspan="2">{{ oa.reads_spanning_seq_nonspec }} / {{ oa.reads_spanning_num_nonspec }}</td>
                         <td rowspan="2">{{ oa.reads_flanking }}</td>
                         <td rowspan="2">{{ oa.reads_inrepeat }}</td>
@@ -180,7 +191,7 @@
                         <td>Allele 2</td>
                         <td>{{ a2.num_pred }}</td>
                         <td class="part">{{ a2.seq_pred }}</td>
-                        <td>{{ a2.num_conf }}</td>
+                        <td>{{ a2.num_conf | percent }}</td>
                         <td>{{ a2.seq_dist }}</td>
                         <td>{{ a2.seq_reads_spanning }} / {{ a2.num_reads_spanning }}</td>
                     </tr>
