@@ -2,9 +2,9 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-motifs=$1
-bam_file=$2
-output=$3
+motifs=${1:-}
+bam_file=${2:-}
+output=${3:-}
 script_dir="$(dirname "$(realpath "$0")")"
 
 # %% prerequisities
@@ -19,7 +19,7 @@ source "$script_dir/dante_py/.venv/bin/activate"
 "$script_dir/target/release/dante_cli"  \
     -m "$motifs"                        \
     -b "$bam_file"                      \
-    -o "$output/motifs"                 \
+    -o "$output"                        \
     --output-bams
 
 # %% run python part

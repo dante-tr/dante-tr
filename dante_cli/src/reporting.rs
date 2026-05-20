@@ -15,7 +15,13 @@ pub(crate) fn report(args: &crate::ArgsNew, motifs_dir: &Path) -> Result<(), Box
     let motif_names: Vec<String> = read_motifs(&args.motif_file).unwrap();
     for motif in motif_names {
         let filename = motifs_dir.join(motif.to_owned() + ".motif.json");
-        let mut fp = File::open(filename).unwrap();
+        let mut fp = match File::open(&filename) {
+            Ok(x) => x,
+            Err(x) => {
+                println!("{}: {}", filename.display(), x);
+                continue;
+            }
+        };
         let _ = fp.read_to_string(&mut buf).unwrap();
         let json: Value = serde_json::from_str(&buf).expect("JSON was not well-formatted");
         motifs.push(json);
