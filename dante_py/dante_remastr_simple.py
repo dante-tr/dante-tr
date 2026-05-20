@@ -146,7 +146,7 @@ def generate_modules(motif_table: pd.DataFrame, input_tsv: str, male: bool):
     with open(prediction_json) as f:
         predictions = json.load(f)
     seq = motif.modules_str(include_flanks=True)
-    rep_mods = [(int(i), str(seq), int(num)) for i, (seq, num) in enumerate(motif.modules) if num > 1]
+    rep_mods = [(int(i+1), str(seq), int(num)) for i, (seq, num) in enumerate(motif.modules[1:-1])]
     for idx, (module_number, _, _) in enumerate(rep_mods):
         selected = motif_table[MOTIF_COLUMN_MOD_CLASS].apply(lambda x: x.split(",")[module_number])
         anns_spanning = [Annotation(row) for _, row in motif_table[selected == "Spanning"].iterrows()]
@@ -613,15 +613,12 @@ class Motif:
         modules = []
         i = 0
         for seq, num in self.modules[1:-1]:
-            if num == 1:
-                modules.append(f"{seq}[{num}]")
+            if rep_counts[i].startswith("err"):
+                x = rep_counts[i][4:-1]
+                modules.append(f"{seq}[{x}]")
             else:
-                if rep_counts[i].startswith("err"):
-                    x = rep_counts[i][4:-1]
-                    modules.append(f"{seq}[{x}]")
-                else:
-                    modules.append(rep_counts[i])
-                i += 1
+                modules.append(rep_counts[i])
+            i += 1
         assert i == len(rep_counts), "Invalid augmentation."
         return modules
 
