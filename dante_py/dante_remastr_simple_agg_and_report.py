@@ -62,8 +62,8 @@ def main() -> None:
     with open(f"{args.output_dir}/report_static.html", "w") as f:
         f.write(output_static)
 
-    print(f"Creating histogram plots: {datetime.now():%Y-%m-%d %H:%M:%S}")
-    create_histograms(data_json, args.output_dir)
+    # print(f"Creating histogram plots: {datetime.now():%Y-%m-%d %H:%M:%S}")
+    # create_histograms(data_json, args.output_dir)
 
     print(f'Copying includes: {datetime.now():%Y-%m-%d %H:%M:%S}')
     copy_includes(args.output_dir)

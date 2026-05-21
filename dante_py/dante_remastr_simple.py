@@ -27,8 +27,9 @@ from src_new.haplotypes import generate_haplotypes
 def main() -> None:
     start_time = datetime.now()
     args = load_arguments()
+    print(args.input_tsv, end=", ")
 
-    print(f'DANTE_remaSTR Starting : {start_time:%Y-%m-%d %H:%M:%S}')
+    # print(f'DANTE_remaSTR Starting : {start_time:%Y-%m-%d %H:%M:%S}')
     sample = os.path.basename(os.path.normpath(args.output_dir))
 
     data_json = analyse_motif(args.input_tsv, args.male, sample)
@@ -44,8 +45,9 @@ def main() -> None:
         f.write(json_example)
 
     end_time = datetime.now()
-    print(f'DANTE_remaSTR Stopping : {end_time:%Y-%m-%d %H:%M:%S}')
-    print(f'Total time of run      : {end_time - start_time}')
+    print(f"t={end_time - start_time}")
+    # print(f'DANTE_remaSTR Stopping : {end_time:%Y-%m-%d %H:%M:%S}')
+    # print(f'Total time of run      : {end_time - start_time}')
 
 
 def convert_to_old_json(json):
@@ -434,7 +436,8 @@ def phase_full_locus(
     # print()
     # print(h1_full, h2_full, hp1, hp2)
     different_prefix = False
-    for i in range(len(h1_full) - 1):
+    # for i in range(len(h1_full) - 1):
+    for i in range(len(hp1)):
         if h1_full[i] == h2_full[i]:
             if different_prefix:
                 errors1.add("homozygous link")

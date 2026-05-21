@@ -6,6 +6,7 @@ motifs=${1:-}
 bam_file=${2:-}
 output=${3:-}
 script_dir="$(dirname "$(realpath "$0")")"
+echo "$bam_file"
 
 # %% prerequisities
 # compile rust
