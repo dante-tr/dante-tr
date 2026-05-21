@@ -225,12 +225,18 @@ pub(crate) fn get_module_df(df: &DataFrame, idx: usize) -> Result<DataFrame, Box
 }
 
 pub(crate) fn get_single_string_prediction(df: &DataFrame, x: usize) -> String {
-    let nomenclature = df
-        .filter(&df.column("counts").unwrap().u64().unwrap().equal(x)).unwrap()
-        .column("nomenclatures").unwrap()
-        .str().unwrap()
-        .get(0).unwrap()
-        .to_string();
+    // println!("{x} {df:?}");
+    let mask = df.column("counts").unwrap().u64().unwrap().equal(x);
+    let filtered_df = df.filter(&mask).unwrap();
+    if filtered_df.height() == 0 {
+        let tmp = format!("N[{}]", x);
+        println!("{tmp}");
+        return tmp; /* Can I do something better? */
+    }
+
+    let nomenclature = filtered_df
+        .column("nomenclatures").unwrap().str().unwrap()
+        .get(0).unwrap().to_string();
     return nomenclature;
 }
 
