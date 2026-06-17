@@ -1,12 +1,1 @@
-data/test/chromosomeX.fna filter=lfs diff=lfs merge=lfs -text
-data/test/log_emit_f32.npy filter=lfs diff=lfs merge=lfs -text
-data/test/mini.bam.bai filter=lfs diff=lfs merge=lfs -text
-data/test/mini_HGVS.txt filter=lfs diff=lfs merge=lfs -text
-data/test/nomenclature_hgs_1Q_with_names.tsv filter=lfs diff=lfs merge=lfs -text
-data/test/HGVS.txt filter=lfs diff=lfs merge=lfs -text
-data/test/log_init_f32.npy filter=lfs diff=lfs merge=lfs -text
-data/test/log_trans_f32.npy filter=lfs diff=lfs merge=lfs -text
-data/test/mini.bam filter=lfs diff=lfs merge=lfs -text
-data/test/nomenclature_hgs_1Q_wo_names.tsv filter=lfs diff=lfs merge=lfs -text
-dante_gui/assets/bin/dante_remastr_standalone filter=lfs diff=lfs merge=lfs -text
-dante_gui/assets/bin/dante_remastr_standalone.exe filter=lfs diff=lfs merge=lfs -text
+
