@@ -1,1 +1,7 @@
-
+dante_gui/assets/bin/dante_remastr_standalone filter=lfs diff=lfs merge=lfs -text
+dante_gui/assets/bin/dante_remastr_standalone.exe filter=lfs diff=lfs merge=lfs -text
+example_data/01_in_dante_nomenclatures_predominant.tsv filter=lfs diff=lfs merge=lfs -text
+example_data/in_all_pass.vhg002v1.selected.bam filter=lfs diff=lfs merge=lfs -text
+example_data/in_all_pass.vhg002v1.selected.bam.bai filter=lfs diff=lfs merge=lfs -text
+example_data/in_HG002.GRCh38.selected_w_pairs.bam filter=lfs diff=lfs merge=lfs -text
+example_data/in_HG002.GRCh38.selected_w_pairs.bam.bai filter=lfs diff=lfs merge=lfs -text

@@ -1,4 +1,4 @@
-# remaSTR
+# dante-tr
 
 ## Description
 Dante is an algorithm designed for genotyping STR alleles based on NGS reads originating from the STR locus of interest.
@@ -28,6 +28,6 @@ cd ../
 ```
 4. Check that programs can be run
 ```
-./dante-tr $motifs $bam ./dante_output
+./dante-tr ./example_data/01_in_dante_nomenclatures_predominant.tsv ./example_data/in_HG002.GRCh38.selected_w_pairs.bam ./dante_output
 ```
 
