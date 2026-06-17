@@ -14,26 +14,20 @@ as well as allelic single point mutations, small insertions, and deletions that 
 2. Install [uv](https://docs.astral.sh/uv/getting-started/installation/)
 3. Download, compile, and install python libraries:
 ```
-curl -L https://gitlab.com/andrejbalaz/remastr/-/archive/v0.12.0/remastr-v0.12.0.tar.gz | tar xz
-cd remastr-v0.12.0/dante_cli/
+wget https://github.com/dante-tr/dante-tr/archive/refs/heads/main.zip
+unzip main.zip
+cd dante-tr-main/
+
+cd dante_cli/
 cargo build --release
-cd ../dante_py/
+cd ../
+
+cd dante_py/
 uv sync
-source .venv/bin/activate  # or .venv/bin/activate.fish if you are using fish 
 cd ../
 ```
 4. Check that programs can be run
 ```
-./target/release/dante_cli -h
-python ./dante_py/dante_remastr_simple.py -h
-```
-
-The rust binary is statically linked, therefore it does not need any dynamic libraries
-and can be moved to any directory without dependency issues.
-
-## Usage
-To annotate reads:
-```
-remastr -f data/chromosomeX.fna -n data/HGVS.txt -b data/mini2.bam -o output.tsv
+./dante-tr $motifs $bam ./dante_output
 ```
 
