@@ -14,9 +14,8 @@ as well as allelic single point mutations, small insertions, and deletions that 
 2. Install [uv](https://docs.astral.sh/uv/getting-started/installation/)
 3. Download, compile, and install python libraries:
 ```
-wget https://github.com/dante-tr/dante-tr/archive/refs/heads/main.zip
-unzip main.zip
-cd dante-tr-main/
+git clone git@github.com:dante-tr/dante-tr.git
+cd dante-tr/
 
 cd dante_cli/
 cargo build --release
