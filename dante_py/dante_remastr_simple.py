@@ -640,7 +640,7 @@ class Motif:
 class Annotation:
     def __init__(self, row: pd.Series):
         # Store arguments into instance variables
-        self.states = row[MOTIF_COLUMN_MODULES]
+        self.states = str(row[MOTIF_COLUMN_MODULES])
 
         # Calculate insertion/deletion/mismatch string
         self.mismatches_string = row[MOTIF_COLUMN_MISMATCHES_STR]
